@@ -1,4 +1,5 @@
 """大模型网关（OpenAI 兼容协议，走 OpenRouter）。按任务读取设置页里选的模型与 Key。"""
+import base64
 import json
 
 import httpx
@@ -23,6 +24,29 @@ async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode:
         r = await client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]
+
+
+async def image(content: list[dict] | str, task: str = "storyboard", aspect_ratio: str = "9:16", timeout: float = 180) -> tuple[bytes, str]:
+    """生成一张图（OpenRouter 图像输出：modalities 带 image，结果在 message.images[].image_url.url，是 data URL）。"""
+    headers = {"Content-Type": "application/json", "X-Title": "AIGC Ads Platform"}
+    key = settings_store.get_secret("openrouter") or config.LLM_API_KEY
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    body = {"model": settings_store.get_models()[task], "modalities": ["image", "text"], "image_config": {"aspect_ratio": aspect_ratio},
+            "messages": [{"role": "user", "content": content}]}
+    async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+        r = await client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body)
+        r.raise_for_status()
+        imgs = r.json()["choices"][0]["message"].get("images") or []
+        if not imgs:
+            raise RuntimeError("模型没有返回图片")
+        url = imgs[0]["image_url"]["url"]
+        if url.startswith("data:"):
+            head, b64 = url.split(",", 1)
+            return base64.b64decode(b64), head[5:].split(";")[0] or "image/png"
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.content, r.headers.get("content-type", "image/png")
 
 
 def parse_json(text: str) -> dict:

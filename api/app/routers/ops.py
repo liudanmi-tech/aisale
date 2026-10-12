@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, canvas, config, monitor, settings_store, workflows
+from app import agent, canvas, config, monitor, settings_store, storyboard, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -89,6 +89,25 @@ async def rewrite_shot(nid: str, i: int, body: RewriteIn, db: Session = Depends(
     db.commit()
     emit(n.project_id, "canvas")
     return canvas.node_dict(n)
+
+
+class StoryboardIn(BaseModel):
+    indices: list[int] | None = None  # 不传：画缺失或过期的镜头；传：强制重画这些镜头
+
+
+@router.post("/nodes/{nid}/storyboard")
+def draw_storyboard(nid: str, body: StoryboardIn, db: Session = Depends(get_db)):
+    n = db.get(Node, nid)
+    if not n or n.type != "script":
+        raise HTTPException(404, "script not found")
+    if not settings_store.llm_enabled():
+        raise HTTPException(400, "画分镜需要 Gemini：请先在设置页填写 OpenRouter Key")
+    if nid in storyboard._running:
+        raise HTTPException(409, "正在画分镜，请稍候")
+    canvas.audit(db, n.project_id, "user", "storyboard", {"node_id": nid, "indices": body.indices})
+    db.commit()
+    spawn(storyboard.run(nid, body.indices))
+    return {"ok": True}
 
 
 @router.post("/nodes/{nid}/shots/{i}/regenerate")

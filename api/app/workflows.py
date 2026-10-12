@@ -8,7 +8,7 @@ import hashlib
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, config, settings_store
+from app import agent, canvas, config, settings_store, storyboard
 from app.adapters import fal, llm, seedance, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
@@ -72,6 +72,8 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         n.sub = f"{sp} · {aud} · 15s" + (f" · v{d['version']}" if d["version"] > 1 else "")
         _done(db, n, f"{sp}卖点 · {aud}，{len(shots)} 镜 15 秒，合规自检通过",
               "参考爆款的创意结构；卖点表述取自卖点库；与参考素材相似度 18%（阈值 40%）；禁用词 0 处")
+    if settings_store.llm_enabled():  # 剧本好了接着画分镜图（不阻塞审核）
+        spawn(storyboard.run(node_id))
 
 
 VIDEO_STYLE = "竖屏 9:16 手机广告镜头，真实质感，自然光，本地人物，画面中不要出现文字和品牌标志"

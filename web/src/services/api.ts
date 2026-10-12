@@ -144,8 +144,8 @@ export interface ModelOption {
 export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
-    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report", string>;
-    catalog: { llm: ModelOption[]; video: ModelOption[]; resolutions: string[] };
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard", string>;
+    catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
 }
 
@@ -263,6 +263,7 @@ export const api = {
     flow: (pid: string) => get<FlowStep[]>(`/projects/${pid}/flow`),
     node: (nid: string) => get<CanvasNode & { review_id: string | null; upstream: CanvasNode[]; project_id: string }>(`/nodes/${nid}`),
     rewriteShot: (nid: string, i: number, hint: string) => post(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
+    drawStoryboard: (nid: string, indices?: number[]) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null }),
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),

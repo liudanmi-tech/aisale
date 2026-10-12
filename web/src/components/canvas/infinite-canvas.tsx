@@ -236,7 +236,8 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
 
 function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: boolean; dim: boolean; lit: boolean; actions: CanvasActions }) {
     const meta = NODE_META[n.type];
-    const cover = n.type === "ad" || n.type === "video";
+    const frame: string | undefined = n.type === "script" ? n.data?.frames?.[0]?.url : undefined;
+    const cover = n.type === "ad" || n.type === "video" || !!frame;
     const preview =
         n.type === "script" ? (n.data?.shots?.[0]?.[2] as string | undefined)
         : n.type === "deliver" && n.data?.plan ? `$${n.data.plan.daily_budget}/天 · ${n.data.plan.adgroups.length} 个广告组`
@@ -260,7 +261,8 @@ function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: b
         >
             {n.status === "run" && <span className="absolute -top-5 left-2 rounded bg-brand px-1.5 text-[10px] text-white">Agent 正在编辑</span>}
             {cover && !n.ghost && (
-                <span className="relative h-[62px] w-[44px] shrink-0 overflow-hidden rounded-md" style={{ background: COVER_GRADIENTS[n.no % COVER_GRADIENTS.length] }}>
+                <span className="relative h-[62px] w-[44px] shrink-0 overflow-hidden rounded-md" style={{ background: frame ? "#fff" : COVER_GRADIENTS[n.no % COVER_GRADIENTS.length] }}>
+                    {frame && <img src={frame} alt="" draggable={false} className="h-full w-full object-cover" />}
                     {n.type === "video" && <Clapperboard size={14} className="absolute bottom-1 right-1 text-white/80" />}
                 </span>
             )}
@@ -278,13 +280,13 @@ function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: b
                 </div>
                 <div className="mt-1 truncate text-[11px] text-ink2">{n.sub}</div>
                 {preview && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
-                <div className="mt-1.5 flex items-center gap-1.5">
+                <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap">
                     <StatusBadge status={n.ghost ? "preview" : n.status} />
                     {n.status === "wait" && !n.ghost && (
                         <span className="ml-auto flex gap-1" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                            <button className="cursor-pointer rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-[#4a4a52]"
-                                onClick={() => actions.onOpen(n)}>查看 / 驳回</button>
-                            <button className="cursor-pointer rounded-md border-0 bg-good px-2 py-0.5 text-[11px] font-medium text-black hover:opacity-90"
+                            <button title="查看详情，不满意可驳回" className="cursor-pointer whitespace-nowrap rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-[#4a4a52]"
+                                onClick={() => actions.onOpen(n)}>{cover ? "查看" : "查看 / 驳回"}</button>
+                            <button className="cursor-pointer whitespace-nowrap rounded-md border-0 bg-good px-2 py-0.5 text-[11px] font-medium text-black hover:opacity-90"
                                 onClick={() => actions.onPass([n.id])}>通过</button>
                         </span>
                     )}

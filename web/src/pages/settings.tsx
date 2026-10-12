@@ -82,6 +82,7 @@ export default function Settings() {
         ["eval", "40 人评测", "40 个画像逐个给出反应，输出量大，要求便宜", data.catalog.llm],
         ["analysis", "竞品视频拆解", "逐条看封面、文案、字幕，拆出卖点、场景、钩子；量大要便宜、能看图", data.catalog.llm],
         ["report", "分析报告撰写", "把拆解结果汇总成洞察和建议，要会写", data.catalog.llm],
+        ["storyboard", "分镜图", "按剧本画电影学院风格的简笔分镜，每镜一张", data.catalog.image],
         ["video", "视频生成（fal.ai）", "每个镜头生成 5 秒 9:16 视频，产品镜头用官方素材", data.catalog.video],
     ];
     return (

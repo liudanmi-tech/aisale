@@ -29,6 +29,12 @@ VIDEO_MODELS = [
     {"id": "fal-ai/bytedance/seedance/v1/pro/text-to-video", "label": "Seedance 1.0 Pro", "hint": "最高 1080p，2–12 秒"},
     {"id": "fal-ai/bytedance/seedance/v1/pro/fast/text-to-video", "label": "Seedance 1.0 Pro Fast", "hint": "更快更便宜"},
 ]
+IMAGE_MODELS = [
+    {"id": "google/gemini-3.1-flash-lite-image", "label": "Gemini 3.1 Flash Lite Image", "hint": "最像手绘分镜，约 3 秒、$0.034 / 张（默认）"},
+    {"id": "google/gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image", "hint": "约 6 秒、$0.039 / 张"},
+    {"id": "google/gemini-3.1-flash-image", "label": "Gemini 3.1 Flash Image", "hint": "更精细，约 10 秒、$0.067 / 张"},
+    {"id": "google/gemini-3-pro-image", "label": "Gemini 3 Pro Image", "hint": "最精细、最贵"},
+]
 DEFAULT_MODELS = {
     "agent": "google/gemini-2.5-flash",  # 理解指令 → 画布工具调用，要快
     "script": "anthropic/claude-sonnet-5.5",  # 剧本与皮钦语 / 乌尔都语口播，要自然
@@ -37,6 +43,7 @@ DEFAULT_MODELS = {
     "video_resolution": "720p",
     "analysis": "google/gemini-2.5-flash",  # 竞品视频逐条拆解（看封面 + 文案 + 字幕），量大要便宜、能看图
     "report": "anthropic/claude-sonnet-5.5",  # 汇总成分析报告，要会写洞察
+    "storyboard": "google/gemini-3.1-flash-lite-image",  # 剧本分镜图（电影学院简笔分镜风格）
     "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }
 

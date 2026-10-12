@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Input, Modal, Segmented, Select, Table } from "antd";
-import { ArrowLeft, CheckCircle2, LayoutGrid, Play, RefreshCw, Rows3, Wand2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LayoutGrid, Pencil, Play, RefreshCw, Rows3, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -10,7 +10,10 @@ import { api, type CanvasNode } from "@/services/api";
 import { useCanvasStore } from "@/stores/canvas-store";
 
 function useNode(nid: string) {
-    return useQuery({ queryKey: ["node", nid], queryFn: () => api.node(nid), refetchInterval: (q) => (q.state.data?.status === "run" ? 1500 : false) });
+    return useQuery({
+        queryKey: ["node", nid], queryFn: () => api.node(nid),
+        refetchInterval: (q) => (q.state.data?.status === "run" || q.state.data?.data?.storyboard?.status === "running" ? 1500 : false),
+    });
 }
 
 /** 详情页顶栏：返回画布、状态、待审核时直接通过 / 驳回。 */
@@ -59,7 +62,16 @@ export function ScriptEditor() {
         onSuccess: (_, v) => { setChanged(v.i); qc.invalidateQueries({ queryKey: ["node", nid] }); },
     });
     const save = useMutation({ mutationFn: (shots: string[][]) => api.updateNodeData(n!.project_id, nid, { shots }) });
+    const { message } = App.useApp();
+    const draw = useMutation({
+        mutationFn: (indices?: number[]) => api.drawStoryboard(nid, indices),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ["node", nid] }),
+        onError: (e: any) => message.error(e?.response?.data?.detail || "画分镜失败"),
+    });
     if (!n) return null;
+    const frames: ({ url: string; visual: string } | null)[] = n.data.frames || [];
+    const sb: { status?: string; done?: number; total?: number; error?: string } = n.data.storyboard || {};
+    const drawing = sb.status === "running" || draw.isPending;
     const shots: string[][] = n.data.shots || [];
     const ad = n.upstream.find((u) => u.type === "ad");
     const edit = (i: number, k: number, v: string) => save.mutate(shots.map((s, j) => (j === i ? s.map((c, m) => (m === k ? v : c)) : s)));
@@ -72,21 +84,35 @@ export function ScriptEditor() {
                     <div className="text-sm leading-7">参考：{ad?.title || "—"}<br />主卖点：{n.data.selling_point}<br />人群：{n.data.audience}<br />时长：15 秒 · 9:16</div>
                 </Card>
                 <Card title={<>分镜 <span className="text-xs font-normal text-ink2">{viewMode === "table" ? "单元格可直接编辑，失焦保存" : "宫格预览，点「重写」只改这一镜"}</span></>}
-                    extra={<Segmented size="small" value={viewMode} onChange={(v) => setViewMode(v as "grid" | "table")}
-                        options={[{ value: "grid", icon: <LayoutGrid size={13} />, label: "宫格" }, { value: "table", icon: <Rows3 size={13} />, label: "表格" }]} />}>
+                    extra={<div className="flex items-center gap-2">
+                        {sb.status === "running" && <span className="text-xs text-ink2">正在画分镜 {sb.done ?? 0}/{sb.total ?? shots.length}</span>}
+                        {sb.status === "error" && <span className="max-w-[260px] truncate text-xs text-bad" title={sb.error}>部分分镜失败：{sb.error}</span>}
+                        <Button size="small" icon={<Pencil size={12} />} loading={drawing} onClick={() => draw.mutate(frames.some(Boolean) ? shots.map((_, i) => i) : undefined)}>
+                            {frames.some(Boolean) ? "全部重画" : "画分镜"}
+                        </Button>
+                        <Segmented size="small" value={viewMode} onChange={(v) => setViewMode(v as "grid" | "table")}
+                            options={[{ value: "grid", icon: <LayoutGrid size={13} />, label: "宫格" }, { value: "table", icon: <Rows3 size={13} />, label: "表格" }]} />
+                    </div>}>
                     {viewMode === "grid" ? (
                         <div className="grid grid-cols-4 gap-3 max-[1300px]:grid-cols-2">
                             {shots.map((s, i) => (
                                 <div key={i} className={`overflow-hidden rounded-xl border bg-elev ${i === changed ? "border-warn" : "border-line"}`}>
-                                    <div className="relative aspect-[3/4]" style={{ background: COVER_GRADIENTS[(i + 1) % COVER_GRADIENTS.length] }}>
-                                        <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 text-[11px] text-white">镜 {i + 1} · {s[0]}</span>
-                                        {i === 2 && <span className="absolute right-2 top-2 rounded bg-black/50 px-1.5 text-[11px] text-white">官方素材</span>}
-                                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[12px] leading-5 text-white">{s[1]}</div>
+                                    <div className="relative aspect-[9/16]" style={{ background: frames[i] ? "#fff" : COVER_GRADIENTS[(i + 1) % COVER_GRADIENTS.length] }}>
+                                        {frames[i] && <img src={frames[i]!.url} alt={`镜 ${i + 1} 分镜`} className="absolute inset-0 h-full w-full object-contain" />}
+                                        {!frames[i] && drawing && <span className="absolute inset-0 flex items-center justify-center text-xs text-white/90">分镜绘制中…</span>}
+                                        <span className="absolute left-2 top-2 rounded bg-black/60 px-1.5 text-[11px] text-white">镜 {i + 1} · {s[0]}</span>
+                                        {i === 2 && <span className="absolute right-2 top-2 rounded bg-black/60 px-1.5 text-[11px] text-white">官方素材</span>}
+                                        {frames[i] && frames[i]!.visual !== s[1] && <span className="absolute right-2 top-8 rounded bg-warn px-1.5 text-[11px] text-black">画面已改，需重画</span>}
+                                        {!frames[i] && <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/60 to-transparent p-2 pt-6 text-[12px] leading-5 text-white">{s[1]}</div>}
                                     </div>
                                     <div className="p-2 text-xs leading-5">
+                                        {frames[i] && <div className="mb-1 text-ink2">{s[1]}</div>}
                                         <div className="text-ink">“{s[2]}”</div>
                                         <div className="text-ink2">{s[3]}</div>
-                                        <Button size="small" className="mt-1.5" icon={<RefreshCw size={12} />} loading={rewrite.isPending && rewrite.variables?.i === i} onClick={() => rewrite.mutate({ i, h: "" })}>重写</Button>
+                                        <div className="mt-1.5 flex gap-1.5">
+                                            <Button size="small" icon={<RefreshCw size={12} />} loading={rewrite.isPending && rewrite.variables?.i === i} onClick={() => rewrite.mutate({ i, h: "" })}>重写</Button>
+                                            <Button size="small" icon={<Pencil size={12} />} disabled={drawing} onClick={() => draw.mutate([i])}>{frames[i] ? "重画" : "画这一镜"}</Button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
