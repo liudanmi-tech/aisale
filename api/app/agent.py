@@ -17,7 +17,7 @@ INTENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "count": {"type": "integer", "minimum": 1, "maximum": 6},
             "selling_point": {"type": "string", "enum": ["续航", "拍照", "存储"]},
-            "audience": {"type": "string", "enum": ["小商贩", "学生"]},
+            "audience": {"type": "string", "enum": ["小商贩", "学生", "年轻家庭"]},
             "ref_ad_node_id": {"type": "string", "description": "参考的爆款节点 id，不确定时省略"}},
             "required": ["count", "selling_point", "audience"]}}},
     {"type": "function", "function": {"name": "generate_videos", "description": "为已通过审核的剧本生成视频",
@@ -72,7 +72,7 @@ def rule_intent(text: str, selection: list[str]) -> dict:
         ad = re.search(r"爆款#?(\d+)", t)
         return {"name": "write_scripts", "count": min(6, int(m.group(1))) if m else 3,
                 "selling_point": "拍照" if re.search("拍照|夜拍", t) else ("存储" if "存储" in t else "续航"),
-                "audience": "学生" if "学生" in t else "小商贩", "ref_ad_no": int(ad.group(1)) if ad else None}
+                "audience": "学生" if "学生" in t else ("年轻家庭" if re.search("家庭|婚礼|斋月", t) else "小商贩"), "ref_ad_no": int(ad.group(1)) if ad else None}
     if re.search("视频|成片", t):
         return {"name": "generate_videos"}
     if re.search("评测|打分", t):
@@ -88,7 +88,7 @@ async def llm_intent(db: Session, project: Project, text: str, selection: list[s
     system = ("你是 TECNO 手机海外投放平台的画布 Agent，只能通过给定工具操作画布。"
               "根据用户指令选择且只选择一个工具。节点引用一律使用节点 id。\n"
               "卖点同义词：夜拍/拍照/相机/自拍 → 拍照；电池/续航/停电/充电 → 续航；内存/存储/装照片 → 存储。"
-              "人群同义词：学生/年轻人/大学生 → 学生；摊主/商贩/小生意/做生意 → 小商贩。数量用阿拉伯数字（两个 → 2）。\n"
+              "人群同义词：学生/年轻人/大学生 → 学生；摊主/商贩/小生意/做生意 → 小商贩；家庭/婚礼/斋月团聚 → 年轻家庭。数量用阿拉伯数字（两个 → 2）。\n"
               "用户没有点名具体节点（如「都」「全部」「通过的」）时，不要传节点 id 参数，系统会作用于全部符合条件的节点；"
               "只有当前选中了节点或用户点名时才传 id。与画布无关的问题用 clarify 简短说明你能做什么。\n"
               f"当前画布节点（id | 标题 | 类型 | 状态）：\n{snap}\n当前选中：{selection or '无'}")

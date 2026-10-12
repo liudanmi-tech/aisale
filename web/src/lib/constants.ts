@@ -23,8 +23,8 @@ export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: s
     preview: { label: "计划预览", cls: "bg-brand/20 text-[#b5a3ff]" },
 };
 
-export const NODE_W = 184;
-export const NODE_H = 72;
+export const NODE_W = 220;
+export const NODE_H = 84;
 
 export const COVER_GRADIENTS = [
     "linear-gradient(160deg,#ff7a45,#7c5cff)",

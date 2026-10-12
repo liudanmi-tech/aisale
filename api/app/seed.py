@@ -34,6 +34,28 @@ ADS = [
 ]
 
 
+MARKET_AUDIENCES = {
+    "尼日利亚": [("小商贩", "尼日利亚 · 25–35 岁"), ("学生", "尼日利亚 · 18–24 岁")],
+    "巴基斯坦": [("年轻家庭", "巴基斯坦 · 25–40 岁"), ("学生", "巴基斯坦 · 18–24 岁")],
+}
+
+
+def new_project(db: Session, name: str, market: str, brand: str = "TECNO", model_sku: str = "Camon", selling_point: str = "续航") -> Project:
+    """新建投放项目：放好卖点与目标市场的人群包节点，Agent 从这里开始。"""
+    p = Project(id=new_id("p"), name=name, brand=brand, model_sku=model_sku, market=market, counters={}, flags={})
+    db.add(p)
+    db.flush()
+    sp = db.query(SellingPoint).filter(SellingPoint.title == selling_point).first()
+    canvas.create_node(db, p, "sp", sub=sp.specs if sp else "", status="pass", data={"selling_point": selling_point},
+                       x=40, y=40, title=f"卖点 · {selling_point}")
+    for i, (aud, sub) in enumerate(MARKET_AUDIENCES.get(market, MARKET_AUDIENCES["尼日利亚"])):
+        canvas.create_node(db, p, "aud", sub=sub, status="pass", data={"audience": aud}, x=40, y=164 + i * 124, title=f"人群包 · {aud}")
+    db.add(ChatMessage(project_id=p.id, role="agent", content={
+        "text": f"新项目「{name}」已创建。先去爆款库选一条参考爆款点「一键洗剧本」，或者直接告诉我要给哪个人群写什么卖点的剧本。"}))
+    db.commit()
+    return p
+
+
 def seed(db: Session) -> None:
     if db.get(Project, "p1"):
         return
@@ -55,12 +77,12 @@ def seed(db: Session) -> None:
     db.add(p)
     db.flush()
     ad = canvas.create_node(db, p, "ad", sub="对比实测 · 尼日利亚", status="pass", data={"ref_ad_no": 12}, x=40, y=40, title="爆款 #12")
-    sp = canvas.create_node(db, p, "sp", sub="6000mAh · 18W 快充", status="pass", data={"selling_point": "续航"}, x=40, y=160, title="卖点 · 续航")
-    a1 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 25–35 岁", status="pass", data={"audience": "小商贩"}, x=40, y=280, title="人群包 · 小商贩")
-    a2 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 18–24 岁", status="pass", data={"audience": "学生"}, x=40, y=400, title="人群包 · 学生")
-    s1 = canvas.create_node(db, p, "script", sub="续航 · 小商贩 · 15s", status="pass", x=300, y=100,
+    sp = canvas.create_node(db, p, "sp", sub="6000mAh · 18W 快充", status="pass", data={"selling_point": "续航"}, x=40, y=164, title="卖点 · 续航")
+    a1 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 25–35 岁", status="pass", data={"audience": "小商贩"}, x=40, y=288, title="人群包 · 小商贩")
+    a2 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 18–24 岁", status="pass", data={"audience": "学生"}, x=40, y=412, title="人群包 · 学生")
+    s1 = canvas.create_node(db, p, "script", sub="续航 · 小商贩 · 15s", status="pass", x=320, y=100,
                             data={"selling_point": "续航", "audience": "小商贩", "version": 1, "shots": SHOTS["续航"]})
-    s2 = canvas.create_node(db, p, "script", sub="拍照 · 学生 · 15s", status="none", x=300, y=220,
+    s2 = canvas.create_node(db, p, "script", sub="拍照 · 学生 · 15s", status="none", x=320, y=224,
                             data={"selling_point": "拍照", "audience": "学生", "version": 1, "shots": SHOTS["拍照"]})
     for src, dst in [(ad, s1), (a1, s1), (sp, s1), (ad, s2), (a2, s2)]:
         canvas.connect(db, p.id, src.id, dst.id)

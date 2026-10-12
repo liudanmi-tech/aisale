@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from app import agent, canvas, workflows
 from app.db import get_db
 from app.events import emit, hub
-from app.models import ChatMessage, Node, Patch, Project, RefAd
+from app.models import ChatMessage, Node, Patch, Project, RefAd, ReviewTask
+from app.seed import new_project
 
 router = APIRouter(prefix="/api/v1")
 
@@ -20,7 +21,36 @@ def get_project(db: Session, pid: str) -> Project:
 
 @router.get("/projects")
 def list_projects(db: Session = Depends(get_db)):
-    return [{"id": p.id, "name": p.name, "market": p.market, "nodes": len(canvas.nodes_of(db, p.id))} for p in db.query(Project).all()]
+    out = []
+    for p in db.query(Project).order_by(Project.created_at.desc()):
+        nodes = canvas.nodes_of(db, p.id)
+        waiting = db.query(ReviewTask).filter(ReviewTask.project_id == p.id, ReviewTask.status == "wait").count()
+        out.append({"id": p.id, "name": p.name, "market": p.market, "brand": p.brand, "model_sku": p.model_sku,
+                    "created_at": p.created_at.isoformat(), "waiting": waiting, "live": bool((p.flags or {}).get("launched")),
+                    "nodes": len(nodes), "thumb": [{"type": n.type, "x": n.x, "y": n.y} for n in nodes]})
+    return out
+
+
+class ProjectIn(BaseModel):
+    name: str
+    market: str = "尼日利亚"
+    brand: str = "TECNO"
+    model_sku: str = "Camon"
+    selling_point: str = "续航"
+
+
+@router.post("/projects")
+def create_project(body: ProjectIn, db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "项目名不能为空")
+    p = new_project(db, body.name.strip(), body.market, body.brand, body.model_sku, body.selling_point)
+    return {"id": p.id}
+
+
+@router.get("/projects/{pid}")
+def get_project_info(pid: str, db: Session = Depends(get_db)):
+    p = get_project(db, pid)
+    return {"id": p.id, "name": p.name, "market": p.market, "brand": p.brand, "model_sku": p.model_sku}
 
 
 @router.get("/projects/{pid}/canvas")

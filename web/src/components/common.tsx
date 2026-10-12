@@ -3,7 +3,8 @@ import clsx from "clsx";
 import type { ReactNode } from "react";
 
 import { STATUS_META } from "@/lib/constants";
-import { api, PROJECT_ID, type NodeStatus } from "@/services/api";
+import { api, type NodeStatus } from "@/services/api";
+import { useCurrentProject } from "@/stores/project-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 
 export function StatusBadge({ status }: { status: NodeStatus | "preview" }) {
@@ -36,7 +37,8 @@ export function PageTitle({ title, desc }: { title: string; desc?: ReactNode }) 
 
 /** 把 {{nodeId}} 渲染成可点击的节点芯片：悬停高亮画布节点，点击定位。 */
 export function RichText({ text, onRefClick }: { text: string; onRefClick?: (id: string) => void }) {
-    const { data } = useQuery({ queryKey: ["canvas", PROJECT_ID], queryFn: () => api.canvas(PROJECT_ID) });
+    const pid = useCurrentProject();
+    const { data } = useQuery({ queryKey: ["canvas", pid], queryFn: () => api.canvas(pid) });
     const setHighlight = useCanvasStore((s) => s.setHighlight);
     const focus = useCanvasStore((s) => s.focus);
     const parts = text.split(/(\{\{\w+\}\})/g);

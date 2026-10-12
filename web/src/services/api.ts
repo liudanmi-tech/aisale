@@ -98,7 +98,36 @@ export interface FlowStep {
 const get = <T,>(url: string, params?: object) => http.get<T>(url, { params }).then((r) => r.data);
 const post = <T = any,>(url: string, body?: object) => http.post<T>(url, body).then((r) => r.data);
 
+export interface ProjectSummary {
+    id: string;
+    name: string;
+    market: string;
+    brand: string;
+    model_sku: string;
+    created_at: string;
+    waiting: number;
+    live: boolean;
+    nodes: number;
+    thumb: { type: NodeType; x: number; y: number }[];
+}
+export interface Creative {
+    id: string;
+    project_id: string;
+    project: string;
+    title: string;
+    sub: string;
+    status: NodeStatus;
+    measured: boolean;
+    ctr: number | null;
+    vtr: number | null;
+    score: number | null;
+}
+
 export const api = {
+    projects: () => get<ProjectSummary[]>("/projects"),
+    project: (pid: string) => get<{ id: string; name: string; market: string; brand: string; model_sku: string }>(`/projects/${pid}`),
+    createProject: (body: { name: string; market: string; brand: string; model_sku: string; selling_point: string }) => post<{ id: string }>("/projects", body),
+    creatives: (params: { status?: string; q?: string }) => get<Creative[]>("/creatives", params),
     canvas: (pid: string) => get<CanvasSnapshot>(`/projects/${pid}/canvas`),
     chat: (pid: string) => get<ChatMsg[]>(`/projects/${pid}/chat`),
     send: (pid: string, text: string, selection: string[]) =>

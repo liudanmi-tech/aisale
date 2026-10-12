@@ -228,6 +228,39 @@ def optimizations(pid: str, db: Session = Depends(get_db)):
     return out
 
 
+@router.get("/creatives")
+def creatives(status: str | None = None, q: str | None = None, db: Session = Depends(get_db)):
+    """素材作品墙：所有项目里的视频素材，附投放实测或评测预测指标。"""
+    projects = {p.id: p for p in db.query(Project)}
+    preds = {}
+    for e in db.query(Node).filter(Node.type == "eval"):
+        for r in (e.data or {}).get("results", []):
+            preds[r["id"]] = r
+    actual: dict[str, dict] = {}
+    for m in db.query(MetricDaily):
+        a = actual.setdefault(m.creative_node_id, {"imp": 0, "clicks": 0, "completes": 0})
+        a["imp"] += m.impressions; a["clicks"] += m.clicks; a["completes"] += m.completes
+    out = []
+    for v in db.query(Node).filter(Node.type == "video").order_by(Node.created_at.desc()):
+        a, pr = actual.get(v.id), preds.get(v.id)
+        live = bool(a)
+        item = {"id": v.id, "project_id": v.project_id, "project": projects[v.project_id].name, "title": v.title, "sub": v.sub,
+                "status": "live" if live else v.status, "measured": live,
+                "ctr": round(a["clicks"] / a["imp"] * 100, 2) if a else (pr or {}).get("ctr"),
+                "vtr": round(a["completes"] / a["imp"] * 100, 1) if a else (pr or {}).get("vtr"),
+                "score": (pr or {}).get("score")}
+        out.append(item)
+    if status == "live":
+        out = [x for x in out if x["status"] == "live"]
+    elif status == "wait":
+        out = [x for x in out if x["status"] == "wait"]
+    elif status == "winning":
+        out = [x for x in out if (x["ctr"] or 0) >= 2.0]
+    if q:
+        out = [x for x in out if q in x["title"] or q in x["project"] or q in x["sub"]]
+    return out
+
+
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db)):
     waiting = db.query(ReviewTask).filter(ReviewTask.status == "wait").all()

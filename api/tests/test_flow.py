@@ -123,3 +123,17 @@ def test_full_flow():
         # 整理画布 + 撤销整理
         c.post(P + "/agent/chat", json={"text": "整理画布"})
         c.post(P + "/undo")
+
+
+def test_new_project_and_creatives():
+    with TestClient(app) as c:
+        r = c.post("/api/v1/projects", json={"name": "Infinix 学生拍照 · 巴基斯坦", "market": "巴基斯坦", "selling_point": "拍照"})
+        pid = r.json()["id"]
+        snap = c.get(f"/api/v1/projects/{pid}/canvas").json()
+        assert [n["type"] for n in snap["nodes"]] == ["sp", "aud", "aud"]
+        assert any(p["id"] == pid and p["thumb"] for p in c.get("/api/v1/projects").json())
+        c.post(f"/api/v1/projects/{pid}/wash", json={"ref_ad_no": 14})
+        res = c.post(f"/api/v1/projects/{pid}/agent/chat", json={"text": "给学生写 2 个拍照剧本"}).json()
+        assert res is not None and c.get(f"/api/v1/projects/{pid}/canvas").json()["pending_patch"]["summary"] == "写剧本"
+        assert c.post("/api/v1/projects", json={"name": " "}).status_code == 400
+        assert isinstance(c.get("/api/v1/creatives", params={"status": "live"}).json(), list)

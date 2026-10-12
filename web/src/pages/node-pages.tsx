@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Input, Modal, Select, Table } from "antd";
-import { ArrowLeft, CheckCircle2, Play, RefreshCw, Wand2 } from "lucide-react";
+import { App, Button, Input, Modal, Segmented, Select, Table } from "antd";
+import { ArrowLeft, CheckCircle2, LayoutGrid, Play, RefreshCw, Rows3, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -53,6 +53,7 @@ export function ScriptEditor() {
     const { data: n } = useNode(nid);
     const [hint, setHint] = useState("");
     const [changed, setChanged] = useState<number | null>(null);
+    const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
     const rewrite = useMutation({
         mutationFn: ({ i, h }: { i: number; h: string }) => api.rewriteShot(nid, i, h),
         onSuccess: (_, v) => { setChanged(v.i); qc.invalidateQueries({ queryKey: ["node", nid] }); },
@@ -63,14 +64,34 @@ export function ScriptEditor() {
     const ad = n.upstream.find((u) => u.type === "ad");
     const edit = (i: number, k: number, v: string) => save.mutate(shots.map((s, j) => (j === i ? s.map((c, m) => (m === k ? v : c)) : s)));
     return (
-        <div className="pb-40">
+        <div className="pb-12">
             <ReviewBar node={n} extra={`v${n.data.version || 1} · 尼日利亚 · 英语 / 皮钦语`} />
             <div className="grid grid-cols-[280px_1fr_320px] gap-4 px-6 py-4 max-[1100px]:grid-cols-1">
                 <Card title="参考爆款与设定">
                     <Cover gradient={COVER_GRADIENTS[0]} className="mb-3 w-[140px] items-center justify-center"><Play /></Cover>
                     <div className="text-sm leading-7">参考：{ad?.title || "—"}<br />主卖点：{n.data.selling_point}<br />人群：{n.data.audience}<br />时长：15 秒 · 9:16</div>
                 </Card>
-                <Card title={<>分镜表 <span className="text-xs font-normal text-ink2">单元格可直接编辑，失焦保存</span></>}>
+                <Card title={<>分镜 <span className="text-xs font-normal text-ink2">{viewMode === "table" ? "单元格可直接编辑，失焦保存" : "宫格预览，点「重写」只改这一镜"}</span></>}
+                    extra={<Segmented size="small" value={viewMode} onChange={(v) => setViewMode(v as "grid" | "table")}
+                        options={[{ value: "grid", icon: <LayoutGrid size={13} />, label: "宫格" }, { value: "table", icon: <Rows3 size={13} />, label: "表格" }]} />}>
+                    {viewMode === "grid" ? (
+                        <div className="grid grid-cols-4 gap-3 max-[1300px]:grid-cols-2">
+                            {shots.map((s, i) => (
+                                <div key={i} className={`overflow-hidden rounded-xl border bg-elev ${i === changed ? "border-warn" : "border-line"}`}>
+                                    <div className="relative aspect-[3/4]" style={{ background: COVER_GRADIENTS[(i + 1) % COVER_GRADIENTS.length] }}>
+                                        <span className="absolute left-2 top-2 rounded bg-black/50 px-1.5 text-[11px] text-white">镜 {i + 1} · {s[0]}</span>
+                                        {i === 2 && <span className="absolute right-2 top-2 rounded bg-black/50 px-1.5 text-[11px] text-white">官方素材</span>}
+                                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-[12px] leading-5 text-white">{s[1]}</div>
+                                    </div>
+                                    <div className="p-2 text-xs leading-5">
+                                        <div className="text-ink">“{s[2]}”</div>
+                                        <div className="text-ink2">{s[3]}</div>
+                                        <Button size="small" className="mt-1.5" icon={<RefreshCw size={12} />} loading={rewrite.isPending && rewrite.variables?.i === i} onClick={() => rewrite.mutate({ i, h: "" })}>重写</Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
                     <Table size="small" pagination={false} rowKey={(_, i) => String(i)} dataSource={shots.map((s, i) => ({ s, i }))}
                         rowClassName={(r) => (r.i === changed ? "bg-warn/10" : "")}
                         columns={[
@@ -84,6 +105,7 @@ export function ScriptEditor() {
                             })),
                             { title: "", width: 70, render: (_, r) => <Button size="small" icon={<RefreshCw size={12} />} loading={rewrite.isPending && rewrite.variables?.i === r.i} onClick={() => rewrite.mutate({ i: r.i, h: "" })}>重写</Button> },
                         ]} />
+                    )}
                 </Card>
                 <div className="flex flex-col gap-4">
                     <Card title="合规自检">
@@ -111,18 +133,18 @@ export function VideoStudio() {
     const tasks: any[] = n.data.tasks || [];
     const qc: Record<string, boolean> = n.data.qc || {};
     return (
-        <div className="pb-40">
+        <div className="pb-12">
             <ReviewBar node={n} extra="模型 Seedance · 9:16 · 1080p · 15s" />
             <div className="grid grid-cols-[260px_1fr_300px] gap-4 px-6 py-4 max-[1100px]:grid-cols-1">
                 <Card title="资产">
                     <div className="text-sm leading-7">角色：Ada（本地面孔，一致性已锁定）<br />产品素材库：官方实拍 12 段<br />BGM：Afrobeats 商用库<br />品牌包：TECNO 2026</div>
                 </Card>
-                <Card title="分镜（每镜可单独重生成）">
-                    <div className="flex gap-3 overflow-x-auto pb-2">
+                <Card title="分镜宫格（每镜可单独重生成）">
+                    <div className="grid grid-cols-4 gap-3 max-[1300px]:grid-cols-2">
                         {shots.map((s, i) => {
                             const t = tasks[i] || {};
                             return (
-                                <div key={i} className="w-[160px] shrink-0 rounded-lg border border-line bg-elev p-2 text-xs">
+                                <div key={i} className="rounded-lg border border-line bg-elev p-2 text-xs">
                                     <Cover gradient={COVER_GRADIENTS[(i + 2) % 6]} className="mb-1.5 items-center justify-center text-[11px]">{t.source === "official" ? "官方产品镜头" : "Seedance"}</Cover>
                                     <b>镜 {i + 1}</b> {s[0]}
                                     <div className="mt-0.5 text-ink2">{s[1]}</div>
@@ -166,7 +188,7 @@ export function EvalPage() {
     };
     const curve = Array.from({ length: 16 }, (_, s) => (cur ? cur.reactions.filter((r: any) => r.drop_at > s || r.completed).length / 40 : 1));
     return (
-        <div className="pb-40">
+        <div className="pb-12">
             <ReviewBar node={n} extra="40 个虚拟用户 · 尼日利亚 · 小商贩 60% / 学生 40%" />
             <div className="grid grid-cols-[260px_1fr_340px] gap-4 px-6 py-4 max-[1100px]:grid-cols-1">
                 <Card title="播放与流失曲线">

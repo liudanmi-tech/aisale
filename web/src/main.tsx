@@ -20,7 +20,7 @@ createRoot(document.getElementById("root")!).render(
             button={{ autoInsertSpace: false }}
             theme={{
                 algorithm: theme.darkAlgorithm,
-                token: { colorPrimary: "#7c5cff", colorBgBase: "#0e0f13", colorBgContainer: "#17181d", colorBgElevated: "#22242b", colorBorder: "#2c2f37", borderRadius: 8, fontFamily: '"PingFang SC","Noto Sans SC","Microsoft YaHei",Inter,sans-serif' },
+                token: { colorPrimary: "#7c5cff", colorBgBase: "#0f0f10", colorBgContainer: "#161618", colorBgElevated: "#222226", colorBorder: "#2a2a2f", borderRadius: 8, fontFamily: '"PingFang SC","Noto Sans SC","Microsoft YaHei",Inter,sans-serif' },
             }}
         >
             <AntApp>

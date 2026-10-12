@@ -11,6 +11,8 @@ interface CanvasState {
     selection: string[];
     highlight: string[];
     focusRequest: { id: string; ts: number } | null;
+    draft: { text: string; ts: number } | null;
+    setDraft: (text: string) => void;
     setView: (v: View) => void;
     select: (ids: string[]) => void;
     toggle: (id: string) => void;
@@ -23,6 +25,8 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     selection: [],
     highlight: [],
     focusRequest: null,
+    draft: null,
+    setDraft: (text) => set({ draft: { text, ts: Date.now() } }),
     setView: (view) => set({ view }),
     select: (selection) => set({ selection }),
     toggle: (id) => set((s) => ({ selection: s.selection.includes(id) ? s.selection.filter((x) => x !== id) : [...s.selection, id] })),

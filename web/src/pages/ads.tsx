@@ -6,7 +6,8 @@ import { useState } from "react";
 
 import { Card, Cover, PageTitle } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
-import { api, PROJECT_ID, type RefAd } from "@/services/api";
+import { api, type RefAd } from "@/services/api";
+import { useCurrentProject } from "@/stores/project-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 
 export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () => void }) {
@@ -31,6 +32,7 @@ export default function Ads() {
     const [market, setMarket] = useState("全部");
     const [sp, setSp] = useState("全部");
     const select = useCanvasStore((s) => s.select);
+    const pid = useCurrentProject();
     const { data: ads = [] } = useQuery({
         queryKey: ["ref-ads", market, sp],
         queryFn: () => api.refAds({ market: market === "全部" ? undefined : market, selling_point: sp === "全部" ? undefined : sp }),
@@ -40,12 +42,12 @@ export default function Ads() {
     const ad = all.find((a) => a.no === openNo);
     const idx = all.findIndex((a) => a.no === openNo);
     const wash = useMutation({
-        mutationFn: (no: number) => api.wash(PROJECT_ID, no),
-        onSuccess: (r) => { select([r.node_id]); nav(`/p/${PROJECT_ID}`, { state: { prompt: r.prompt } }); },
+        mutationFn: (no: number) => api.wash(pid, no),
+        onSuccess: (r) => { select([r.node_id]); nav(`/p/${pid}`, { state: { prompt: r.prompt } }); },
     });
 
     return (
-        <div className="mx-auto max-w-[1440px] p-6 pb-40">
+        <div className="mx-auto max-w-[1440px] p-6 pb-12">
             <PageTitle title="爆款库" desc="来源：第三方广告情报 + TikTok Creative Center + 传音历史投放；带「估」的为估算值" />
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">

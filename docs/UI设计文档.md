@@ -21,7 +21,9 @@
 
 | 路由 | 页面 | 主要组件 | 调用接口（前缀 /api/v1） | 主要数据表 |
 | --- | --- | --- | --- | --- |
-| `/` | 工作台 | 一句话输入、KPI 行、待办、飙升爆款、最近项目 | `GET /dashboard` | project、review_task |
+| `/` | 首页 | 新建投放画布面板、模型与工具入口、特色功能、KPI 与待审、素材作品墙 | `GET /dashboard`、`GET /creatives` | project、node(video)、metric_daily |
+| `/projects` | 项目 | 新建项目（品牌 / 机型 / 市场 / 主卖点）、项目卡片（画布缩略图） | `GET /projects`、`POST /projects` | project |
+| `/agent` | 投放 Agent | 一句话输入、Skill 卡片库（按剧本 / 视频 / 评测 / 投放 / 优化分类） | 进入画布后走 `POST /projects/{id}/agent/chat` | — |
 | `/ads?no=` | 爆款库 | 筛选栏、9:16 卡片网格、详情抽屉 | `GET /ref-ads`、`POST /projects/{id}/wash` | ref_ad |
 | `/p/:projectId` | 项目画布 | 左 Agent 面板 + 右画布 | `GET /projects/{id}/canvas`、`PATCH /projects/{id}/nodes/{nid}`、`POST /projects/{id}/agent/chat`、`POST /projects/{id}/patches/{pid}/apply｜cancel｜adjust`、`POST /projects/{id}/undo`、`WS /projects/{id}/live` | node、edge、patch、chat_message |
 | `/p/:projectId/script/:nodeId` | 剧本编辑器 | 三栏：参考 / 分镜表 / 合规与 Agent | `GET /nodes/{nid}`、`POST /nodes/{nid}/shots/{i}/rewrite` | node(script) |
@@ -33,7 +35,7 @@
 | `/assets` | 资产库 | 卖点库、人群包、角色资产、产品素材、本土化词库 | `GET /assets` | selling_point、audience |
 | `/settings` | 设置 | 外部服务模式与凭证状态、规则阈值 | `GET /settings/integrations` | — |
 
-导航顺序：工作台 · 项目画布 · 爆款库 · 资产库 · 投放中心 · 数据看板 · 审核中心（带待审数字）· 设置。
+导航（左侧边栏，照 LibTV）：首页 · 项目 · 爆款库 · 资产；创作：投放画布 · 投放 Agent（BETA）；运营：投放中心 · 数据看板 · 审核中心（带待审数字）；底部：核心链路进度 · 设置。进入画布和节点详情页时侧栏自动收起为图标栏；窄屏改为底部标签栏。顶栏：当前项目切换、当前路由、新建项目。
 
 ---
 
@@ -254,3 +256,19 @@
 - [ ] 核心路由（第 2 节）和 9 步链路（第 3 节）是否正确，有无缺页面或顺序问题。
 - [ ] 「9 大模块」具体指哪 9 个（目前按 7 个业务模块 + 审核中心 + 画布来设计）。
 - [ ] 确认后对照 LibTV 细化：首页结构与入口、画布节点外观与工具栏、双击空白新建节点的菜单、角色 / 主体资产的管理方式、分镜宫格视图、配色与字体。
+
+---
+
+## 10. v0.2：对照 LibTV 的细化
+
+参考 LibTV 首页与 Skill 页（画布需登录，画布内交互参考开源项目 infinite-canvas）：
+
+| 位置 | 细化内容 |
+| --- | --- |
+| 整体框架 | 顶部导航改为左侧边栏，分组「创作 / 运营」，Agent 带 BETA 标；配色改为中性黑灰（#0f0f10 / #161618），紫色只用于 Agent 与计划预览 |
+| 首页 | 点阵「新建投放画布」大面板 + 一句话输入；模型与工具入口（Seedance、Gemini、TikTok Ads、剧本、本土化、视频、评测、投放）；特色功能卡片；KPI 与待审；素材作品墙（全部 / 投放中 / 待审核 / 跑赢大盘 + 搜索，卡片标注实测或预测指标） |
+| 投放 Agent 页 | 照 LibTV Skill 页：居中大输入框 + Skill 卡片（缩略图、分类、简介、使用次数），点击带指令进入当前项目画布，由 Agent 先出计划 |
+| 项目页 | 新建项目弹窗；项目卡片显示画布缩略图、投放中 / 待审核标记 |
+| 画布 | 左侧竖向工具栏（选择 / 抓手 / 新建 / 爆款库 / 整理 / 撤销 / 帮助）；双击空白或右键空白弹出新建菜单；选中节点上方浮出操作条（剧本：生成视频；视频：跑评测；评测：生成投放方案；多选：批量）；右键节点菜单（打开 / 问 Agent / 选中上下游 / 复制 ID）；右下缩放与百分比；节点卡片显示封面、口播预览、评测分数环；快捷键 V / H / ⌘Z / Esc |
+| 爆款入画布 | 画布内「从爆款库添加」弹窗，选中后自动把洗剧本指令填入 Agent 输入框，由用户补充后发送 |
+| 分镜宫格 | 剧本编辑器默认宫格视图（可切换表格），视频工作室分镜改为宫格 |

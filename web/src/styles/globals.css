@@ -2,12 +2,12 @@
 @import "tailwindcss";
 
 @theme {
-    --color-bg: #0e0f13;
-    --color-surface: #17181d;
-    --color-elev: #22242b;
-    --color-line: #2c2f37;
+    --color-bg: #0f0f10;
+    --color-surface: #161618;
+    --color-elev: #222226;
+    --color-line: #2a2a2f;
     --color-ink: #f2f3f5;
-    --color-ink2: #9095a1;
+    --color-ink2: #8e8e96;
     --color-brand: #7c5cff;
     --color-brand2: #3e8bff;
     --color-good: #2bc48a;
@@ -46,7 +46,7 @@ body,
 }
 .dot-grid {
     background-color: var(--color-bg);
-    background-image: radial-gradient(#252832 1px, transparent 1px);
+    background-image: radial-gradient(#2a2a2f 1px, transparent 1px);
     background-size: 20px 20px;
 }
 .node-running::after {
@@ -74,3 +74,9 @@ body,
 }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #2c2f37; border-radius: 4px; }
+
+.dotted-panel {
+    background-color: #161618;
+    background-image: radial-gradient(#33333a 1px, transparent 1px);
+    background-size: 14px 14px;
+}

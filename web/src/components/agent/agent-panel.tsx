@@ -17,7 +17,7 @@ const STATE_LABEL: Record<string, string> = {
 export function AgentPanel({ projectId, snapshot, askNonce, initialPrompt, onInitialSent }: { projectId: string; snapshot?: CanvasSnapshot; askNonce: number; initialPrompt?: string; onInitialSent?: () => void }) {
     const qc = useQueryClient();
     const { message } = App.useApp();
-    const { selection, select, toggle, setHighlight, focus } = useCanvasStore();
+    const { selection, select, toggle, setHighlight, focus, draft } = useCanvasStore();
     const [collapsed, setCollapsed] = useState(false);
     const [text, setText] = useState("");
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -67,6 +67,9 @@ export function AgentPanel({ projectId, snapshot, askNonce, initialPrompt, onIni
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialPrompt, snapshot]);
+    useEffect(() => {
+        if (draft) setText(draft.text);
+    }, [draft]);
     useEffect(() => {
         if (askNonce) {
             setCollapsed(false);

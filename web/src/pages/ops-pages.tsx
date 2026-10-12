@@ -7,11 +7,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Card, PageTitle, StatusBadge } from "@/components/common";
-import { api, PROJECT_ID, type Review } from "@/services/api";
+import { api, type Review } from "@/services/api";
+import { useCurrentProject } from "@/stores/project-store";
 
-const page = "mx-auto max-w-[1440px] p-6 pb-80";
+const page = "mx-auto max-w-[1440px] p-6 pb-12";
 
 export function Delivery() {
+    const PROJECT_ID = useCurrentProject();
     const qc = useQueryClient();
     const { data: list = [] } = useQuery({ queryKey: ["delivery", PROJECT_ID], queryFn: () => api.delivery(PROJECT_ID), refetchInterval: (q) => (q.state.data?.some((d) => d.data.launching && d.status !== "live") ? 800 : false) });
     const { data: m } = useQuery({ queryKey: ["metrics", PROJECT_ID], queryFn: () => api.metrics(PROJECT_ID) });
@@ -76,6 +78,7 @@ function Chart({ option, height = 240 }: { option: echarts.EChartsOption; height
 }
 
 export function DataPage() {
+    const PROJECT_ID = useCurrentProject();
     const qc = useQueryClient();
     const { message } = App.useApp();
     const nav = useNavigate();

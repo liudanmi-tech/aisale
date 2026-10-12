@@ -18,7 +18,7 @@ TYPES = {
     "opt": {"label": "优化", "col": 6, "module": "自动优化"},
 }
 STATUS_ZH = {"none": "未开始", "run": "生成中", "wait": "待审核", "pass": "已通过", "reject": "已驳回", "live": "投放中", "failed": "失败"}
-COL_W, ROW_H, X0, Y0 = 260, 120, 40, 40
+COL_W, ROW_H, X0, Y0 = 280, 124, 40, 40
 
 
 class StaleVersion(Exception):
