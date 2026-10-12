@@ -142,7 +142,7 @@ export interface ModelOption {
 export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
-    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor", string>;
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report", string>;
     catalog: { llm: ModelOption[]; video: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
 }
@@ -176,6 +176,40 @@ export interface AccountCandidate {
     brand: string;
     kind: string;
     added: boolean;
+}
+export interface StatRow {
+    name: string;
+    videos: number;
+    plays: number;
+    share: number;
+    examples: { id: string; handle: string; url: string; plays: number }[];
+}
+export interface VideoDna {
+    brand?: string; product?: string; price_tier?: string; selling_points?: string[]; selling_point_detail?: string;
+    scene?: string; scene_tags?: string[]; script_type?: string[]; hook?: string; hook_type?: string; talent?: string;
+    talent_tag?: string; language?: string; pacing?: string; shots?: string[]; cta?: string; why_viral?: string; confidence?: string;
+}
+export interface ReportParams { market?: string | null; brand?: string | null; days: number; top: number; include_own?: boolean; refresh?: boolean }
+export interface ReportSummary {
+    id: string;
+    params: ReportParams;
+    status: "running" | "done" | "error";
+    progress: { stage?: string; done?: number; total?: number };
+    error: string;
+    created_at: string;
+    headline: string;
+}
+export interface ReportFull extends ReportSummary {
+    data: {
+        summary: string;
+        insight: Record<"headline" | "products" | "selling_points" | "script_types" | "scenes" | "talent" | "hooks" | "pacing" | "why_viral", string>
+            & { takeaways: string[]; recommendations: string[] };
+        stats: Partial<Record<"brands" | "products" | "selling_points" | "script_types" | "scenes" | "hook_types" | "talent" | "languages", StatRow[]>>;
+        videos: (Pick<WatchVideo, "id" | "url" | "cover" | "text" | "plays" | "likes" | "comments" | "shares" | "engagement" | "multiple" | "boosted" | "is_ad" | "hot_score" | "posted_at" | "ref_ad_no" | "account">
+            & { analysis: VideoDna; inputs: string[] })[];
+        models: { analysis: string; report: string };
+        failed: number;
+    };
 }
 export interface WatchVideo {
     id: string;
@@ -250,6 +284,10 @@ export const api = {
     searchResult: (id: string) => get<{ status: "running" | "done" | "error"; error: string; queries: string[]; results: AccountCandidate[];
         progress: { run_id: string; status: string; items: number | null; elapsed: number } | null }>(`/watch/search/${id}`),
     watchVideos: (params: { market?: string; brand?: string; grade?: string; sort?: string }) => get<WatchVideo[]>("/watch/videos", params),
+    createReport: (body: ReportParams) => post<{ id: string }>("/watch/reports", body),
+    reports: () => get<ReportSummary[]>("/watch/reports"),
+    report: (id: string) => get<ReportFull>(`/watch/reports/${id}`),
+    deleteReport: (id: string) => http.delete(`/watch/reports/${id}`).then((r) => r.data),
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
 };

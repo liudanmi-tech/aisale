@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app import settings_store
 from app.adapters import apify
 from app.db import SessionLocal
-from app.models import RefAd, SourceVideo, VideoSnapshot, WatchAccount, new_id
+from app.models import RefAd, SourceVideo, VideoAnalysis, VideoSnapshot, WatchAccount, new_id
 
 log = logging.getLogger(__name__)
 HOT_PLAYS = 100_000  # 进「爆款」榜的最低播放，两个试点市场先用 10 万
@@ -269,15 +269,29 @@ def promote(db: Session, video_id: str) -> RefAd:
     no = (max([n for (n,) in db.query(RefAd.no)] or [0])) + 1
     text = (v.text or "").strip()
     hook = (text.split("\n")[0][:28] or f"@{a.handle} 视频")
-    sp = guess_selling_point(text, v.hashtags or [])
+    va = db.get(VideoAnalysis, v.id)
+    ai = (va.data if va else {}) or {}
+    ai_sps = [x for x in (ai.get("selling_points") or []) if isinstance(x, str)]
+    # 平台卖点库只有续航 / 拍照 / 存储 / 性能，AI 卖点映射过去，映射不到再按文案猜
+    sp_map = {"续航": "续航", "快充": "续航", "拍照": "拍照", "夜拍": "拍照", "自拍美颜": "拍照", "存储": "存储", "性能游戏": "性能"}
+    sp = next((sp_map[x] for x in ai_sps if x in sp_map), None) or guess_selling_point(text, v.hashtags or [])
+    if ai.get("hook") and ai["hook"] != "未知":
+        hook = ai["hook"][:28]
+    shots = []
+    for line in ai.get("shots") or []:
+        m = re.match(r"\s*([0-9]+\s*[–\-~]\s*[0-9]+\s*s)\s*(.*)", str(line))
+        shots.append([m.group(1).replace(" ", ""), m.group(2)] if m else ["", str(line)])
     days = max(0, (datetime.utcnow() - v.posted_at).days) if v.posted_at else 0
     ad = RefAd(id=new_id("ad"), no=no, source="TikTok 账号监控", platform="TikTok", brand=a.brand or a.handle, market=a.market,
-               title=hook, hook=hook, selling_point=sp, days_running=days, variants=1,
+               title=(text.split("\n")[0][:28] or f"@{a.handle} 视频"), hook=hook, selling_point=sp, days_running=days, variants=1,
                ctr_range="未公开", vtr=0, is_estimated=False, hot_score=row["hot_score"],
                dna={"source_video_id": v.id, "url": v.url, "account": f"@{a.handle}", "text": text, "hashtags": v.hashtags,
                     "music": v.music, "duration": v.duration, "plays": v.plays, "likes": v.likes, "comments": v.comments,
                     "shares": v.shares, "multiple": row["multiple"], "engagement": row["engagement"], "grade": row["grade"],
-                    "hook": hook, "selling_point": sp})
+                    "hook": hook, "selling_point": sp,
+                    **({"shots": shots} if shots else {}),
+                    **({k: ai[k] for k in ("product", "scene", "talent", "pacing", "cta", "why_viral", "script_type", "selling_point_detail") if ai.get(k)}),
+                    **({"persona": ai["talent"], "bgm": v.music} if ai.get("talent") else {})})
     db.add(ad)
     v.ref_ad_no = no
     db.commit()

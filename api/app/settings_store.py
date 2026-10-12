@@ -35,6 +35,8 @@ DEFAULT_MODELS = {
     "eval": "google/gemini-2.5-flash",  # 40 人评测输出大段 JSON，要便宜
     "video": "bytedance/seedance-2.5/text-to-video",
     "video_resolution": "720p",
+    "analysis": "google/gemini-2.5-flash",  # 竞品视频逐条拆解（看封面 + 文案 + 字幕），量大要便宜、能看图
+    "report": "anthropic/claude-sonnet-5.5",  # 汇总成分析报告，要会写洞察
     "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }
 

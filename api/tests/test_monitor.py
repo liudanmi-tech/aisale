@@ -145,3 +145,75 @@ def test_search_accounts():
         assert r["lagos_tech_guy"]["videos"] == 2 and r["lagos_tech_guy"]["kind"] == "达人"
         c.delete("/api/v1/settings/secrets/apify")
     apify.transport = None
+
+
+def test_report():
+    """分析报告：逐条拆解（带封面图）→ 代码统计 → 汇总洞察；拆解结果缓存并用于入库。"""
+    from app import analysis
+    from app.adapters import llm
+
+    seen = {"analysis": 0, "report": 0, "image": 0}
+
+    def llm_handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        if body["model"] == "google/gemini-2.5-flash":
+            seen["analysis"] += 1
+            user = body["messages"][1]["content"]
+            if isinstance(user, list):
+                seen["image"] += any(p["type"] == "image_url" and p["image_url"]["url"].startswith("data:image/") for p in user)
+                user = user[0]["text"]
+            night = "Night camera" in user
+            out = {"brand": "小米", "product": "Redmi Note 15" if night else "Redmi A5", "selling_points": ["夜拍"] if night else ["续航", "快充"],
+                   "scene": "拉各斯夜市" if night else "停电的家", "scene_tags": ["夜晚", "户外市场"] if night else ["家庭"],
+                   "script_type": ["痛点对比"], "hook": "黑夜里两台手机同时拍照", "hook_type": "对比", "talent": "本地年轻男性",
+                   "talent_tag": "年轻男性", "language": "英语", "pacing": "约 20 秒，6 个镜头",
+                   "shots": ["0–3s 黑夜对比", "3-8s 放大细节", "结尾 logo"], "why_viral": "对比直观", "confidence": "中"}
+        else:
+            seen["report"] += 1
+            assert "【统计】" in body["messages"][1]["content"]
+            out = {"headline": "小米主打夜拍对比", "takeaways": ["夜拍对比最火"], "products": "Redmi", "selling_points": "夜拍",
+                   "script_types": "痛点对比", "scenes": "夜市", "talent": "年轻男性", "hooks": "对比", "pacing": "快切",
+                   "why_viral": "内容", "recommendations": ["做夜拍对比"]}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]})
+
+    def media_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\xff\xd8\xff fake jpeg", headers={"content-type": "image/jpeg"})
+
+    apify.transport = httpx.MockTransport(handler)
+    apify.POLL_SECONDS = 0.01
+    llm.transport = httpx.MockTransport(llm_handler)
+    analysis.media_transport = httpx.MockTransport(media_handler)
+    with TestClient(app) as c:
+        assert c.post(W + "/reports", json={}).status_code == 400  # 没有 OpenRouter Key
+        c.put("/api/v1/settings/secrets/apify", json={"value": TOKEN})
+        c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
+        c.post(W + "/accounts", json={"handles": "xiaomi_ng", "brand": "小米", "market": "尼日利亚"})
+        c.post(W + "/sync", json={})
+        wait_until(lambda: all(a["status"] in ("ok", "error") for a in c.get(W + "/accounts").json()["items"]))
+
+        rid = c.post(W + "/reports", json={"market": "尼日利亚", "days": 30, "top": 5}).json()["id"]
+        wait_until(lambda: c.get(f"{W}/reports/{rid}").json()["status"] != "running")
+        r = c.get(f"{W}/reports/{rid}").json()
+        assert r["status"] == "done", r["error"]
+        d = r["data"]
+        assert seen["analysis"] == 5 and seen["image"] == 5 and seen["report"] == 1
+        assert d["insight"]["headline"] == "小米主打夜拍对比" and len(d["videos"]) == 5
+        assert d["videos"][0]["inputs"] == ["文案与数据", "封面"]
+        sp = {x["name"]: x for x in d["stats"]["selling_points"]}
+        assert sp["夜拍"]["videos"] == 1 and sp["夜拍"]["share"] > 30  # xhot 播放最高
+        assert any(x["name"] == "Redmi Note 15" for x in d["stats"]["products"]) and d["stats"]["brands"][0]["name"] == "小米"
+        assert c.get(W + "/reports").json()[0]["headline"] == "小米主打夜拍对比"
+
+        rid2 = c.post(W + "/reports", json={"market": "尼日利亚", "top": 5}).json()["id"]  # 已拆解的视频走缓存
+        wait_until(lambda: c.get(f"{W}/reports/{rid2}").json()["status"] != "running")
+        assert seen["analysis"] == 5 and seen["report"] == 2
+
+        v = next(v for v in d["videos"] if not v["ref_ad_no"] and "Night camera" not in v["text"])
+        ad = c.post(f"{W}/videos/{v['id']}/promote").json()
+        assert ad["selling_point"] == "续航" and ad["hook"] == "黑夜里两台手机同时拍照" and ad["title"] == "Battery test 6000mAh"
+        assert ad["dna"]["shots"][:2] == [["0–3s", "黑夜对比"], ["3-8s", "放大细节"]] and ad["dna"]["product"] == "Redmi A5"
+        latest = {x["id"]: x["ref_ad_no"] for x in c.get(f"{W}/reports/{rid}").json()["data"]["videos"]}
+        assert latest[v["id"]] == ad["no"]  # 报告里的入库状态是实时的
+        for name in ("apify", "openrouter"):
+            c.delete(f"/api/v1/settings/secrets/{name}")
+    apify.transport = llm.transport = analysis.media_transport = None

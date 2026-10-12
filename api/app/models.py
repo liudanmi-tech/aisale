@@ -224,3 +224,27 @@ class VideoSnapshot(Base):
     likes: Mapped[int] = mapped_column(Integer, default=0)
     comments: Mapped[int] = mapped_column(Integer, default=0)
     shares: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class VideoAnalysis(Base):
+    """单条视频的 AI 拆解（手机、卖点、场景、剧本类型、钩子、人物、节奏、为什么火），按视频缓存。"""
+
+    __tablename__ = "video_analysis"
+    video_id: Mapped[str] = mapped_column(ForeignKey("source_video.id"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    model: Mapped[str] = mapped_column(String, default="")
+    inputs: Mapped[list] = mapped_column(JSON, default=list)  # 实际用到的依据：文案 / 字幕 / 封面
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Report(Base):
+    """竞品热点分析报告。"""
+
+    __tablename__ = "report"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String, default="running")  # running done error
+    progress: Mapped[dict] = mapped_column(JSON, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

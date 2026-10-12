@@ -37,6 +37,7 @@ export const router = createBrowserRouter([
             { path: "/", element: <Home /> },
             { path: "/ads", element: page(() => import("@/pages/ads")) },
             { path: "/watch", element: page(() => import("@/pages/watch")) },
+            { path: "/watch/reports/:rid", element: page(() => import("@/pages/report")) },
             { path: "/projects", element: page(() => import("@/pages/projects")) },
             { path: "/agent", element: page(() => import("@/pages/agent-skills")) },
             { path: "/p/:pid", element: <CanvasPage /> },

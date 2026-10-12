@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App, AutoComplete, Button, Checkbox, Descriptions, Drawer, Input, Modal, Popconfirm, Segmented, Select, Switch, Table, Tag, Tooltip } from "antd";
-import { BadgeCheck, ExternalLink, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { BadgeCheck, ExternalLink, FileBarChart, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -156,6 +156,62 @@ function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: ()
     );
 }
 
+/** 分析报告：选范围生成新报告，或打开历史报告。 */
+function ReportDialog({ open, onClose, brands }: { open: boolean; onClose: () => void; brands: string[] }) {
+    const nav = useNavigate();
+    const qc = useQueryClient();
+    const [market, setMarket] = useState("全部");
+    const [brand, setBrand] = useState<string>();
+    const [days, setDays] = useState(30);
+    const [top, setTop] = useState(30);
+    const { data: list = [] } = useQuery({
+        queryKey: ["watch", "reports"], queryFn: api.reports, enabled: open,
+        refetchInterval: (q) => (q.state.data?.some((r) => r.status === "running") ? 3000 : false),
+    });
+    const create = useMutation({
+        mutationFn: () => api.createReport({ market: market === "全部" ? null : market, brand: brand ?? null, days, top }),
+        onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["watch", "reports"] }); nav(`/watch/reports/${r.id}`); },
+    });
+    const del = useMutation({ mutationFn: api.deleteReport, onSuccess: () => qc.invalidateQueries({ queryKey: ["watch", "reports"] }) });
+    const startErr = create.error && ((create.error as any)?.response?.data?.detail || "生成失败");
+    return (
+        <Modal open={open} onCancel={onClose} width={760} title="竞品热点分析报告" footer={null}>
+            <div className="flex flex-col gap-3 text-sm">
+                <div className="text-xs leading-5 text-ink2">
+                    取范围内爆款分最高的视频，AI 逐条拆解：什么手机、卖点、场景、剧本类型、钩子、人物、节奏镜头、为什么火；
+                    再汇总竞品主推产品与打法，给出对传音的建议。每条约 $0.002，30 条一份报告约 $0.1–0.3。
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Select className="w-32" value={market} onChange={setMarket}
+                        options={[{ value: "全部", label: "全部市场" }, ...REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: m })) }))]} />
+                    <Select allowClear className="w-32" placeholder="全部品牌" value={brand} onChange={setBrand} options={brands.map((v) => ({ value: v }))} />
+                    <Segmented value={days} onChange={(v) => setDays(v as number)} options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 90, label: "近 90 天" }]} />
+                    <Select className="w-28" value={top} onChange={setTop} options={[10, 20, 30, 50].map((v) => ({ value: v, label: `前 ${v} 条` }))} />
+                    <Button type="primary" icon={<FileBarChart size={14} />} loading={create.isPending} onClick={() => create.mutate()}>生成报告</Button>
+                </div>
+                {startErr && <Alert type="error" showIcon message={startErr} action={/OpenRouter/.test(startErr) ? <Link to="/settings">去设置</Link> : undefined} />}
+                <div className="mt-2 font-medium">历史报告</div>
+                <Table size="small" rowKey="id" pagination={false} dataSource={list} locale={{ emptyText: "还没有报告" }}
+                    onRow={(r) => ({ onClick: () => nav(`/watch/reports/${r.id}`), className: "cursor-pointer" })}
+                    columns={[
+                        { title: "时间", width: 150, render: (_, r) => when(r.created_at) },
+                        { title: "范围", width: 190, render: (_, r) => `${r.params.market || "全部市场"} · ${r.params.brand || "全部品牌"} · 近 ${r.params.days} 天` },
+                        { title: "结论", render: (_, r) => r.status === "done" ? <span className="line-clamp-2">{r.headline}</span>
+                            : r.status === "error" ? <span className="text-bad">失败：{r.error}</span>
+                            : <span className="text-ink2">{r.progress?.stage}{r.progress?.total ? `（${r.progress.done}/${r.progress.total}）` : ""}…</span> },
+                        { title: "", width: 40, render: (_, r) => (
+                            <span onClick={(e) => e.stopPropagation()}>
+                                <Popconfirm title="删除这份报告？" okText="删除" cancelText="取消" onConfirm={() => del.mutate(r.id)}>
+                                    <Button size="small" type="text" danger icon={<Trash2 size={13} />} aria-label="删除" />
+                                </Popconfirm>
+                            </span>
+                        ) },
+                    ]} />
+            </div>
+        </Modal>
+    );
+}
+
 function StatusTag({ a }: { a: WatchAccount }) {
     if (a.status === "syncing") return <Tag color="processing">同步中</Tag>;
     if (a.status === "error") return <Tooltip title={a.error}><Tag color="error">失败</Tag></Tooltip>;
@@ -197,6 +253,7 @@ export default function Watch() {
     const [sort, setSort] = useState("hot_score");
     const [openId, setOpenId] = useState<string | null>(null);
     const [searching, setSearching] = useState(false);
+    const [reporting, setReporting] = useState(false);
 
     const { data: accs } = useQuery({
         queryKey: ["watch", "accounts"], queryFn: api.watchAccounts,
@@ -230,6 +287,7 @@ export default function Watch() {
                 <Alert className="mb-3" type="warning" showIcon message={<>还没有填写 Apify Token，无法抓取数据。<Link to="/settings">去设置页添加</Link></>} />
             )}
             <Card title="监控账号" className="mb-3" extra={<div className="flex gap-2">
+                <Button size="small" type="primary" icon={<FileBarChart size={13} />} onClick={() => setReporting(true)}>分析报告</Button>
                 <Button size="small" icon={<Search size={13} />} disabled={!accs?.ready} onClick={() => setSearching(true)}>搜索账号</Button>
                 <Button size="small" icon={<RefreshCw size={13} />} disabled={!accs?.ready || !accs.items.length} loading={sync.isPending || syncing} onClick={() => sync.mutate(undefined)}>全部同步</Button>
             </div>}>
@@ -281,6 +339,7 @@ export default function Watch() {
             {!videos.length && <div className="py-16 text-center text-sm text-ink2">{accs?.items.length ? "还没有视频：点「全部同步」拉取数据" : "添加监控账号后，这里会显示抓到的视频"}</div>}
 
             <SearchAccounts open={searching} onClose={() => setSearching(false)} onAdded={refresh} />
+            <ReportDialog open={reporting} onClose={() => setReporting(false)} brands={brands} />
             <Drawer open={!!open} width={560} onClose={() => setOpenId(null)} title={open ? `@${open.account.handle} 的视频` : ""}
                 footer={open && (
                     <div className="flex justify-end gap-2">

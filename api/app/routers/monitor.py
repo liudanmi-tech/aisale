@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import canvas, monitor, settings_store
+from app import analysis, canvas, monitor, settings_store
 from app.db import get_db
 from app.events import spawn
-from app.models import SourceVideo, VideoSnapshot, WatchAccount, new_id
+from app.models import Report, SourceVideo, VideoAnalysis, VideoSnapshot, WatchAccount, new_id
 from app.routers.ops import ad_dict
 
 router = APIRouter(prefix="/api/v1/watch")
@@ -94,6 +94,7 @@ def delete_account(aid: str, db: Session = Depends(get_db)):
     vids = [v.id for v in db.query(SourceVideo).filter(SourceVideo.account_id == aid)]
     if vids:
         db.query(VideoSnapshot).filter(VideoSnapshot.video_id.in_(vids)).delete(synchronize_session=False)
+        db.query(VideoAnalysis).filter(VideoAnalysis.video_id.in_(vids)).delete(synchronize_session=False)
         db.query(SourceVideo).filter(SourceVideo.account_id == aid).delete(synchronize_session=False)
     db.delete(a)
     canvas.audit(db, "-", "user", "watch_delete", {"handle": a.handle})
@@ -158,6 +159,54 @@ def videos(market: str | None = None, brand: str | None = None, grade: str | Non
         rows = [r for r in rows if r["grade"] == grade]
     key = sort if sort in ("hot_score", "quality_score", "plays", "multiple", "engagement", "posted_at") else "hot_score"
     return sorted(rows, key=lambda r: r.get(key) or 0, reverse=True)
+
+
+class ReportIn(BaseModel):
+    market: str | None = None
+    brand: str | None = None
+    days: int = 30
+    top: int = 30
+    include_own: bool = False
+    refresh: bool = False  # 重新拆解已拆过的视频
+
+
+@router.post("/reports")
+def create_report(body: ReportIn, db: Session = Depends(get_db)):
+    if not settings_store.get_secret("openrouter"):
+        raise HTTPException(400, "分析报告需要大模型：请先在设置页填写 OpenRouter Key")
+    params = {**body.model_dump(), "days": max(1, min(365, body.days)), "top": max(5, min(60, body.top))}
+    rid = analysis.start(params)
+    spawn(analysis.run(rid))
+    canvas.audit(db, "-", "user", "report_create", params)
+    db.commit()
+    return {"id": rid}
+
+
+@router.get("/reports")
+def reports(db: Session = Depends(get_db)):
+    return [analysis.report_dict(r, full=False) for r in db.query(Report).order_by(Report.created_at.desc()).limit(30)]
+
+
+@router.get("/reports/{rid}")
+def report(rid: str, db: Session = Depends(get_db)):
+    r = db.get(Report, rid)
+    if not r:
+        raise HTTPException(404, "not found")
+    d = analysis.report_dict(r)
+    # 入库状态以当前为准（报告生成后可能有视频被加入爆款库）
+    nos = {v.id: v.ref_ad_no for v in db.query(SourceVideo).filter(SourceVideo.id.in_([x["id"] for x in (r.data or {}).get("videos", [])]))}
+    for x in d["data"].get("videos", []) if d.get("data") else []:
+        x["ref_ad_no"] = nos.get(x["id"])
+    return d
+
+
+@router.delete("/reports/{rid}")
+def delete_report(rid: str, db: Session = Depends(get_db)):
+    r = db.get(Report, rid)
+    if r:
+        db.delete(r)
+        db.commit()
+    return {"ok": True}
 
 
 @router.post("/videos/{vid}/promote")
