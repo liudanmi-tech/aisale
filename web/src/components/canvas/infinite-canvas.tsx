@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import {
-    Bot, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Undo2, Users, Wand2,
+    Bot, CheckCheck, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Undo2, Users, Wand2,
 } from "lucide-react";
 import { Popover } from "antd";
 import { motion } from "motion/react";
@@ -20,6 +20,8 @@ export interface CanvasActions {
     /** 填入 Agent 输入框，由用户补充后发送 */
     onDraft: (text: string) => void;
     onPickAd: () => void;
+    /** 通过待审核节点（驳回要写理由，走详情页） */
+    onPass: (ids: string[]) => void;
 }
 
 type ViewNode = CanvasNode & { ghost?: boolean };
@@ -188,7 +190,7 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
                         );
                     })}
                 </svg>
-                {all.map((n) => <NodeCard key={n.id} n={n} selected={selection.includes(n.id)} dim={highlight.length > 0 && !highlight.includes(n.id)} lit={highlight.includes(n.id)} />)}
+                {all.map((n) => <NodeCard key={n.id} n={n} selected={selection.includes(n.id)} dim={highlight.length > 0 && !highlight.includes(n.id)} lit={highlight.includes(n.id)} actions={actions} />)}
             </div>
 
             {bar && !menu && (
@@ -232,7 +234,7 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
     );
 }
 
-function NodeCard({ n, selected, dim, lit }: { n: ViewNode; selected: boolean; dim: boolean; lit: boolean }) {
+function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: boolean; dim: boolean; lit: boolean; actions: CanvasActions }) {
     const meta = NODE_META[n.type];
     const cover = n.type === "ad" || n.type === "video";
     const preview =
@@ -276,7 +278,17 @@ function NodeCard({ n, selected, dim, lit }: { n: ViewNode; selected: boolean; d
                 </div>
                 <div className="mt-1 truncate text-[11px] text-ink2">{n.sub}</div>
                 {preview && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
-                <div className="mt-1.5"><StatusBadge status={n.ghost ? "preview" : n.status} /></div>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                    <StatusBadge status={n.ghost ? "preview" : n.status} />
+                    {n.status === "wait" && !n.ghost && (
+                        <span className="ml-auto flex gap-1" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                            <button className="cursor-pointer rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-[#4a4a52]"
+                                onClick={() => actions.onOpen(n)}>查看 / 驳回</button>
+                            <button className="cursor-pointer rounded-md border-0 bg-good px-2 py-0.5 text-[11px] font-medium text-black hover:opacity-90"
+                                onClick={() => actions.onPass([n.id])}>通过</button>
+                        </span>
+                    )}
+                </div>
             </div>
         </motion.div>
     );
@@ -289,6 +301,8 @@ function SelectionActions({ nodes, actions }: { nodes: ViewNode[]; actions: Canv
     const items: [ReactNode, string, () => void][] = [];
     const only = (t: string) => types.size === 1 && types.has(t as never);
     if (one?.type === "ad") items.push([<PenLine size={14} />, "洗剧本", () => actions.onDraft(`用 @${one.title} 给小商贩写 3 个续航剧本`)]);
+    const waiting = nodes.filter((n) => n.status === "wait");
+    if (waiting.length > 1) items.push([<CheckCheck size={14} />, `全部通过（${waiting.length}）`, () => actions.onPass(waiting.map((n) => n.id))]);
     if (only("script")) items.push([<Clapperboard size={14} />, nodes.length > 1 ? `批量生成视频（${nodes.length}）` : "生成视频", () => actions.onCommand("生成视频", ids)]);
     if (only("video")) items.push([<Users size={14} />, nodes.length > 1 ? `批量评测（${nodes.length}）` : "跑评测", () => actions.onCommand("跑评测", ids)]);
     if (one?.type === "eval") items.push([<Rocket size={14} />, "生成投放方案", () => actions.onCommand("生成投放方案", ids)]);

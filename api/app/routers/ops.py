@@ -151,10 +151,28 @@ def decide(rid: str, body: DecideIn, db: Session = Depends(get_db)):
         raise HTTPException(409, "review is not pending")
     if body.decision == "reject" and not body.comment.strip():
         raise HTTPException(400, "驳回需要填写理由")
+    _decide(db, r, body)
+    return {"ok": True}
+
+
+class NodesDecideIn(BaseModel):
+    node_ids: list[str]
+
+
+@router.post("/reviews/pass-nodes")
+def pass_nodes(body: NodesDecideIn, db: Session = Depends(get_db)):
+    """在画布上直接通过一个或多个待审核节点（驳回需要理由，走详情页）。"""
+    rs = db.query(ReviewTask).filter(ReviewTask.node_id.in_(body.node_ids), ReviewTask.status == "wait").all()
+    for r in rs:
+        _decide(db, r, DecideIn(decision="pass"))
+    return {"passed": len(rs)}
+
+
+def _decide(db: Session, r: ReviewTask, body: "DecideIn") -> None:
     n, project = db.get(Node, r.node_id), db.get(Project, r.project_id)
     r.status = "reject" if body.decision == "reject" else "pass"
     r.comment, r.decided_at = body.comment or ("修改后通过" if body.decision == "edit_pass" else ""), datetime.utcnow()
-    canvas.audit(db, r.project_id, "user", "review_" + r.status, {"review_id": rid, "node_id": r.node_id, "comment": body.comment})
+    canvas.audit(db, r.project_id, "user", "review_" + r.status, {"review_id": r.id, "node_id": r.node_id, "comment": body.comment})
     rework = False
     if n and r.status == "pass":
         n.status = "pass"
@@ -173,7 +191,6 @@ def decide(rid: str, body: DecideIn, db: Session = Depends(get_db)):
         workflows.rework(n, body.comment)
     for k in ("canvas", "chat", "reviews"):
         emit(r.project_id, k)
-    return {"ok": True}
 
 
 @router.get("/projects/{pid}/delivery")

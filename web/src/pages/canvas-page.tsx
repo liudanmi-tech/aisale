@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Input, Modal } from "antd";
-import { Search } from "lucide-react";
+import { CheckCheck, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
@@ -49,6 +49,13 @@ export default function CanvasPage() {
         onSuccess: (r) => { setPicking(false); refresh(); select([r.node_id]); setDraft(r.prompt); setAskNonce(Date.now()); },
     });
 
+    const pass = useMutation({
+        mutationFn: (ids: string[]) => api.passNodes(ids),
+        onSuccess: (r) => { message.success(r.passed > 1 ? `已通过 ${r.passed} 个节点，可以继续下一步` : "已通过，可以继续下一步"); qc.invalidateQueries({ queryKey: ["reviews"] }); },
+        onSettled: refresh,
+    });
+    const waiting = data?.nodes.filter((n) => n.status === "wait") ?? [];
+
     const open = (n: CanvasNode) => {
         const routes: Partial<Record<CanvasNode["type"], string>> = {
             script: `/p/${pid}/script/${n.id}`, video: `/p/${pid}/video/${n.id}`, eval: `/p/${pid}/eval/${n.id}`,
@@ -64,6 +71,7 @@ export default function CanvasPage() {
         onCommand: (text, selection) => command.mutate({ text, selection: selection ?? useCanvasStore.getState().selection }),
         onDraft: (text) => { setDraft(text); setAskNonce(Date.now()); },
         onPickAd: () => setPicking(true),
+        onPass: (ids) => pass.mutate(ids),
     };
 
     return (
@@ -71,6 +79,16 @@ export default function CanvasPage() {
             <AgentPanel projectId={pid} snapshot={data} askNonce={askNonce} initialPrompt={initialPrompt} onInitialSent={() => nav(loc.pathname, { replace: true, state: null })} />
             <section className="relative min-w-0 flex-1 max-[900px]:h-[60vh] max-[900px]:flex-none">
                 {data && <InfiniteCanvas nodes={data.nodes} edges={data.edges} patch={data.pending_patch} actions={actions} />}
+                {waiting.length > 0 && (
+                    <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-warn/40 bg-surface/95 py-1 pl-3.5 pr-1 text-[13px] shadow-lg">
+                        <span className="h-2 w-2 rounded-full bg-warn" />
+                        <span>{waiting.length} 个节点待你审核：{waiting.slice(0, 3).map((n) => n.title).join("、")}{waiting.length > 3 ? " 等" : ""}</span>
+                        <button className="cursor-pointer rounded-full border border-line bg-transparent px-2.5 py-0.5 text-xs text-ink hover:border-[#4a4a52]"
+                            onClick={() => { const ids = waiting.map((n) => n.id); setHighlight(ids); focus(ids[0]); setTimeout(() => setHighlight([]), 2500); }}>定位</button>
+                        <button className="flex cursor-pointer items-center gap-1 rounded-full border-0 bg-good px-2.5 py-0.5 text-xs font-medium text-black disabled:opacity-60"
+                            disabled={pass.isPending} onClick={() => pass.mutate(waiting.map((n) => n.id))}><CheckCheck size={13} />全部通过</button>
+                    </div>
+                )}
             </section>
             <AdPicker open={picking} onClose={() => setPicking(false)} onPick={(no) => wash.mutate(no)} loading={wash.isPending} />
         </div>

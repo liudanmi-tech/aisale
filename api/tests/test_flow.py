@@ -153,3 +153,19 @@ def test_scripts_without_ref_ad_picks_from_library():
         assert len(ads) == 1 and ads[0]["status"] == "pass" and ads[0]["title"].startswith("爆款 #")
         assert sum(n["type"] == "script" for n in nodes) == 3
         assert c.get(P + "/flow").json()[0]["done"]
+
+
+def test_pass_nodes_from_canvas():
+    """画布上直接通过待审核节点（单个或批量）。"""
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "审核测试", "market": "尼日利亚", "selling_point": "续航"}).json()["id"]
+        P = f"/api/v1/projects/{pid}"
+        c.post(P + "/agent/chat", json={"text": "给小商贩写 2 个续航剧本"})
+        c.post(f"{P}/patches/{c.get(P + '/canvas').json()['pending_patch']['id']}/apply")
+        scripts = lambda: [n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script"]  # noqa: E731
+        wait_until(c, lambda: all(n["status"] == "wait" for n in scripts()))
+        ids = [n["id"] for n in scripts()]
+        assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": ids[:1]}).json() == {"passed": 1}
+        assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": ids}).json() == {"passed": 1}  # 已通过的不重复处理
+        assert all(n["status"] == "pass" for n in scripts())
+        assert "已通过审核" in c.get(P + "/chat").json()[-1]["text"]
