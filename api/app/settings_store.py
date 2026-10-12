@@ -1,6 +1,6 @@
 """平台设置：在「设置」页填写的密钥（加密存储）与按任务选择的模型。
 
-密钥优先读数据库（设置页填写），其次读环境变量（FAL_KEY / OPENROUTER_API_KEY）。
+密钥优先读数据库（设置页填写），其次读环境变量（FAL_KEY / OPENROUTER_API_KEY / APIFY_TOKEN）。
 加密主密钥来自环境变量 APP_SECRET；未设置时在 api/.app_secret 自动生成（生产环境务必配置 APP_SECRET）。
 """
 import base64
@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from app.db import SessionLocal
 from app.models import Secret, Setting
 
-SECRET_NAMES = {"fal": "FAL_KEY", "openrouter": "OPENROUTER_API_KEY"}
+SECRET_NAMES = {"fal": "FAL_KEY", "openrouter": "OPENROUTER_API_KEY", "apify": "APIFY_TOKEN"}
 
 LLM_MODELS = [
     {"id": "google/gemini-2.5-flash", "label": "Gemini 2.5 Flash", "hint": "快、便宜，支持工具调用与视频理解"},
@@ -35,6 +35,7 @@ DEFAULT_MODELS = {
     "eval": "google/gemini-2.5-flash",  # 40 人评测输出大段 JSON，要便宜
     "video": "bytedance/seedance-2.5/text-to-video",
     "video_resolution": "720p",
+    "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }
 
 

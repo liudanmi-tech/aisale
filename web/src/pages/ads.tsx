@@ -10,6 +10,8 @@ import { api, type RefAd } from "@/services/api";
 import { useCurrentProject } from "@/stores/project-store";
 import { useCanvasStore } from "@/stores/canvas-store";
 
+const fmtNum = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
+
 export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () => void }) {
     return (
         <div onClick={onClick} className="cursor-pointer overflow-hidden rounded-xl border border-line bg-surface transition hover:-translate-y-0.5 hover:border-brand">
@@ -19,8 +21,13 @@ export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () =
                 {ad.title}
             </Cover>
             <div className="px-2.5 py-2 text-xs leading-5 text-ink2">
+                {ad.dna?.plays != null ? <>
+                    {ad.brand} · {ad.dna.account} · 发布 {ad.days_running} 天<br />
+                    播放 {fmtNum(ad.dna.plays)} · 互动 {ad.dna.engagement}% · {ad.dna.multiple}×
+                </> : <>
                 {ad.brand} · 投放 {ad.days_running} 天<br />
                 CTR <span className={ad.is_estimated ? "border-b border-dashed border-ink2" : ""}>{ad.ctr_range}{ad.is_estimated ? " 估" : ""}</span> · 完播 {ad.vtr}%
+                </>}
             </div>
         </div>
     );
@@ -48,7 +55,7 @@ export default function Ads() {
 
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
-            <PageTitle title="爆款库" desc="来源：第三方广告情报 + TikTok Creative Center + 传音历史投放；带「估」的为估算值" />
+            <PageTitle title="爆款库" desc="来源：TikTok 账号监控（真实公开数据）+ 第三方广告情报 + 传音历史投放；带「估」的为估算值" />
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="text-ink2">市场</span>
@@ -70,18 +77,26 @@ export default function Ads() {
                     <div className="flex flex-col gap-4">
                         <div className="flex gap-4">
                             <Cover gradient={COVER_GRADIENTS[idx % COVER_GRADIENTS.length]} className="w-[180px] shrink-0 items-center justify-center"><Play size={36} /></Cover>
-                            <Descriptions column={1} size="small" items={[
+                            {ad.dna?.plays != null ? <Descriptions column={1} size="small" items={[
+                                { label: "账号", children: `${ad.brand} · ${ad.dna.account}` }, { label: "市场", children: ad.market },
+                                { label: "公开数据", children: `播放 ${fmtNum(ad.dna.plays)} · 点赞 ${fmtNum(ad.dna.likes)} · 评论 ${fmtNum(ad.dna.comments)} · 分享 ${fmtNum(ad.dna.shares)}` },
+                                { label: "爆款倍数", children: `${ad.dna.multiple}×（相对账号近 30 条中位数）· 互动率 ${ad.dna.engagement}%` },
+                                { label: "点击率 / 完播率", children: "不公开（竞品数据拿不到，靠自家测试投放获得）" },
+                                { label: "爆款分", children: ad.hot_score }, { label: "来源", children: ad.source },
+                                { label: "原视频", children: <a href={ad.dna.url} target="_blank" rel="noreferrer">在 TikTok 打开</a> },
+                            ]} /> : <Descriptions column={1} size="small" items={[
                                 { label: "品牌", children: ad.brand }, { label: "市场", children: ad.market },
                                 { label: "投放天数", children: `${ad.days_running} 天 · ${ad.variants} 个版本（持续加版本 = 跑量信号）` },
                                 { label: "CTR", children: `${ad.ctr_range}${ad.is_estimated ? "（估算）" : ""}` },
                                 { label: "完播率", children: `${ad.vtr}%` }, { label: "爆款分", children: ad.hot_score }, { label: "来源", children: ad.source },
-                            ]} />
+                            ]} />}
                         </div>
+                        {ad.dna?.text && <div className="whitespace-pre-wrap rounded-lg bg-elev p-3 text-sm">{ad.dna.text}</div>}
                         <div>
                             <h4 className="mb-2 mt-0">创意 DNA</h4>
-                            {[["钩子", ad.dna.hook], ["主卖点", ad.dna.selling_point], ["卖点出现", ad.dna.sp_at], ["人物", ad.dna.persona], ["BGM", ad.dna.bgm], ["CTA", ad.dna.cta]].map(([k, v]) => <Tag key={k}>{k}：{v}</Tag>)}
+                            {[["钩子", ad.dna.hook], ["主卖点", ad.dna.selling_point], ["卖点出现", ad.dna.sp_at], ["人物", ad.dna.persona], ["BGM", ad.dna.bgm ?? ad.dna.music], ["CTA", ad.dna.cta]].filter(([, v]) => v).map(([k, v]) => <Tag key={k}>{k}：{v}</Tag>)}
                         </div>
-                        <div>
+                        {Array.isArray(ad.dna.shots) ? <div>
                             <h4 className="mb-2 mt-0">分镜时间轴</h4>
                             <div className="flex gap-2.5 overflow-x-auto pb-1">
                                 {(ad.dna.shots as string[][]).map((s, i) => (
@@ -91,8 +106,8 @@ export default function Ads() {
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                        <div className="text-sm text-ink2">评论洞察：购买意向词占比 {ad.dna.intent_ratio}%（price / how much / where to buy）</div>
+                        </div> : <div className="text-sm text-ink2">分镜拆解：下一步由 AI 看视频自动生成；洗剧本时会参考上面的文案与数据。</div>}
+                        {ad.dna.intent_ratio != null && <div className="text-sm text-ink2">评论洞察：购买意向词占比 {ad.dna.intent_ratio}%（price / how much / where to buy）</div>}
                     </div>
                 )}
             </Drawer>

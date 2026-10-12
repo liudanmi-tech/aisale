@@ -3,7 +3,7 @@ import { Popover, Select, Tooltip } from "antd";
 import clsx from "clsx";
 import {
     BarChart3, CheckCircle2, ClipboardCheck, Flame, FolderKanban, House, Layers, LayoutDashboard, PanelLeftClose, PanelLeftOpen,
-    Rocket, Settings, Sparkles, Workflow,
+    Radar, Rocket, Settings, Sparkles, Workflow,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -37,6 +37,7 @@ export function AppLayout() {
             { to: "/", label: "首页", icon: <House size={17} />, match: (p) => p === "/" },
             { to: "/projects", label: "项目", icon: <FolderKanban size={17} /> },
             { to: "/ads", label: "爆款库", icon: <Flame size={17} /> },
+            { to: "/watch", label: "账号监控", icon: <Radar size={17} /> },
             { to: "/assets", label: "资产", icon: <Layers size={17} /> },
         ] },
         { title: "创作", items: [

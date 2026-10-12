@@ -141,10 +141,57 @@ export interface ModelOption {
 }
 export interface PlatformSettings {
     admin_required: boolean;
-    secrets: Record<"fal" | "openrouter", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
-    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution", string>;
+    secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor", string>;
     catalog: { llm: ModelOption[]; video: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
+}
+
+export interface WatchAccount {
+    id: string;
+    platform: string;
+    handle: string;
+    brand: string;
+    market: string;
+    kind: string;
+    enabled: boolean;
+    nickname: string;
+    followers: number | null;
+    verified: boolean;
+    status: "new" | "syncing" | "ok" | "error";
+    error: string;
+    last_synced: string | null;
+    videos: number;
+}
+export interface WatchVideo {
+    id: string;
+    external_id: string;
+    url: string;
+    cover: string;
+    text: string;
+    hashtags: string[];
+    music: string;
+    duration: number | null;
+    is_ad: boolean;
+    posted_at: string | null;
+    age_hours: number | null;
+    plays: number;
+    likes: number;
+    comments: number;
+    shares: number;
+    collects: number;
+    account: { id: string; handle: string; brand: string; market: string; kind: string; followers: number | null };
+    multiple: number;
+    engagement: number;
+    share_rate: number;
+    velocity: number | null;
+    boosted: boolean;
+    trend: { ts: string; plays: number }[];
+    hot_score: number;
+    quality_score: number;
+    breakdown: Record<string, number>;
+    grade: "" | "爆款" | "精品" | "观察中";
+    ref_ad_no: number | null;
 }
 
 export const api = {
@@ -180,6 +227,13 @@ export const api = {
     saveSecret: (name: string, value: string) => http.put(`/settings/secrets/${name}`, { value }).then((r) => r.data),
     deleteSecret: (name: string) => http.delete(`/settings/secrets/${name}`).then((r) => r.data),
     testSecret: (name: string, value?: string) => post<{ ok: boolean; message: string }>(`/settings/secrets/${name}/test`, { value: value || null }),
+    watchAccounts: () => get<{ ready: boolean; items: WatchAccount[] }>("/watch/accounts"),
+    addWatchAccounts: (body: { handles: string; brand: string; market: string; kind: string }) => post<{ added: number; skipped: number }>("/watch/accounts", body),
+    patchWatchAccount: (id: string, body: Partial<Pick<WatchAccount, "brand" | "market" | "kind" | "enabled">>) => http.patch(`/watch/accounts/${id}`, body).then((r) => r.data),
+    deleteWatchAccount: (id: string) => http.delete(`/watch/accounts/${id}`).then((r) => r.data),
+    syncWatch: (account_ids?: string[]) => post("/watch/sync", { account_ids: account_ids ?? null }),
+    watchVideos: (params: { market?: string; brand?: string; grade?: string; sort?: string }) => get<WatchVideo[]>("/watch/videos", params),
+    promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
 };
 

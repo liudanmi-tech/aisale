@@ -7,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import config
+from app import config, monitor
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
+from app.routers import monitor as monitor_router
 from app.routers import ops, projects, settings
 from app.seed import seed
 
@@ -20,7 +21,9 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         seed(db)
+    task = asyncio.create_task(monitor.scheduler())
     yield
+    task.cancel()
 
 
 app = FastAPI(title="AIGC 投放平台 API", version="0.3.0", lifespan=lifespan)
@@ -28,6 +31,7 @@ app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_meth
 app.include_router(projects.router)
 app.include_router(ops.router)
 app.include_router(settings.router)
+app.include_router(monitor_router.router)
 
 
 @app.get("/api/health")

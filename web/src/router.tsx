@@ -23,6 +23,7 @@ export const router = createBrowserRouter([
         children: [
             { path: "/", element: <Home /> },
             { path: "/ads", element: page(() => import("@/pages/ads")) },
+            { path: "/watch", element: page(() => import("@/pages/watch")) },
             { path: "/projects", element: page(() => import("@/pages/projects")) },
             { path: "/agent", element: page(() => import("@/pages/agent-skills")) },
             { path: "/p/:pid", element: <CanvasPage /> },

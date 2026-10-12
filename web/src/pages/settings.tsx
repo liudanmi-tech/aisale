@@ -8,7 +8,13 @@ import { adminToken, api, type ModelOption, type PlatformSettings } from "@/serv
 
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
 
-function SecretRow({ name, info, onChanged }: { name: "fal" | "openrouter"; info: PlatformSettings["secrets"]["fal"]; onChanged: () => void }) {
+const HINTS: Record<keyof PlatformSettings["secrets"], string> = {
+    fal: "在 fal.ai → Dashboard → Keys 创建，用于 Seedance 视频生成",
+    openrouter: "在 openrouter.ai → Keys 创建，用于 Agent、剧本与 40 人评测",
+    apify: "在 Apify → Settings → API & Integrations 复制 Personal API token，用于抓取 TikTok 竞品账号视频与数据",
+};
+
+function SecretRow({ name, info, onChanged }: { name: keyof PlatformSettings["secrets"]; info: PlatformSettings["secrets"]["fal"]; onChanged: () => void }) {
     const { message } = App.useApp();
     const [value, setValue] = useState("");
     const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -24,7 +30,7 @@ function SecretRow({ name, info, onChanged }: { name: "fal" | "openrouter"; info
     });
     const test = useMutation({ mutationFn: () => api.testSecret(name, value), onSuccess: setResult, onError: (e) => setResult({ ok: false, message: errMsg(e) }) });
     const del = useMutation({ mutationFn: () => api.deleteSecret(name), onSuccess: () => { message.success("已删除"); setResult(null); onChanged(); }, onError: (e) => message.error(errMsg(e)) });
-    const hint = name === "fal" ? "在 fal.ai → Dashboard → Keys 创建，用于 Seedance 视频生成" : "在 openrouter.ai → Keys 创建，用于 Agent、剧本与 40 人评测";
+    const hint = HINTS[name];
     return (
         <div className="rounded-xl border border-line p-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -88,8 +94,9 @@ export default function Settings() {
                     <div className="flex flex-col gap-3">
                         <SecretRow name="fal" info={data.secrets.fal} onChanged={refresh} />
                         <SecretRow name="openrouter" info={data.secrets.openrouter} onChanged={refresh} />
+                        <SecretRow name="apify" info={data.secrets.apify} onChanged={refresh} />
                     </div>
-                    <div className="mt-3 text-xs leading-5 text-ink2">「测试连接」只校验 Key 是否有效，不会产生调用费用。生成视频和大模型调用按 fal.ai / OpenRouter 实际用量计费。</div>
+                    <div className="mt-3 text-xs leading-5 text-ink2">「测试连接」只校验 Key 是否有效，不会产生调用费用。生成视频、大模型调用和抓取数据按 fal.ai / OpenRouter / Apify 实际用量计费。</div>
                 </Card>
                 <Card title="按任务选择模型" extra={<Button type="primary" size="small" loading={saveModels.isPending} onClick={() => saveModels.mutate()}>保存</Button>}>
                     <div className="flex flex-col gap-4">

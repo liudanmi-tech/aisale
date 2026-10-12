@@ -10,11 +10,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import canvas, config, settings_store
-from app.adapters import fal, llm
+from app.adapters import apify, fal, llm
 from app.db import get_db
 
 router = APIRouter(prefix="/api/v1/settings")
-NAMES = {"fal": "fal.ai（视频生成）", "openrouter": "OpenRouter（大模型）"}
+NAMES = {"fal": "fal.ai（视频生成）", "openrouter": "OpenRouter（大模型）", "apify": "Apify（TikTok 账号数据）"}
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
@@ -35,6 +35,7 @@ def get_settings():
             {"name": "视频生成", "mode": {"fal": "fal.ai 真实调用", "byteplus": "BytePlus 直连", "mock": "模拟"}[vp], "ready": vp != "mock"},
             {"name": "大模型（Agent / 剧本 / 评测）", "mode": "OpenRouter 真实调用" if settings_store.llm_enabled() else "规则与模板", "ready": settings_store.llm_enabled()},
             {"name": "TikTok Marketing API", "mode": "真实调用" if config.TIKTOK_MODE == "real" else "模拟", "ready": bool(config.TIKTOK_ACCESS_TOKEN)},
+            {"name": "TikTok 账号监控", "mode": "Apify 真实抓取" if settings_store.get_secret("apify") else "未接入", "ready": bool(settings_store.get_secret("apify"))},
             {"name": "第三方广告情报", "mode": "样例数据", "ready": False},
             {"name": "Meta / X", "mode": "二期", "ready": False},
         ],
@@ -83,7 +84,7 @@ async def test_secret(name: str, body: TestIn):
     if not key:
         return {"ok": False, "message": "还没有填写 Key"}
     try:
-        ok, msg = await (fal.check_key(key) if name == "fal" else llm.check_key(key))
+        ok, msg = await {"fal": fal.check_key, "openrouter": llm.check_key, "apify": apify.check_key}[name](key)
     except Exception as e:
         ok, msg = False, f"连接失败：{type(e).__name__}"
     return {"ok": ok, "message": msg}

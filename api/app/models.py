@@ -166,3 +166,61 @@ class Setting(Base):
     __tablename__ = "setting"
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[dict] = mapped_column(JSON)
+
+
+class WatchAccount(Base):
+    """监控的 TikTok 账号：竞品官方号、本地达人、传音自家号（对照）。"""
+
+    __tablename__ = "watch_account"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    platform: Mapped[str] = mapped_column(String, default="TikTok")
+    handle: Mapped[str] = mapped_column(String, index=True)  # 不带 @
+    brand: Mapped[str] = mapped_column(String, default="")
+    market: Mapped[str] = mapped_column(String, default="尼日利亚")
+    kind: Mapped[str] = mapped_column(String, default="竞品官方")  # 竞品官方 / 达人 / 传音自有
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    nickname: Mapped[str] = mapped_column(String, default="")
+    followers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String, default="new")  # new syncing ok error
+    error: Mapped[str] = mapped_column(String, default="")
+    last_synced: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SourceVideo(Base):
+    """从监控账号拉到的视频，保存最新指标；历史指标在 video_snapshot。"""
+
+    __tablename__ = "source_video"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    platform: Mapped[str] = mapped_column(String, default="TikTok")
+    external_id: Mapped[str] = mapped_column(String, unique=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("watch_account.id"), index=True)
+    url: Mapped[str] = mapped_column(String, default="")
+    cover: Mapped[str] = mapped_column(String, default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    hashtags: Mapped[list] = mapped_column(JSON, default=list)
+    music: Mapped[str] = mapped_column(String, default="")
+    duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_ad: Mapped[bool] = mapped_column(Boolean, default=False)  # 平台标注的广告 / 付费合作
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    plays: Mapped[int] = mapped_column(Integer, default=0)
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+    comments: Mapped[int] = mapped_column(Integer, default=0)
+    shares: Mapped[int] = mapped_column(Integer, default=0)
+    collects: Mapped[int] = mapped_column(Integer, default=0)
+    ref_ad_no: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 已加入爆款库
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class VideoSnapshot(Base):
+    __tablename__ = "video_snapshot"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str] = mapped_column(ForeignKey("source_video.id"), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    plays: Mapped[int] = mapped_column(Integer, default=0)
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+    comments: Mapped[int] = mapped_column(Integer, default=0)
+    shares: Mapped[int] = mapped_column(Integer, default=0)
