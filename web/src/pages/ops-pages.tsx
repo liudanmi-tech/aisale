@@ -8,6 +8,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { Card, PageTitle, StatusBadge } from "@/components/common";
 import { api, type Review } from "@/services/api";
+import { useCanvasStore } from "@/stores/canvas-store";
 import { useCurrentProject } from "@/stores/project-store";
 
 const page = "mx-auto max-w-[1440px] p-6 pb-12";
@@ -175,14 +176,9 @@ export function ReviewCenter() {
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     });
-    const open = (rv: Review) => {
-        const t = rv.module;
-        if (t === "剧本工厂") nav(`/p/${rv.project_id}/script/${rv.node_id}`);
-        else if (t === "视频生成") nav(`/p/${rv.project_id}/video/${rv.node_id}`);
-        else if (t === "Agent 评测") nav(`/p/${rv.project_id}/eval/${rv.node_id}`);
-        else if (t === "自动投放") nav("/delivery");
-        else nav("/data");
-    };
+    // 内容都在画布上：跳到所在项目的画布并定位到这个节点
+    const focusNode = useCanvasStore((st) => st.focus);
+    const open = (rv: Review) => { focusNode(rv.node_id); nav(`/p/${rv.project_id}`); };
     return (
         <div className={page}>
             <PageTitle title="审核中心" desc="每个模块产出结论后都停在这里；通过后工作流才继续。快捷键：A 通过 · R 驳回" />

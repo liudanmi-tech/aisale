@@ -267,6 +267,7 @@ export const api = {
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),
+    rejectNode: (node_id: string, comment: string) => post("/reviews/reject-node", { node_id, comment }),
     passNodes: (node_ids: string[]) => post<{ passed: number }>("/reviews/pass-nodes", { node_ids }),
     decide: (rid: string, decision: "pass" | "reject" | "edit_pass", comment = "") => post(`/reviews/${rid}/decide`, { decision, comment }),
     delivery: (pid: string) => get<(CanvasNode & { review_id: string | null; creative_titles: string[] })[]>(`/projects/${pid}/delivery`),

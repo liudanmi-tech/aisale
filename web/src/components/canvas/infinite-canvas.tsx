@@ -1,13 +1,15 @@
 import clsx from "clsx";
 import {
-    Bot, CheckCheck, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Undo2, Users, Wand2,
+    Bot, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Undo2, Users, Wand2,
 } from "lucide-react";
 import { Popover } from "antd";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { NodeBody } from "@/components/canvas/node-body";
 import { StatusBadge } from "@/components/common";
-import { COVER_GRADIENTS, NODE_H, NODE_META, NODE_W } from "@/lib/constants";
+import { COVER_GRADIENTS, EXPANDED_W, NODE_H, NODE_META, NODE_W } from "@/lib/constants";
+import { useCollapseStore } from "@/stores/collapse-store";
 import type { CanvasEdge, CanvasNode, Patch } from "@/services/api";
 import { useCanvasStore } from "@/stores/canvas-store";
 
@@ -20,9 +22,17 @@ export interface CanvasActions {
     /** 填入 Agent 输入框，由用户补充后发送 */
     onDraft: (text: string) => void;
     onPickAd: () => void;
-    /** 通过待审核节点（驳回要写理由，走详情页） */
+    /** 通过待审核节点 */
     onPass: (ids: string[]) => void;
+    /** 驳回：弹框填理由，理由交给 Agent 重做 */
+    onReject: (node: CanvasNode) => void;
+    /** 选中节点并在左侧 Agent 输入框里继续改 */
+    onRevise: (node: CanvasNode) => void;
 }
+
+/** 节点是否展开显示内容（默认展开，计划预览不展开） */
+const expandable = (n: ViewNode) => !n.ghost && !!EXPANDED_W[n.type];
+const HEAD_Y = NODE_H / 2; // 连线接在节点标题行的高度，展开后也不变
 
 type ViewNode = CanvasNode & { ghost?: boolean };
 type Menu = { kind: "create" | "node"; x: number; y: number; node?: CanvasNode } | null;
@@ -30,8 +40,14 @@ type Menu = { kind: "create" | "node"; x: number; y: number; node?: CanvasNode }
 const Z_MIN = 0.3;
 const Z_MAX = 2;
 
-export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: CanvasNode[]; edges: CanvasEdge[]; patch: Patch | null; actions: CanvasActions }) {
+export function InfiniteCanvas({ pid, nodes, edges, patch, actions }: { pid: string; nodes: CanvasNode[]; edges: CanvasEdge[]; patch: Patch | null; actions: CanvasActions }) {
     const { view, setView, selection, select, toggle, highlight, focusRequest } = useCanvasStore();
+    const { collapsed, setCollapsed } = useCollapseStore();
+    const [heights, setHeights] = useState<Record<string, number>>({});
+    const isOpen = (n: ViewNode) => expandable(n) && !collapsed[n.id];
+    const wOf = (n: ViewNode) => (isOpen(n) ? EXPANDED_W[n.type]! : NODE_W);
+    const hOf = (n: ViewNode) => heights[n.id] ?? NODE_H;
+    const onSize = useMemo(() => (id: string, h: number) => setHeights((m) => (m[id] === h ? m : { ...m, [id]: h })), []);
     const box = useRef<HTMLDivElement>(null);
     const drag = useRef<{ kind: "node" | "pan"; id?: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; shift: boolean } | null>(null);
     const [live, setLive] = useState<Record<string, { x: number; y: number }>>({});
@@ -51,13 +67,13 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
 
     useEffect(() => setLive({}), [nodes]);
     useEffect(() => {
-        if (!focusRequest || !box.current) return;
+        if (!focusRequest || !box.current || Date.now() - focusRequest.ts > 10_000) return;
         const n = byId[focusRequest.id];
         if (!n) return;
         const r = box.current.getBoundingClientRect();
-        setView({ x: r.width / 2 - (n.x + NODE_W / 2) * view.z, y: r.height / 2 - (n.y + NODE_H / 2) * view.z, z: view.z });
+        setView({ x: r.width / 2 - (n.x + wOf(n) / 2) * view.z, y: r.height / 2 - (n.y + Math.min(hOf(n), r.height / view.z - 80) / 2) * view.z, z: view.z });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [focusRequest]);
+    }, [focusRequest, nodes.length > 0]);
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (/INPUT|TEXTAREA/.test((document.activeElement as HTMLElement)?.tagName)) return;
@@ -73,8 +89,8 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
     const fit = () => {
         if (!box.current || !all.length) return;
         const r = box.current.getBoundingClientRect();
-        const minX = Math.min(...all.map((n) => n.x)), maxX = Math.max(...all.map((n) => n.x + NODE_W));
-        const minY = Math.min(...all.map((n) => n.y)), maxY = Math.max(...all.map((n) => n.y + NODE_H));
+        const minX = Math.min(...all.map((n) => n.x)), maxX = Math.max(...all.map((n) => n.x + wOf(n)));
+        const minY = Math.min(...all.map((n) => n.y)), maxY = Math.max(...all.map((n) => n.y + hOf(n)));
         const z = Math.max(Z_MIN, Math.min(1.1, Math.min((r.width - 160) / (maxX - minX), (r.height - 160) / (maxY - minY))));
         setView({ x: (r.width - (maxX - minX) * z) / 2 - minX * z, y: (r.height - (maxY - minY) * z) / 2 - minY * z, z });
     };
@@ -131,7 +147,11 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
     const onDoubleClick = (e: React.MouseEvent) => {
         if ((e.target as HTMLElement).closest("[data-ui]")) return;
         const el = (e.target as HTMLElement).closest<HTMLElement>("[data-node]");
-        if (el) { if (el.dataset.ghost !== "1") actions.onOpen(byId[el.dataset.node!]); return; }
+        if (el) {
+            const n = byId[el.dataset.node!];
+            if (n && expandable(n)) setCollapsed(n.id, !collapsed[n.id]);
+            return;
+        }
         setMenu({ kind: "create", ...clampMenu(local(e)) });
     };
     const onContextMenu = (e: React.MouseEvent) => {
@@ -145,7 +165,7 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
     };
 
     const edgePath = (a: ViewNode, b: ViewNode) => {
-        const x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2, dx = Math.max(40, (x2 - x1) / 2);
+        const x1 = a.x + wOf(a), y1 = a.y + HEAD_Y, x2 = b.x, y2 = b.y + HEAD_Y, dx = Math.max(40, (x2 - x1) / 2);
         return `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`;
     };
     const selectLinked = (n: CanvasNode) => {
@@ -156,7 +176,7 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
 
     // 选中节点上方的浮动操作条（屏幕坐标）
     const bar = selected.length ? (() => {
-        const minX = Math.min(...selected.map((n) => n.x)), maxX = Math.max(...selected.map((n) => n.x + NODE_W)), minY = Math.min(...selected.map((n) => n.y));
+        const minX = Math.min(...selected.map((n) => n.x)), maxX = Math.max(...selected.map((n) => n.x + wOf(n))), minY = Math.min(...selected.map((n) => n.y));
         return { x: view.x + ((minX + maxX) / 2) * view.z, y: view.y + minY * view.z - 12 };
     })() : null;
 
@@ -190,7 +210,10 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
                         );
                     })}
                 </svg>
-                {all.map((n) => <NodeCard key={n.id} n={n} selected={selection.includes(n.id)} dim={highlight.length > 0 && !highlight.includes(n.id)} lit={highlight.includes(n.id)} actions={actions} />)}
+                {all.map((n) => (
+                    <NodeCard key={n.id} n={n} pid={pid} open={isOpen(n)} width={wOf(n)} onToggle={() => setCollapsed(n.id, !collapsed[n.id])} onSize={onSize}
+                        selected={selection.includes(n.id)} dim={highlight.length > 0 && !highlight.includes(n.id)} lit={highlight.includes(n.id)} actions={actions} />
+                ))}
             </div>
 
             {bar && !menu && (
@@ -208,7 +231,7 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
                 <DockButton tip="整理画布" onClick={() => actions.onCommand("整理画布", [])}><Wand2 size={16} /></DockButton>
                 <DockButton tip="撤销 Agent 上一步 (⌘Z)" onClick={() => actions.onCommand("撤销上一步", [])}><Undo2 size={16} /></DockButton>
                 <div className="mx-1.5 my-0.5 border-t border-line" />
-                <Popover placement="right" content={<div className="max-w-[260px] text-xs leading-6">双击空白处：新建节点<br />右键节点：打开、问 Agent、选中上下游<br />Shift + 单击：多选　V / H：选择 / 抓手<br />实线 = 已放行　灰虚线 = 上游待审核<br />紫虚线框 = Agent 计划预览，确认后才落地</div>}>
+                <Popover placement="right" content={<div className="max-w-[260px] text-xs leading-6">双击空白处：新建节点　双击节点：展开 / 收起<br />选中节点后在左侧对 Agent 说怎么改<br />右键节点：问 Agent、选中上下游<br />Shift + 单击：多选　V / H：选择 / 抓手<br />实线 = 已放行　灰虚线 = 上游待审核<br />紫虚线框 = Agent 计划预览，确认后才落地</div>}>
                     <span className="flex h-8 w-8 cursor-help items-center justify-center rounded-lg text-ink2 hover:bg-elev"><CircleHelp size={16} /></span>
                 </Popover>
             </div>
@@ -224,7 +247,10 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
             {menu?.kind === "create" && <CreateMenu x={menu.x} y={menu.y} close={() => setMenu(null)} actions={actions} selection={selection} />}
             {menu?.kind === "node" && menu.node && (
                 <div data-ui className="absolute z-30 w-[200px] rounded-xl border border-line bg-elev p-1 shadow-2xl" style={{ left: menu.x, top: menu.y }}>
-                    <MenuItem icon={<ExternalLink size={14} />} label="打开" onClick={() => { setMenu(null); actions.onOpen(menu.node!); }} />
+                    {expandable(menu.node) ? (
+                        <MenuItem icon={collapsed[menu.node.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />} label={collapsed[menu.node.id] ? "展开内容" : "收起内容"}
+                            onClick={() => { setMenu(null); setCollapsed(menu.node!.id, !collapsed[menu.node!.id]); }} />
+                    ) : menu.node.type === "ad" && <MenuItem icon={<ExternalLink size={14} />} label="在爆款库查看" onClick={() => { setMenu(null); actions.onOpen(menu.node!); }} />}
                     <MenuItem icon={<Bot size={14} />} label="问 Agent" onClick={() => { setMenu(null); actions.onAsk(menu.node!); }} />
                     <MenuItem icon={<GitBranch size={14} />} label="选中上下游" onClick={() => { setMenu(null); selectLinked(menu.node!); }} />
                     <MenuItem icon={<Copy size={14} />} label="复制节点 ID" onClick={() => { setMenu(null); navigator.clipboard?.writeText(menu.node!.id).catch(() => undefined); }} />
@@ -234,7 +260,18 @@ export function InfiniteCanvas({ nodes, edges, patch, actions }: { nodes: Canvas
     );
 }
 
-function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: boolean; dim: boolean; lit: boolean; actions: CanvasActions }) {
+function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, actions }: {
+    n: ViewNode; pid: string; open: boolean; width: number; onToggle: () => void; onSize: (id: string, h: number) => void;
+    selected: boolean; dim: boolean; lit: boolean; actions: CanvasActions;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const ro = new ResizeObserver(() => onSize(n.id, el.offsetHeight));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [n.id, onSize]);
     const meta = NODE_META[n.type];
     const frame: string | undefined = n.type === "script" ? n.data?.frames?.[0]?.url : undefined;
     const cover = n.type === "ad" || n.type === "video" || !!frame;
@@ -245,22 +282,24 @@ function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: b
         : undefined;
     return (
         <motion.div
+            ref={ref}
             data-node={n.id}
             data-ghost={n.ghost ? "1" : "0"}
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: dim ? 0.3 : 1, scale: 1 }}
             transition={{ duration: 0.22 }}
             className={clsx(
-                "absolute flex gap-2.5 rounded-[14px] border p-2.5",
+                "absolute flex flex-col rounded-[14px] border p-2.5",
                 n.ghost ? "border-dashed border-brand bg-brand/10" : "cursor-grab border-line bg-surface hover:border-[#4a4a52]",
                 selected && "border-brand! ring-2 ring-brand/40",
                 lit && "ring-[3px] ring-warn/70",
                 n.status === "run" && "node-running",
             )}
-            style={{ left: n.x, top: n.y, width: NODE_W, minHeight: NODE_H }}
+            style={{ left: n.x, top: n.y, width, minHeight: NODE_H }}
         >
+            <div className="flex gap-2.5">
             {n.status === "run" && <span className="absolute -top-5 left-2 rounded bg-brand px-1.5 text-[10px] text-white">Agent 正在编辑</span>}
-            {cover && !n.ghost && (
+            {cover && !n.ghost && !open && (
                 <span className="relative h-[62px] w-[44px] shrink-0 overflow-hidden rounded-md" style={{ background: frame ? "#fff" : COVER_GRADIENTS[n.no % COVER_GRADIENTS.length] }}>
                     {frame && <img src={frame} alt="" draggable={false} className="h-full w-full object-cover" />}
                     {n.type === "video" && <Clapperboard size={14} className="absolute bottom-1 right-1 text-white/80" />}
@@ -277,21 +316,29 @@ function NodeCard({ n, selected, dim, lit, actions }: { n: ViewNode; selected: b
                 <div className="flex items-center gap-1.5">
                     <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[10px] font-bold text-white" style={{ background: meta.color }}>{meta.ch}</span>
                     <span className="flex-1 truncate text-[13px] font-semibold">{n.title}</span>
+                    {expandable(n) && (
+                        <button data-ui aria-label={open ? "收起内容" : "展开内容"} title={open ? "收起内容（双击节点也可以）" : "展开内容"} onClick={onToggle}
+                            className="flex h-5 w-5 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-ink2 hover:bg-elev hover:text-ink">
+                            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                    )}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-ink2">{n.sub}</div>
-                {preview && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
+                {preview && !open && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap">
                     <StatusBadge status={n.ghost ? "preview" : n.status} />
                     {n.status === "wait" && !n.ghost && (
                         <span className="ml-auto flex gap-1" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                            <button title="查看详情，不满意可驳回" className="cursor-pointer whitespace-nowrap rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-[#4a4a52]"
-                                onClick={() => actions.onOpen(n)}>{cover ? "查看" : "查看 / 驳回"}</button>
-                            <button className="cursor-pointer whitespace-nowrap rounded-md border-0 bg-good px-2 py-0.5 text-[11px] font-medium text-black hover:opacity-90"
+                            <button data-ui title="写下理由，Agent 会按理由重做" className="cursor-pointer whitespace-nowrap rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-bad hover:text-bad"
+                                onClick={() => actions.onReject(n)}>驳回</button>
+                            <button data-ui className="cursor-pointer whitespace-nowrap rounded-md border-0 bg-good px-2 py-0.5 text-[11px] font-medium text-black hover:opacity-90"
                                 onClick={() => actions.onPass([n.id])}>通过</button>
                         </span>
                     )}
                 </div>
             </div>
+            </div>
+            {open && <div className="mt-2.5 cursor-default border-t border-line pt-2.5"><NodeBody n={n} pid={pid} actions={{ onRevise: actions.onRevise }} /></div>}
         </motion.div>
     );
 }
@@ -308,7 +355,9 @@ function SelectionActions({ nodes, actions }: { nodes: ViewNode[]; actions: Canv
     if (only("script")) items.push([<Clapperboard size={14} />, nodes.length > 1 ? `批量生成视频（${nodes.length}）` : "生成视频", () => actions.onCommand("生成视频", ids)]);
     if (only("video")) items.push([<Users size={14} />, nodes.length > 1 ? `批量评测（${nodes.length}）` : "跑评测", () => actions.onCommand("跑评测", ids)]);
     if (one?.type === "eval") items.push([<Rocket size={14} />, "生成投放方案", () => actions.onCommand("生成投放方案", ids)]);
-    if (one) items.push([<ExternalLink size={14} />, "打开", () => actions.onOpen(one)], [<Bot size={14} />, "问 Agent", () => actions.onAsk(one)]);
+    if (one?.type === "script") items.push([<Wand2 size={14} />, "优化剧本", () => actions.onRevise(one)]);
+    if (one?.type === "ad") items.push([<ExternalLink size={14} />, "在爆款库查看", () => actions.onOpen(one)]);
+    if (one) items.push([<Bot size={14} />, "问 Agent", () => actions.onAsk(one)]);
     if (!one) items.push([<Bot size={14} />, `问 Agent（已选 ${nodes.length}）`, () => actions.onDraft("")]);
     return (
         <>

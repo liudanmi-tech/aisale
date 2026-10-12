@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import canvas, config, settings_store
 from app.adapters import llm
-from app.models import ChatMessage, Node, Patch, Project, RefAd, new_id
+from app.models import ChatMessage, Node, Patch, Project, RefAd, ReviewTask, new_id
 
 INTENT_TOOLS = [
     {"type": "function", "function": {"name": "write_scripts", "description": "基于爆款结构给某个人群写剧本",
@@ -20,6 +20,11 @@ INTENT_TOOLS = [
             "audience": {"type": "string", "enum": ["小商贩", "学生", "年轻家庭"]},
             "ref_ad_node_id": {"type": "string", "description": "参考的爆款节点 id，不确定时省略"}},
             "required": ["count", "selling_point", "audience"]}}},
+    {"type": "function", "function": {"name": "revise_script", "description": "按用户的修改意见改已有的剧本（选中剧本节点后说怎么改）",
+        "parameters": {"type": "object", "properties": {
+            "instruction": {"type": "string", "description": "用户的修改意见原话"},
+            "script_node_ids": {"type": "array", "items": {"type": "string"}, "description": "要改的剧本节点 id；用户选中或点名时才传"}},
+            "required": ["instruction"]}}},
     {"type": "function", "function": {"name": "generate_videos", "description": "为已通过审核的剧本生成视频",
         "parameters": {"type": "object", "properties": {"script_node_ids": {"type": "array", "items": {"type": "string"}}}}}},
     {"type": "function", "function": {"name": "run_evaluation", "description": "对已通过审核的视频跑 40 Agent 评测",
@@ -35,7 +40,7 @@ INTENT_TOOLS = [
         "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
 ]
 
-HELP = ("我可以：写剧本（如「给学生写 2 个拍照剧本」）、生成视频、跑评测、生成投放方案、整理画布、"
+HELP = ("我可以：写剧本（如「给学生写 2 个拍照剧本」）、改剧本（选中剧本后说怎么改）、生成视频、跑评测、生成投放方案、整理画布、"
         "查询（如「哪个视频预测 CTR 最高」）、撤销。\n选中节点后再下指令，只会作用于选中的节点。")
 
 
@@ -57,8 +62,14 @@ def set_card_state(db: Session, patch: Patch, state: str, **extra) -> None:
             m.content = {**m.content, "state": state, **extra}
 
 
-def rule_intent(text: str, selection: list[str]) -> dict:
+REVISE_WORDS = "改|优化|调整|换成|换掉|换个|加上|加一|删掉|去掉|重写|润色|更口语|更本地|缩短|加长|口播|第.镜"
+
+
+def rule_intent(text: str, selection: list[str], selected_types: set[str] | None = None, has_scripts: bool = False) -> dict:
     t = re.sub(r"\s", "", text)
+    can_revise = "script" in (selected_types or set()) or (has_scripts and not selection)
+    if can_revise and re.search(REVISE_WORDS, t) and not re.search(r"写\d+个|写[一两三四五六]个", t):
+        return {"name": "revise_script", "instruction": text.strip()}
     if "撤销" in t:
         return {"name": "undo"}
     if re.search("整理|排列", t):
@@ -90,7 +101,8 @@ async def llm_intent(db: Session, project: Project, text: str, selection: list[s
               "卖点同义词：夜拍/拍照/相机/自拍 → 拍照；电池/续航/停电/充电 → 续航；内存/存储/装照片 → 存储。"
               "人群同义词：学生/年轻人/大学生 → 学生；摊主/商贩/小生意/做生意 → 小商贩；家庭/婚礼/斋月团聚 → 年轻家庭。数量用阿拉伯数字（两个 → 2）。\n"
               "用户没有点名具体节点（如「都」「全部」「通过的」）时，不要传节点 id 参数，系统会作用于全部符合条件的节点；"
-              "只有当前选中了节点或用户点名时才传 id。与画布无关的问题用 clarify 简短说明你能做什么。\n"
+              "只有当前选中了节点或用户点名时才传 id。选中了剧本、要求修改它（改口播、换场景、改第几镜、更口语等）时用 revise_script，"
+              "instruction 填用户原话；要写新剧本才用 write_scripts。与画布无关的问题用 clarify 简短说明你能做什么。\n"
               f"当前画布节点（id | 标题 | 类型 | 状态）：\n{snap}\n当前选中：{selection or '无'}")
     msg = await llm.chat([{"role": "system", "content": system}, {"role": "user", "content": text}], tools=INTENT_TOOLS, task="agent")
     call = (msg.get("tool_calls") or [None])[0]
@@ -106,7 +118,38 @@ async def parse_intent(db: Session, project: Project, text: str, selection: list
             return await llm_intent(db, project, text, selection)
         except Exception:
             pass
-    return rule_intent(text, selection)
+    nodes = canvas.nodes_of(db, project.id)
+    types = {n.type for n in nodes if n.id in selection}
+    return rule_intent(text, selection, types, has_scripts=any(n.type == "script" for n in nodes))
+
+
+def revise_scripts(db: Session, project: Project, intent: dict, selection: list[str]) -> str:
+    """在原剧本节点上按意见修改：没提到的镜头保留，改完重新提交审核，改过的镜头自动重画分镜。"""
+    from app import workflows  # workflows 依赖本模块，延迟导入
+    scripts = canvas.nodes_of(db, project.id, "script")
+    ids = intent.get("script_node_ids") or [i for i in selection if any(n.id == i for n in scripts)]
+    if not ids and len(scripts) == 1:
+        ids = [scripts[0].id]
+    targets = [n for n in scripts if n.id in ids]
+    if not targets:
+        return "要改哪个剧本？先在画布上点选剧本节点（或点节点上的「优化剧本」），再告诉我怎么改。"
+    instruction = (intent.get("instruction") or "").strip()
+    busy = [n for n in targets if n.status == "run"]
+    todo = [n for n in targets if n.status != "run"]
+    for n in todo:
+        for r in db.query(ReviewTask).filter(ReviewTask.node_id == n.id, ReviewTask.status == "wait"):
+            r.status, r.comment = "cancel", f"改稿：{instruction}"
+        n.status = "run"
+        canvas.audit(db, project.id, "agent", "revise_script", {"node_id": n.id, "instruction": instruction})
+    db.commit()
+    for n in todo:
+        workflows.rework(n, instruction)
+    parts = []
+    if todo:
+        parts.append(f"好的，正在按「{instruction}」修改 {' '.join(ref(n) for n in todo)}：没提到的镜头保持不变，改完重新提交你审核，改过的镜头会自动重画分镜。")
+    if busy:
+        parts.append(f"{' '.join(ref(n) for n in busy)} 还在生成中，等它完成后再改。")
+    return "\n".join(parts)
 
 
 def _propose(db: Session, project: Project, intent: dict, summary: str, steps: list[str], cost: str, ops: list[dict]) -> Patch:
@@ -282,6 +325,9 @@ async def handle(db: Session, project: Project, text: str, selection: list[str])
         effects = [{"type": "highlight", "node_ids": re.findall(r"\{\{(\w+)\}\}", txt)}]
     elif name == "summary":
         say(db, project.id, summary(db, project))
+    elif name == "revise_script":
+        say(db, project.id, revise_scripts(db, project, intent, selection))
+        effects = [{"type": "highlight", "node_ids": intent.get("script_node_ids") or selection}]
     elif name == "clarify":
         say(db, project.id, intent.get("question") or HELP)
     elif name in ("write_scripts", "generate_videos", "run_evaluation", "plan_delivery"):

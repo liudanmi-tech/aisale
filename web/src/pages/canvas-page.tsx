@@ -28,7 +28,7 @@ export default function CanvasPage() {
     const { data } = useQuery({
         queryKey: ["canvas", pid],
         queryFn: () => api.canvas(pid),
-        refetchInterval: (q) => (q.state.data?.nodes.some((n) => n.status === "run") ? 2000 : false),
+        refetchInterval: (q) => (q.state.data?.nodes.some((n) => n.status === "run" || n.data?.storyboard?.status === "running") ? 2000 : false),
     });
     const refresh = () => ["canvas", "chat", "flow"].forEach((k) => qc.invalidateQueries({ queryKey: [k, pid] }));
     const move = useMutation({
@@ -55,14 +55,18 @@ export default function CanvasPage() {
         onSettled: refresh,
     });
     const waiting = data?.nodes.filter((n) => n.status === "wait") ?? [];
+    const [rejecting, setRejecting] = useState<CanvasNode | null>(null);
+    const [reason, setReason] = useState("");
+    const reject = useMutation({
+        mutationFn: ({ n, c }: { n: CanvasNode; c: string }) => api.rejectNode(n.id, c),
+        onSuccess: () => { message.success("已驳回，Agent 正在按你的理由重做"); setRejecting(null); setReason(""); qc.invalidateQueries({ queryKey: ["reviews"] }); },
+        onError: (e: any) => message.error(e?.response?.data?.detail || "驳回失败"),
+        onSettled: refresh,
+    });
 
+    // 内容都平铺在画布上，不再进二级页面；只有爆款节点可以去爆款库看原视频
     const open = (n: CanvasNode) => {
-        const routes: Partial<Record<CanvasNode["type"], string>> = {
-            script: `/p/${pid}/script/${n.id}`, video: `/p/${pid}/video/${n.id}`, eval: `/p/${pid}/eval/${n.id}`,
-            deliver: "/delivery", data: "/data", opt: "/data", ad: `/ads?no=${n.data.ref_ad_no}`,
-        };
-        if (routes[n.type]) nav(routes[n.type]!);
-        else message.info(`${n.title}：在资产库中维护`);
+        if (n.type === "ad") nav(`/ads?no=${n.data.ref_ad_no}`);
     };
     const actions: CanvasActions = {
         onMove: (id, x, y) => move.mutate({ id, x, y }),
@@ -72,13 +76,15 @@ export default function CanvasPage() {
         onDraft: (text) => { setDraft(text); setAskNonce(Date.now()); },
         onPickAd: () => setPicking(true),
         onPass: (ids) => pass.mutate(ids),
+        onReject: (n) => { setRejecting(n); setReason(""); },
+        onRevise: (n) => { select([n.id]); setDraft(`优化${n.title}：`); setAskNonce(Date.now()); },
     };
 
     return (
         <div className="flex h-full max-[900px]:h-auto max-[900px]:flex-col">
             <AgentPanel projectId={pid} snapshot={data} askNonce={askNonce} initialPrompt={initialPrompt} onInitialSent={() => nav(loc.pathname, { replace: true, state: null })} />
             <section className="relative min-w-0 flex-1 max-[900px]:h-[60vh] max-[900px]:flex-none">
-                {data && <InfiniteCanvas nodes={data.nodes} edges={data.edges} patch={data.pending_patch} actions={actions} />}
+                {data && <InfiniteCanvas pid={pid} nodes={data.nodes} edges={data.edges} patch={data.pending_patch} actions={actions} />}
                 {waiting.length > 0 && (
                     <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-warn/40 bg-surface/95 py-1 pl-3.5 pr-1 text-[13px] shadow-lg">
                         <span className="h-2 w-2 rounded-full bg-warn" />
@@ -90,6 +96,11 @@ export default function CanvasPage() {
                     </div>
                 )}
             </section>
+            <Modal open={!!rejecting} title={`驳回 ${rejecting?.title ?? ""}`} okText="驳回并让 Agent 重做" cancelText="取消" okButtonProps={{ danger: true, disabled: !reason.trim() }}
+                confirmLoading={reject.isPending} onCancel={() => setRejecting(null)} onOk={() => rejecting && reject.mutate({ n: rejecting, c: reason.trim() })}>
+                <div className="mb-2 text-sm text-ink2">写下不满意的地方，Agent 会按这个理由在原节点上重做，做完再交给你审核。</div>
+                <Input.TextArea autoFocus rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="例如：第 1 镜换成停电的夜市；口播更口语、更短" />
+            </Modal>
             <AdPicker open={picking} onClose={() => setPicking(false)} onPick={(no) => wash.mutate(no)} loading={wash.isPending} />
         </div>
     );

@@ -169,3 +169,53 @@ def test_pass_nodes_from_canvas():
         assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": ids}).json() == {"passed": 1}  # 已通过的不重复处理
         assert all(n["status"] == "pass" for n in scripts())
         assert "已通过审核" in c.get(P + "/chat").json()[-1]["text"]
+
+
+def test_revise_and_reject_on_canvas():
+    """选中剧本后对 Agent 说怎么改：在原节点上改稿并重新提交审核；画布上驳回要写理由。"""
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "改稿测试", "market": "尼日利亚", "selling_point": "续航"}).json()["id"]
+        P = f"/api/v1/projects/{pid}"
+        c.post(P + "/agent/chat", json={"text": "给小商贩写 1 个续航剧本"})
+        c.post(f"{P}/patches/{c.get(P + '/canvas').json()['pending_patch']['id']}/apply")
+        script = lambda: next(n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script")  # noqa: E731
+        wait_until(c, lambda: script()["status"] == "wait")
+        nid, before = script()["id"], len(c.get(P + "/canvas").json()["nodes"])
+
+        c.post(P + "/agent/chat", json={"text": "第 1 镜口播更口语一点", "selection": [nid]})
+        assert "正在按" in c.get(P + "/chat").json()[-1]["text"]
+        wait_until(c, lambda: script()["status"] == "wait")
+        s = script()
+        assert s["data"]["version"] == 2 and "已按意见修改" in s["data"]["shots"][0][3]
+        assert len(c.get(P + "/canvas").json()["nodes"]) == before  # 原节点上改，不新增节点
+        assert len([r for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["node_id"] == nid]) == 1
+
+        assert c.post("/api/v1/reviews/reject-node", json={"node_id": nid, "comment": " "}).status_code == 400
+        assert c.post("/api/v1/reviews/reject-node", json={"node_id": nid, "comment": "换成停电场景"}).json()["ok"]
+        wait_until(c, lambda: script()["status"] == "wait" and script()["data"]["version"] == 3)
+        assert c.post("/api/v1/reviews/reject-node", json={"node_id": "n_none", "comment": "x"}).status_code == 409
+
+        c.post(P + "/agent/chat", json={"text": "第 2 镜换成雨天", "selection": []})  # 只有一个剧本时不选也能改
+        assert "正在按" in c.get(P + "/chat").json()[-1]["text"] or "要改哪个剧本" in c.get(P + "/chat").json()[-1]["text"]
+
+
+def test_migrate_layouts_once():
+    """老项目（没有 layout_v）启动时整理一次，按展开后的尺寸排，不重叠；新项目不动。"""
+    from app import canvas
+    from app.db import SessionLocal
+    from app.models import Project
+
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "老布局", "market": "尼日利亚", "selling_point": "续航"}).json()["id"]
+        P = f"/api/v1/projects/{pid}"
+        c.post(P + "/agent/chat", json={"text": "给小商贩写 2 个续航剧本"})
+        c.post(f"{P}/patches/{c.get(P + '/canvas').json()['pending_patch']['id']}/apply")
+        with SessionLocal() as db:
+            p = db.get(Project, pid)
+            p.flags = {k: v for k, v in (p.flags or {}).items() if k != "layout_v"}
+            for k, n in enumerate(canvas.nodes_of(db, pid, "script")):  # 模拟老版本的小卡片间距
+                n.x, n.y = 320, 100 + k * 124
+            db.commit()
+            assert canvas.migrate_layouts(db) == 1 and canvas.migrate_layouts(db) == 0
+        s = sorted((n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script"), key=lambda n: n["y"])
+        assert s[0]["x"] == canvas.COL_X[1] and s[1]["y"] - s[0]["y"] >= canvas.NODE_SIZE["script"][1]

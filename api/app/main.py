@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import config, monitor
+from app import canvas, config, monitor
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
 from app.routers import monitor as monitor_router
@@ -21,6 +21,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         seed(db)
+        canvas.migrate_layouts(db)
     task = asyncio.create_task(monitor.scheduler())
     yield
     task.cancel()

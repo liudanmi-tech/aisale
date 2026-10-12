@@ -187,6 +187,23 @@ def pass_nodes(body: NodesDecideIn, db: Session = Depends(get_db)):
     return {"passed": len(rs)}
 
 
+class RejectNodeIn(BaseModel):
+    node_id: str
+    comment: str
+
+
+@router.post("/reviews/reject-node")
+def reject_node(body: RejectNodeIn, db: Session = Depends(get_db)):
+    """在画布上驳回：理由作为改稿意见交给 Agent 重做。"""
+    if not body.comment.strip():
+        raise HTTPException(400, "驳回需要填写理由")
+    r = db.query(ReviewTask).filter(ReviewTask.node_id == body.node_id, ReviewTask.status == "wait").first()
+    if not r:
+        raise HTTPException(409, "这个节点没有待审核的结果")
+    _decide(db, r, DecideIn(decision="reject", comment=body.comment.strip()))
+    return {"ok": True}
+
+
 def _decide(db: Session, r: ReviewTask, body: "DecideIn") -> None:
     n, project = db.get(Node, r.node_id), db.get(Project, r.project_id)
     r.status = "reject" if body.decision == "reject" else "pass"

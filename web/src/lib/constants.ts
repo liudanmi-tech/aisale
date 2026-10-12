@@ -25,6 +25,8 @@ export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: s
 
 export const NODE_W = 220;
 export const NODE_H = 84;
+/** 默认展开、内容平铺在画布上的节点类型，以及展开后的宽度（与后端 canvas.NODE_SIZE 一致） */
+export const EXPANDED_W: Partial<Record<NodeType, number>> = { script: 660, video: 620, eval: 480, deliver: 400, data: 400, opt: 400 };
 
 export const COVER_GRADIENTS = [
     "linear-gradient(160deg,#ff7a45,#7c5cff)",

@@ -146,7 +146,11 @@ export function AgentPanel({ projectId, snapshot, askNonce, initialPrompt, onIni
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }}
-                        placeholder="输入指令，@ 引用节点（Enter 发送，Shift+Enter 换行）"
+                        placeholder={(() => {
+                            const one = selection.length === 1 ? nodes.find((n) => n.id === selection[0]) : undefined;
+                            return one?.type === "script" ? `已选中${one.title}：直接说怎么改，如「第 1 镜换成停电的夜市，口播更短」`
+                                : "输入指令，@ 引用节点（Enter 发送，Shift+Enter 换行）";
+                        })()}
                         className="h-16 w-full resize-none rounded-lg border border-line bg-bg px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
                     />
                 </div>

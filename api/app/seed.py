@@ -42,7 +42,7 @@ MARKET_AUDIENCES = {
 
 def new_project(db: Session, name: str, market: str, brand: str = "TECNO", model_sku: str = "Camon", selling_point: str = "续航") -> Project:
     """新建投放项目：放好卖点与目标市场的人群包节点，Agent 从这里开始。"""
-    p = Project(id=new_id("p"), name=name, brand=brand, model_sku=model_sku, market=market, counters={}, flags={})
+    p = Project(id=new_id("p"), name=name, brand=brand, model_sku=model_sku, market=market, counters={}, flags={"layout_v": canvas.LAYOUT_VERSION})
     db.add(p)
     db.flush()
     sp = db.query(SellingPoint).filter(SellingPoint.title == selling_point).first()
@@ -73,16 +73,16 @@ def seed(db: Session) -> None:
         Audience(id="aud_2", market="尼日利亚", name="学生", tags={"age": "18–24", "interest": ["拍照", "社交"], "pain": "拍照"}),
         Audience(id="aud_3", market="巴基斯坦", name="年轻家庭", tags={"age": "25–40", "interest": ["婚礼", "斋月"]}),
     ])
-    p = Project(id="p1", name="TECNO 新机 · 尼日利亚", market="尼日利亚", counters={"ad": 0}, flags={})
+    p = Project(id="p1", name="TECNO 新机 · 尼日利亚", market="尼日利亚", counters={"ad": 0}, flags={"layout_v": canvas.LAYOUT_VERSION})
     db.add(p)
     db.flush()
     ad = canvas.create_node(db, p, "ad", sub="对比实测 · 尼日利亚", status="pass", data={"ref_ad_no": 12}, x=40, y=40, title="爆款 #12")
     sp = canvas.create_node(db, p, "sp", sub="6000mAh · 18W 快充", status="pass", data={"selling_point": "续航"}, x=40, y=164, title="卖点 · 续航")
     a1 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 25–35 岁", status="pass", data={"audience": "小商贩"}, x=40, y=288, title="人群包 · 小商贩")
     a2 = canvas.create_node(db, p, "aud", sub="尼日利亚 · 18–24 岁", status="pass", data={"audience": "学生"}, x=40, y=412, title="人群包 · 学生")
-    s1 = canvas.create_node(db, p, "script", sub="续航 · 小商贩 · 15s", status="pass", x=320, y=100,
+    s1 = canvas.create_node(db, p, "script", sub="续航 · 小商贩 · 15s", status="pass", x=canvas.COL_X[1], y=40,
                             data={"selling_point": "续航", "audience": "小商贩", "version": 1, "shots": SHOTS["续航"]})
-    s2 = canvas.create_node(db, p, "script", sub="拍照 · 学生 · 15s", status="none", x=320, y=224,
+    s2 = canvas.create_node(db, p, "script", sub="拍照 · 学生 · 15s", status="none", x=canvas.COL_X[1], y=40 + canvas.NODE_SIZE["script"][1] + canvas.GAP_Y,
                             data={"selling_point": "拍照", "audience": "学生", "version": 1, "shots": SHOTS["拍照"]})
     for src, dst in [(ad, s1), (a1, s1), (sp, s1), (ad, s2), (a2, s2)]:
         canvas.connect(db, p.id, src.id, dst.id)

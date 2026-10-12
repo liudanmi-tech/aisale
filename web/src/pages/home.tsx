@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
 import { TOOLS } from "@/lib/skills";
 import { api } from "@/services/api";
+import { useCanvasStore } from "@/stores/canvas-store";
 import { useCurrentProject } from "@/stores/project-store";
 
 const TOOL_ICONS: Record<string, ReactNode> = {
@@ -27,6 +28,7 @@ const FEATURES = [
 
 export default function Home() {
     const nav = useNavigate();
+    const focusNode = useCanvasStore((st) => st.focus);
     const pid = useCurrentProject();
     const [ask, setAsk] = useState("");
     const [tab, setTab] = useState("all");
@@ -98,7 +100,7 @@ export default function Home() {
             {works.length ? (
                 <section className="grid grid-cols-5 gap-4 max-[1100px]:grid-cols-3 max-[700px]:grid-cols-2">
                     {works.map((w, i) => (
-                        <div key={w.id} onClick={() => nav(`/p/${w.project_id}/video/${w.id}`)} className="group cursor-pointer">
+                        <div key={w.id} onClick={() => { focusNode(w.id); nav(`/p/${w.project_id}`); }} className="group cursor-pointer">
                             <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-line transition group-hover:border-[#4a4a52]" style={{ background: COVER_GRADIENTS[i % COVER_GRADIENTS.length] }}>
                                 <span className="absolute left-2 top-2"><StatusBadge status={w.status} /></span>
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 text-xs text-white/90">

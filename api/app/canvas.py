@@ -18,7 +18,19 @@ TYPES = {
     "opt": {"label": "优化", "col": 6, "module": "自动优化"},
 }
 STATUS_ZH = {"none": "未开始", "run": "生成中", "wait": "待审核", "pass": "已通过", "reject": "已驳回", "live": "投放中", "failed": "失败"}
-COL_W, ROW_H, X0, Y0 = 280, 124, 40, 40
+X0, Y0, GAP_X, GAP_Y = 40, 40, 80, 40
+# 节点在画布上默认展开显示内容，布局按展开后的大致尺寸排（宽度和前端 NODE_WIDTH 一致，高度是估计值）
+NODE_SIZE = {"ad": (220, 84), "sp": (220, 84), "aud": (220, 84), "script": (660, 580), "video": (620, 420),
+             "eval": (480, 400), "deliver": (400, 300), "data": (400, 260), "opt": (400, 300)}
+COL_X: dict[int, float] = {}
+_x = X0
+for _col in range(7):
+    COL_X[_col] = _x
+    _x += max(w for t, (w, _) in NODE_SIZE.items() if TYPES[t]["col"] == _col) + GAP_X
+
+
+def _bottom(n: Node) -> float:
+    return n.y + NODE_SIZE[n.type][1] + GAP_Y
 
 
 class StaleVersion(Exception):
@@ -58,10 +70,11 @@ def snapshot(db: Session, project: Project) -> dict:
 
 
 def next_pos(db: Session, pid: str, type_: str, k: int = 0) -> tuple[float, float]:
+    """新节点放在同一列最下面；k 表示同一批里的第几个。"""
     col = TYPES[type_]["col"]
-    ys = [n.y for n in nodes_of(db, pid) if TYPES[n.type]["col"] == col]
-    y = (max(ys) + ROW_H) if ys else Y0
-    return X0 + col * COL_W, y + k * ROW_H
+    ys = [_bottom(n) for n in nodes_of(db, pid) if TYPES[n.type]["col"] == col]
+    y = max(ys) if ys else Y0
+    return COL_X[col], y + k * (NODE_SIZE[type_][1] + GAP_Y)
 
 
 def bump(project: Project) -> None:
@@ -140,16 +153,33 @@ def apply_patch(db: Session, project: Project, patch: Patch) -> list[tuple[str, 
     return runs
 
 
+LAYOUT_VERSION = 2  # 节点改为默认展开后的布局；老项目启动时整理一次
+
+
+def migrate_layouts(db: Session) -> int:
+    """老项目的节点是按小卡片排的，展开后会重叠：整理一次（记录为可撤销的操作）。"""
+    n = 0
+    for p in db.query(Project):
+        if (p.flags or {}).get("layout_v") == LAYOUT_VERSION:
+            continue
+        if nodes_of(db, p.id):
+            layout(db, p)
+            bump(p)
+            n += 1
+        p.flags = {**(p.flags or {}), "layout_v": LAYOUT_VERSION}
+    db.commit()
+    return n
+
+
 def layout(db: Session, project: Project) -> Patch:
     """按节点类型分列排布；作为一次已应用的补丁记录，便于撤销。"""
     prev = []
-    rows: dict[int, int] = {}
+    tops: dict[int, float] = {}
     for n in nodes_of(db, project.id):
         prev.append([n.id, n.x, n.y])
         col = TYPES[n.type]["col"]
-        i = rows.get(col, 0)
-        n.x, n.y = X0 + col * COL_W, Y0 + i * ROW_H
-        rows[col] = i + 1
+        n.x, n.y = COL_X[col], tops.get(col, Y0)
+        tops[col] = _bottom(n)
     p = Patch(id=new_id("pt"), project_id=project.id, base_version=project.version, intent={"name": "layout"},
               summary="整理画布", steps=["按类型分列排布"], ops=[{"op": "layout", "strategy": "by_type"}],
               status="applied", needs_review=False, undo={"positions": prev})

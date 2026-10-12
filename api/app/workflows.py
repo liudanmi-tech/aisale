@@ -5,6 +5,7 @@
 """
 import asyncio
 import hashlib
+import json
 import random
 from datetime import date, timedelta
 
@@ -54,18 +55,23 @@ async def generate_script(node_id: str, comment: str = "") -> None:
             return
         d = dict(n.data or {})
         sp, aud = d.get("selling_point", "续航"), d.get("audience", "小商贩")
+        current = [list(s) for s in d.get("shots") or []]
         shots = [s[:] for s in SHOTS.get(sp, SHOTS["续航"])]
         if settings_store.llm_enabled():
             ad = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first()
+            # 改稿：在现有剧本上按意见改，没提到的镜头原样保留
+            revise = (f"\n当前剧本（JSON）：{json.dumps(current, ensure_ascii=False)}\n请在当前剧本上按修改意见修改，"
+                      "意见没涉及的镜头、画面和口播保持原样；时长写成秒数。") if comment and current else ""
             try:
                 out = await llm.chat_json(
                     "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(尼日利亚皮钦英语), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写（官方素材）。",
-                    f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：尼日利亚 {aud}；修改意见：{comment or '无'}")
+                    f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：尼日利亚 {aud}；修改意见：{comment or '无'}{revise}")
                 if isinstance(out.get("shots"), list) and len(out["shots"]) >= 3:
                     shots = _normalize_shots(out["shots"])
             except Exception:
                 pass
         elif comment:
+            shots = current or shots
             shots[0][3] = f"{shots[0][3]}（已按意见修改：{comment}）"
         d.update(shots=shots, version=d.get("version", 1) + (1 if comment else 0))
         n.data = d
