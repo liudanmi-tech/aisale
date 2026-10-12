@@ -99,6 +99,8 @@ export interface RefAd {
     is_estimated: boolean;
     hot_score: number;
     dna: Record<string, any>;
+    tiktok_id: string | null;
+    cover: string | null;
 }
 export interface FlowStep {
     title: string;

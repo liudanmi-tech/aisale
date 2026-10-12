@@ -1,11 +1,12 @@
 """爆款库、节点详情编辑、审核、投放、数据、资产与设置。"""
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, canvas, config, settings_store, workflows
+from app import agent, canvas, config, monitor, settings_store, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -14,8 +15,17 @@ from app.models import Audience, MetricDaily, Node, Project, RefAd, ReviewTask, 
 router = APIRouter(prefix="/api/v1")
 
 
+def _tiktok_id(dna: dict) -> str:
+    """账号监控入库的爆款：TikTok 视频 ID（老数据从链接里取）。"""
+    if dna.get("external_id"):
+        return str(dna["external_id"])
+    m = re.search(r"/video/(\d+)", dna.get("url") or "")
+    return m.group(1) if m else ""
+
+
 def ad_dict(a: RefAd) -> dict:
-    return {"id": a.id, "no": a.no, "source": a.source, "platform": a.platform, "brand": a.brand, "market": a.market,
+    tid = _tiktok_id(a.dna or {})
+    return {"tiktok_id": tid or None, "cover": (monitor.cover_url(tid) or None) if tid else None,"id": a.id, "no": a.no, "source": a.source, "platform": a.platform, "brand": a.brand, "market": a.market,
             "title": a.title, "hook": a.hook, "selling_point": a.selling_point, "days_running": a.days_running,
             "variants": a.variants, "ctr_range": a.ctr_range, "vtr": a.vtr, "is_estimated": a.is_estimated,
             "hot_score": a.hot_score, "dna": a.dna}

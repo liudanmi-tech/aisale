@@ -72,7 +72,11 @@ def wait_until(cond, timeout=10):
     raise AssertionError("timeout")
 
 
-def test_watch_sync_score_promote():
+def test_watch_sync_score_promote(tmp_path, monkeypatch):
+    from app import config, monitor
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monitor.media_transport = httpx.MockTransport(lambda req: httpx.Response(200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"})
+                                                  if "xhot" in req.url.path else httpx.Response(403))
     apify.transport = httpx.MockTransport(handler)
     apify.POLL_SECONDS = 0.01
     with TestClient(app) as c:
@@ -112,7 +116,9 @@ def test_watch_sync_score_promote():
         assert new["grade"] == "观察中"
         assert c.get(W + "/videos", params={"grade": "爆款"}).json()[0]["external_id"] == "xhot"
 
+        assert hot["cover"] == f"/api/v1/media/covers/xhot.jpg" and paid["cover"].startswith("https://")  # 下载成功的用本地，失败的保留原链接
         ad = c.post(f"{W}/videos/{hot['id']}/promote").json()
+        assert ad["tiktok_id"] == "xhot" and ad["cover"] == "/api/v1/media/covers/xhot.jpg"
         assert ad["source"] == "TikTok 账号监控" and ad["selling_point"] == "拍照" and ad["brand"] == "小米"
         assert c.post(f"{W}/videos/{hot['id']}/promote").json()["no"] == ad["no"]  # 重复加入不新建
         assert any(a["no"] == ad["no"] for a in c.get("/api/v1/ref-ads").json())
@@ -122,7 +128,7 @@ def test_watch_sync_score_promote():
         aid = items["ghost.acc"]["id"]
         assert c.delete(f"{W}/accounts/{aid}").json()["ok"]
         c.delete("/api/v1/settings/secrets/apify")
-    apify.transport = None
+    apify.transport = monitor.media_transport = None
 
 
 def test_search_accounts():

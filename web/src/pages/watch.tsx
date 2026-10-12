@@ -4,7 +4,7 @@ import { BadgeCheck, ExternalLink, FileBarChart, Plus, RefreshCw, Search, Trash2
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { Card, PageTitle } from "@/components/common";
+import { Card, PageTitle, TikTokPlayer } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
 import { api, type AccountCandidate, type WatchAccount, type WatchVideo } from "@/services/api";
 
@@ -351,6 +351,7 @@ export default function Watch() {
                 )}>
                 {open && (
                     <div className="flex flex-col gap-4">
+                        <TikTokPlayer id={open.external_id} className="self-center" />
                         {open.text && <div className="whitespace-pre-wrap rounded-lg bg-elev p-3 text-sm">{open.text}</div>}
                         <div className="flex flex-wrap gap-1">
                             {open.grade && <Tag color={GRADE_COLOR[open.grade]}>{open.grade}</Tag>}

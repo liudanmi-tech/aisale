@@ -39,6 +39,9 @@ def health():
     return {"ok": True}
 
 
+config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/api/v1/media", StaticFiles(directory=config.MEDIA_DIR), name="media")
+
 # 生产部署时由 API 直接托管前端构建产物（web/dist），单容器即可运行
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 if WEB_DIST.exists():

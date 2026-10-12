@@ -4,7 +4,7 @@ import { Play } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState } from "react";
 
-import { Card, Cover, PageTitle } from "@/components/common";
+import { Card, Cover, PageTitle, TikTokPlayer } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
 import { api, type RefAd } from "@/services/api";
 import { useCurrentProject } from "@/stores/project-store";
@@ -16,9 +16,14 @@ export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () =
     return (
         <div onClick={onClick} className="cursor-pointer overflow-hidden rounded-xl border border-line bg-surface transition hover:-translate-y-0.5 hover:border-brand">
             <Cover gradient={COVER_GRADIENTS[i % COVER_GRADIENTS.length]} className="rounded-none">
+                {ad.cover && <>
+                    <img src={ad.cover} alt="" referrerPolicy="no-referrer" loading="lazy" className="absolute inset-0 h-full w-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    <span className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/75 to-transparent" />
+                </>}
                 <span className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-0.5 text-xs">{ad.market}</span>
                 <span className="absolute right-2 top-2 rounded-md bg-black/55 px-2 py-0.5 text-xs">爆款分 {ad.hot_score}</span>
-                {ad.title}
+                <span className="relative line-clamp-2">{ad.title}</span>
             </Cover>
             <div className="px-2.5 py-2 text-xs leading-5 text-ink2">
                 {ad.dna?.plays != null ? <>
@@ -38,6 +43,7 @@ export default function Ads() {
     const [params, setParams] = useSearchParams();
     const [market, setMarket] = useState("全部");
     const [sp, setSp] = useState("全部");
+    const [source, setSource] = useState("全部");
     const select = useCanvasStore((s) => s.select);
     const pid = useCurrentProject();
     const { data: ads = [] } = useQuery({
@@ -62,10 +68,12 @@ export default function Ads() {
                     <Segmented value={market} onChange={(v) => setMarket(v as string)} options={["全部", "尼日利亚", "巴基斯坦"]} />
                     <span className="ml-4 text-ink2">卖点</span>
                     <Segmented value={sp} onChange={(v) => setSp(v as string)} options={["全部", "拍照", "续航", "存储", "性价比", "性能"]} />
+                    <span className="ml-4 text-ink2">来源</span>
+                    <Segmented value={source} onChange={(v) => setSource(v as string)} options={["全部", "账号监控", "情报与历史"]} />
                 </div>
             </Card>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
-                {ads.map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
+                {ads.filter((a) => source === "全部" || (source === "账号监控") === (a.source === "TikTok 账号监控")).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
             </div>
             <Drawer open={!!ad} width={640} onClose={() => setParams({})} title={ad ? `爆款 #${ad.no} · ${ad.title}` : ""}
                 footer={ad && (
@@ -75,8 +83,10 @@ export default function Ads() {
                 )}>
                 {ad && (
                     <div className="flex flex-col gap-4">
-                        <div className="flex gap-4">
-                            <Cover gradient={COVER_GRADIENTS[idx % COVER_GRADIENTS.length]} className="w-[180px] shrink-0 items-center justify-center"><Play size={36} /></Cover>
+                        <div className="flex flex-wrap gap-4">
+                            {ad.tiktok_id
+                                ? <TikTokPlayer id={ad.tiktok_id} />
+                                : <Cover gradient={COVER_GRADIENTS[idx % COVER_GRADIENTS.length]} className="w-[180px] shrink-0 items-center justify-center"><Play size={36} /></Cover>}
                             {ad.dna?.plays != null ? <Descriptions column={1} size="small" items={[
                                 { label: "账号", children: `${ad.brand} · ${ad.dna.account}` }, { label: "市场", children: ad.market },
                                 { label: "公开数据", children: `播放 ${fmtNum(ad.dna.plays)} · 点赞 ${fmtNum(ad.dna.likes)} · 评论 ${fmtNum(ad.dna.comments)} · 分享 ${fmtNum(ad.dna.shares)}` },

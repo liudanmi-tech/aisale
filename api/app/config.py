@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -31,3 +32,6 @@ LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-2.5-flash")
 STEP_DELAY = float(os.getenv("STEP_DELAY", "1.0"))
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+
+# 本地媒体（竞品视频封面等）：TikTok 封面链接几天后失效，同步时存一份
+MEDIA_DIR = Path(os.getenv("MEDIA_DIR", Path(__file__).resolve().parents[1] / "media"))

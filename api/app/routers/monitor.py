@@ -106,6 +106,13 @@ class SyncIn(BaseModel):
     account_ids: list[str] | None = None
 
 
+@router.post("/covers")
+def cache_covers():
+    """补存所有还没缓存的封面（老数据用；新同步会自动缓存）。"""
+    spawn(monitor.ensure_covers())
+    return {"ok": True}
+
+
 @router.post("/sync")
 def sync(body: SyncIn):
     """后台同步，立即返回；前端轮询账号状态。"""
@@ -217,4 +224,5 @@ def promote(vid: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "not found") from None
     canvas.audit(db, "-", "user", "watch_promote", {"video": vid, "ref_ad_no": ad.no})
     db.commit()
+    spawn(monitor.ensure_covers([vid]))
     return ad_dict(ad)

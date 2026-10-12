@@ -72,3 +72,12 @@ export function Cover({ gradient, children, className }: { gradient: string; chi
         </div>
     );
 }
+
+/** TikTok 官方嵌入播放器：直接在平台里播放竞品原视频（需要能访问 TikTok）。 */
+export function TikTokPlayer({ id, className }: { id: string; className?: string }) {
+    return (
+        <iframe title="TikTok 视频" src={`https://www.tiktok.com/player/v1/${id}?rel=0&description=1&music_info=1`}
+            allow="encrypted-media; fullscreen; picture-in-picture" allowFullScreen
+            className={clsx("aspect-[9/16] w-[270px] shrink-0 rounded-lg border-0 bg-black", className)} />
+    );
+}

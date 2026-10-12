@@ -16,7 +16,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app import settings_store
+import httpx
+
+from app import config, settings_store
 from app.adapters import apify
 from app.db import SessionLocal
 from app.models import RefAd, SourceVideo, VideoAnalysis, VideoSnapshot, WatchAccount, new_id
@@ -25,6 +27,47 @@ log = logging.getLogger(__name__)
 HOT_PLAYS = 100_000  # 进「爆款」榜的最低播放，两个试点市场先用 10 万
 SYNC_EVERY = timedelta(hours=20)
 _running: set[str] = set()
+
+
+COVER_UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+            "Referer": "https://www.tiktok.com/"}
+media_transport: httpx.AsyncBaseTransport | None = None  # 测试时注入
+
+
+def _cover_file(external_id: str):
+    return config.MEDIA_DIR / "covers" / f"{external_id}.jpg"
+
+
+def cover_url(external_id: str, remote: str = "") -> str:
+    """有本地缓存用本地（不会过期），否则用 TikTok 原链接。"""
+    return f"/api/v1/media/covers/{external_id}.jpg" if external_id and _cover_file(external_id).exists() else remote
+
+
+async def ensure_covers(video_ids: list[str] | None = None) -> int:
+    """把还没缓存的封面下载到本地。拿不到就跳过，下次同步再试。"""
+    with SessionLocal() as db:
+        q = db.query(SourceVideo.external_id, SourceVideo.cover)
+        if video_ids is not None:
+            q = q.filter(SourceVideo.id.in_(video_ids))
+        todo = [(e, c) for e, c in q if c and c.startswith("http") and not _cover_file(e).exists()]
+    if not todo:
+        return 0
+    (config.MEDIA_DIR / "covers").mkdir(parents=True, exist_ok=True)
+    sem, saved = asyncio.Semaphore(6), [0]
+
+    async def one(c: httpx.AsyncClient, ext: str, url: str) -> None:
+        async with sem:
+            try:
+                r = await c.get(url, headers=COVER_UA)
+                if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/") and len(r.content) < 3_000_000:
+                    _cover_file(ext).write_bytes(r.content)
+                    saved[0] += 1
+            except Exception:  # noqa: BLE001
+                pass
+
+    async with httpx.AsyncClient(timeout=20, transport=media_transport, follow_redirects=True) as c:
+        await asyncio.gather(*(one(c, e, u) for e, u in todo))
+    return saved[0]
 
 
 async def sync(account_ids: list[str] | None = None) -> dict:
@@ -86,11 +129,20 @@ async def sync(account_ids: list[str] | None = None) -> dict:
             a.status, a.error = ("ok", "") if aid in seen else ("error", "没有拉到视频：请确认账号名正确、账号公开")
         db.commit()
     _running.difference_update(by_handle.values())
+    try:
+        await ensure_covers()
+    except Exception:  # noqa: BLE001
+        log.exception("封面缓存失败")
     return {"accounts": len(by_handle), "videos": count}
 
 
 async def scheduler() -> None:
-    """每小时检查一次，把超过 20 小时没同步的账号同步一遍（需已填 Apify Token）。"""
+    """启动后先补存缺的封面；之后每小时检查一次，把超过 20 小时没同步的账号同步一遍（需已填 Apify Token）。"""
+    await asyncio.sleep(5)
+    try:
+        await ensure_covers()
+    except Exception:  # noqa: BLE001
+        log.exception("封面缓存失败")
     while True:
         await asyncio.sleep(3600)
         try:
@@ -206,7 +258,7 @@ def scored_videos(db: Session) -> list[dict]:
         multiple = v.plays / med_plays if med_plays else 0
         age_h = ((now - v.posted_at).total_seconds() / 3600) if v.posted_at else None
         rows.append({
-            "id": v.id, "external_id": v.external_id, "url": v.url, "cover": v.cover, "text": v.text, "hashtags": v.hashtags,
+            "id": v.id, "external_id": v.external_id, "url": v.url, "cover": cover_url(v.external_id, v.cover), "text": v.text, "hashtags": v.hashtags,
             "music": v.music, "duration": v.duration, "is_ad": v.is_ad,
             "posted_at": v.posted_at.isoformat() if v.posted_at else None, "age_hours": round(age_h, 1) if age_h is not None else None,
             "plays": v.plays, "likes": v.likes, "comments": v.comments, "shares": v.shares, "collects": v.collects,
@@ -285,7 +337,7 @@ def promote(db: Session, video_id: str) -> RefAd:
     ad = RefAd(id=new_id("ad"), no=no, source="TikTok 账号监控", platform="TikTok", brand=a.brand or a.handle, market=a.market,
                title=(text.split("\n")[0][:28] or f"@{a.handle} 视频"), hook=hook, selling_point=sp, days_running=days, variants=1,
                ctr_range="未公开", vtr=0, is_estimated=False, hot_score=row["hot_score"],
-               dna={"source_video_id": v.id, "url": v.url, "account": f"@{a.handle}", "text": text, "hashtags": v.hashtags,
+               dna={"source_video_id": v.id, "external_id": v.external_id, "url": v.url, "account": f"@{a.handle}", "text": text, "hashtags": v.hashtags,
                     "music": v.music, "duration": v.duration, "plays": v.plays, "likes": v.likes, "comments": v.comments,
                     "shares": v.shares, "multiple": row["multiple"], "engagement": row["engagement"], "grade": row["grade"],
                     "hook": hook, "selling_point": sp,
