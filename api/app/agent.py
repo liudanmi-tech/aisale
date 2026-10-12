@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import canvas, config, settings_store
 from app.adapters import llm
-from app.models import ChatMessage, Node, Patch, Project, new_id
+from app.models import ChatMessage, Node, Patch, Project, RefAd, new_id
 
 INTENT_TOOLS = [
     {"type": "function", "function": {"name": "write_scripts", "description": "基于爆款结构给某个人群写剧本",
@@ -138,21 +138,31 @@ def compile_scripts(db: Session, project: Project, intent: dict, selection: list
         src = next((n for n in ads if (n.data or {}).get("ref_ad_no") == intent["ref_ad_no"]), None)
     if not src:
         src = next((n for n in ads if n.id in selection), None) or (ads[-1] if ads else None)
-    if not src:
-        return "画布上还没有爆款节点，先去爆款库选一条，点「一键洗剧本」。"
     aud_node = next((n for n in canvas.nodes_of(db, project.id, "aud") if (n.data or {}).get("audience") == aud), None)
     if not aud_node:
         return f"资产库里还没有「{aud}」人群包。"
     ops, k0 = [], (project.counters or {}).get("script", 0)
+    if src:
+        src_id, src_title, ref_no = src.id, src.title, (src.data or {}).get("ref_ad_no")
+    else:
+        # 画布上还没有爆款：从爆款库挑同市场、同卖点、爆款分最高的一条，随剧本一起放上画布
+        lib = db.query(RefAd).order_by(RefAd.hot_score.desc()).all()
+        ad = (next((a for a in lib if a.market == project.market and a.selling_point == sp), None)
+              or next((a for a in lib if a.selling_point == sp), None) or (lib[0] if lib else None))
+        if not ad:
+            return "爆款库是空的，先导入爆款再写剧本。"
+        src_id, src_title, ref_no = "ad0", f"爆款 #{ad.no}", ad.no
+        ops.append({**_ghost_create(db, project.id, "ad0", "ad", 0, f"{ad.hook} · {ad.market}", {"ref_ad_no": ad.no}),
+                    "status": "pass", "title": src_title})
     for k in range(count):
         tid = f"g{k}"
         ops.append(_ghost_create(db, project.id, tid, "script", k, f"{sp} · {aud} · 15s",
-                                 {"selling_point": sp, "audience": aud, "version": 1, "ref_ad_no": (src.data or {}).get("ref_ad_no")}))
-        ops += [{"op": "connect", "from": src.id, "to": tid}, {"op": "connect", "from": aud_node.id, "to": tid},
+                                 {"selling_point": sp, "audience": aud, "version": 1, "ref_ad_no": ref_no}))
+        ops += [{"op": "connect", "from": src_id, "to": tid}, {"op": "connect", "from": aud_node.id, "to": tid},
                 {"op": "run_node", "node_id": tid, "action": "generate_script"}]
-    intent = {**intent, "name": "write_scripts", "count": count, "selling_point": sp, "audience": aud, "ref_ad_node_id": src.id}
-    steps = [f"新增 {count} 个剧本节点（{sp} · {aud}），编号 #{k0 + 1}–#{k0 + count}",
-             f"新增 {count * 2} 条连线：{src.title}、{aud_node.title} → 新剧本",
+    intent = {**intent, "name": "write_scripts", "count": count, "selling_point": sp, "audience": aud, "ref_ad_node_id": src.id if src else None}
+    steps = ([] if src else [f"从爆款库选出最匹配的 {src_title}（{ad.title}，爆款分 {ad.hot_score}）放到画布"]) + [f"新增 {count} 个剧本节点（{sp} · {aud}），编号 #{k0 + 1}–#{k0 + count}",
+             f"新增 {count * 2} 条连线：{src_title}、{aud_node.title} → 新剧本",
              "生成分镜与本地语言口播（英语 / 皮钦语）", "完成后逐个提交审核"]
     return _propose(db, project, intent, "写剧本", steps, "约 0.2 积分（文本生成）", ops)
 

@@ -121,9 +121,11 @@ def apply_patch(db: Session, project: Project, patch: Patch) -> list[tuple[str, 
     run_targets = {op["node_id"] for op in patch.ops if op["op"] == "run_node"}
     for op in patch.ops:
         if op["op"] == "create_node":
-            status = "run" if op["temp_id"] in run_targets else "none"
+            status = "run" if op["temp_id"] in run_targets else op.get("status", "none")
             n = create_node(db, project, op["type"], sub=op.get("sub", ""), status=status, data=op.get("data") or {},
-                            x=op["x"], y=op["y"])
+                            x=op["x"], y=op["y"], title=op.get("title"))
+            if op["type"] == "ad":
+                project.flags = {**(project.flags or {}), "washed": True}
             idmap[op["temp_id"]] = n.id
             created_nodes.append(n.id)
         elif op["op"] == "connect":

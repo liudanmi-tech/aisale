@@ -137,3 +137,19 @@ def test_new_project_and_creatives():
         assert res is not None and c.get(f"/api/v1/projects/{pid}/canvas").json()["pending_patch"]["summary"] == "写剧本"
         assert c.post("/api/v1/projects", json={"name": " "}).status_code == 400
         assert isinstance(c.get("/api/v1/creatives", params={"status": "live"}).json(), list)
+
+
+def test_scripts_without_ref_ad_picks_from_library():
+    """新项目没选爆款，直接让 Agent 写剧本：自动从爆款库挑一条同卖点的放上画布。"""
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "phone", "market": "尼日利亚", "selling_point": "续航"}).json()["id"]
+        P = f"/api/v1/projects/{pid}"
+        c.post(P + "/agent/chat", json={"text": "给小商贩写 3 个续航剧本"})
+        patch = c.get(P + "/canvas").json()["pending_patch"]
+        assert patch and patch["summary"] == "写剧本" and "从爆款库选出" in patch["steps"][0]
+        assert c.post(f"{P}/patches/{patch['id']}/apply").status_code == 200
+        nodes = c.get(P + "/canvas").json()["nodes"]
+        ads = [n for n in nodes if n["type"] == "ad"]
+        assert len(ads) == 1 and ads[0]["status"] == "pass" and ads[0]["title"].startswith("爆款 #")
+        assert sum(n["type"] == "script" for n in nodes) == 3
+        assert c.get(P + "/flow").json()[0]["done"]
