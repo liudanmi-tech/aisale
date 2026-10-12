@@ -105,6 +105,54 @@ async def scheduler() -> None:
             log.exception("定时同步失败")
 
 
+# 品牌识别：账号名 / 昵称里出现这些词就认为是该品牌的账号
+BRAND_KEYS = {"samsung": "三星", "galaxy": "三星", "xiaomi": "小米", "redmi": "小米", "poco": "小米", "realme": "realme",
+              "oppo": "OPPO", "vivo": "vivo", "honor": "Honor", "tecno": "TECNO", "infinix": "Infinix", "itel": "itel"}
+_searches: dict[str, dict] = {}
+
+
+def guess_brand(*texts: str) -> str:
+    t = " ".join(texts).lower()
+    return next((b for k, b in BRAND_KEYS.items() if k in t), "")
+
+
+async def search_accounts(job_id: str, queries: list[str]) -> None:
+    """按关键词搜视频，把作者汇总成候选账号：已认证、名字带品牌、粉丝多的排前面。"""
+    job = _searches[job_id]
+    try:
+        items = await apify.search_videos(queries)
+    except Exception as e:  # noqa: BLE001
+        job.update(status="error", error=str(e)[:300])
+        return
+    with SessionLocal() as db:
+        existing = {a.handle.lower() for a in db.query(WatchAccount)}
+    found: dict[str, dict] = {}
+    for it in items:
+        h = it["handle"]
+        if not h:
+            continue
+        c = found.setdefault(h.lower(), {"handle": h, "nickname": it["nickname"], "verified": it["verified"], "followers": it["followers"],
+                                         "bio": it["bio"], "videos": 0, "max_plays": 0, "sample_url": it["url"], "sample_text": it["text"][:80],
+                                         "added": h.lower() in existing})
+        c["videos"] += 1
+        if it["plays"] > c["max_plays"]:
+            c.update(max_plays=it["plays"], sample_url=it["url"], sample_text=it["text"][:80])
+        c["followers"] = c["followers"] or it["followers"]
+        c["verified"] = c["verified"] or it["verified"]
+    for c in found.values():
+        c["brand"] = guess_brand(c["handle"], c["nickname"])
+        c["kind"] = "竞品官方" if c["brand"] and c["verified"] else "达人"
+    job.update(status="done", results=sorted(found.values(), key=lambda c: (not c["brand"], not c["verified"], -(c["followers"] or 0))))
+
+
+def start_search(queries: list[str]) -> str:
+    job_id = new_id("ws")
+    _searches[job_id] = {"status": "running", "queries": queries, "results": [], "error": ""}
+    for old in list(_searches)[:-20]:  # 只留最近 20 次
+        _searches.pop(old, None)
+    return job_id
+
+
 def _pct(values: list[float]) -> dict[int, float]:
     """返回 index → 百分位(0–100)，并列取平均名次。"""
     if not values:

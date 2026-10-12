@@ -1,15 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, App, AutoComplete, Button, Descriptions, Drawer, Input, Popconfirm, Segmented, Select, Switch, Table, Tag, Tooltip } from "antd";
-import { BadgeCheck, ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Alert, App, AutoComplete, Button, Checkbox, Descriptions, Drawer, Input, Modal, Popconfirm, Segmented, Select, Switch, Table, Tag, Tooltip } from "antd";
+import { BadgeCheck, ExternalLink, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Card, PageTitle } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
-import { api, type WatchAccount, type WatchVideo } from "@/services/api";
+import { api, type AccountCandidate, type WatchAccount, type WatchVideo } from "@/services/api";
 
 const BRANDS = ["小米", "三星", "realme", "OPPO", "vivo", "Honor", "Apple", "TECNO", "Infinix", "itel"];
-const MARKETS = ["尼日利亚", "巴基斯坦"];
+/** 市场 → 搜索用英文名。TikTok 在印度被禁，南亚只做巴基斯坦、孟加拉。 */
+const MARKET_EN: Record<string, string> = {
+    尼日利亚: "Nigeria", 肯尼亚: "Kenya", 南非: "South Africa", 埃及: "Egypt", 加纳: "Ghana",
+    巴基斯坦: "Pakistan", 孟加拉: "Bangladesh",
+    印尼: "Indonesia", 菲律宾: "Philippines", 越南: "Vietnam", 泰国: "Thailand", 马来西亚: "Malaysia",
+};
+const MARKETS = Object.keys(MARKET_EN);
+const REGIONS: [string, string[]][] = [["非洲", ["尼日利亚", "肯尼亚", "南非", "埃及", "加纳"]], ["南亚", ["巴基斯坦", "孟加拉"]], ["东南亚", ["印尼", "菲律宾", "越南", "泰国", "马来西亚"]]];
+const SEARCH_BRANDS = ["Samsung", "Xiaomi", "Redmi", "realme", "OPPO", "vivo", "Honor", "TECNO", "Infinix", "itel"];
 const KINDS = ["竞品官方", "达人", "传音自有"];
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
 const fmt = (n: number | null | undefined) => (n == null ? "—" : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
@@ -36,6 +44,108 @@ function AddAccounts({ onDone }: { onDone: () => void }) {
             <Select className="w-28" value={kind} onChange={setKind} options={KINDS.map((v) => ({ value: v }))} />
             <Button type="primary" icon={<Plus size={14} />} disabled={!handles.trim()} loading={add.isPending} onClick={() => add.mutate()}>添加</Button>
         </div>
+    );
+}
+
+/** 在 TikTok 上按「品牌 + 国家」搜视频，从作者里找出官方号和达人，勾选后加入监控。 */
+function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => void }) {
+    const { message } = App.useApp();
+    const [market, setMarket] = useState("尼日利亚");
+    const [brands, setBrands] = useState<string[]>(SEARCH_BRANDS.slice(0, 7));
+    const [reviewers, setReviewers] = useState(true);
+    const [extra, setExtra] = useState("");
+    const [job, setJob] = useState<string | null>(null);
+    const [picked, setPicked] = useState<string[]>([]);
+    const [edits, setEdits] = useState<Record<string, { brand?: string; kind?: string }>>({});
+    const en = MARKET_EN[market];
+    const queries = [...brands.map((b) => `${b} ${en}`), ...(reviewers ? [`phone review ${en}`] : []), ...extra.split(/[\n,，]/).map((q) => q.trim()).filter(Boolean)];
+    const start = useMutation({
+        mutationFn: () => api.searchAccounts(queries),
+        onSuccess: (r) => { setJob(r.job_id); setPicked([]); setEdits({}); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    const { data: res } = useQuery({
+        queryKey: ["watch", "search", job], queryFn: () => api.searchResult(job!), enabled: !!job,
+        refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false),
+    });
+    useEffect(() => {
+        if (res?.status === "done") setPicked(res.results.filter((c) => !c.added && c.brand && c.verified).map((c) => c.handle));
+    }, [res?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    const row = (c: AccountCandidate) => ({ brand: edits[c.handle]?.brand ?? c.brand, kind: edits[c.handle]?.kind ?? c.kind });
+    const add = useMutation({
+        mutationFn: async () => {
+            const groups = new Map<string, string[]>();
+            for (const c of res!.results.filter((x) => picked.includes(x.handle))) {
+                const { brand, kind } = row(c);
+                const k = `${brand}|${kind}`;
+                groups.set(k, [...(groups.get(k) ?? []), c.handle]);
+            }
+            let n = 0;
+            for (const [k, hs] of groups) {
+                const [brand, kind] = k.split("|");
+                n += (await api.addWatchAccounts({ handles: hs.join(" "), brand, market, kind })).added;
+            }
+            return n;
+        },
+        onSuccess: (n) => { message.success(`已添加 ${n} 个账号，点「全部同步」拉取视频`); onAdded(); onClose(); setJob(null); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    const running = start.isPending || res?.status === "running";
+    return (
+        <Modal open={open} onCancel={onClose} width={980} title="在 TikTok 上找竞品账号" footer={res?.status === "done" && (
+            <Button type="primary" disabled={!picked.length} loading={add.isPending} onClick={() => add.mutate()}>添加选中的 {picked.length} 个账号</Button>
+        )}>
+            <div className="flex flex-col gap-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-ink2">市场</span>
+                    <Select className="w-32" value={market} onChange={setMarket}
+                        options={REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: m })) }))} />
+                    <span className="ml-3 text-ink2">品牌</span>
+                    <Checkbox.Group value={brands} onChange={(v) => setBrands(v as string[])} options={SEARCH_BRANDS} />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Checkbox checked={reviewers} onChange={(e) => setReviewers(e.target.checked)}>同时找本地手机测评达人</Checkbox>
+                    <Input className="!w-[360px]" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="其他搜索词，逗号分隔，如 Samsung Lagos, Galaxy A56 Naija" />
+                    <Button type="primary" icon={<Search size={14} />} disabled={!queries.length} loading={running} onClick={() => start.mutate()}>搜索</Button>
+                </div>
+                <div className="text-xs text-ink2">
+                    将搜索：{queries.join(" · ")}（约 {queries.length * 30} 条视频，按 Apify 用量计费，约 ${(queries.length * 30 * 0.003).toFixed(2)}）
+                </div>
+                {running && <Alert type="info" showIcon message="正在 TikTok 上搜索，通常需要 1–3 分钟，可以先关掉窗口，稍后再打开查看" />}
+                {res?.status === "error" && <Alert type="error" showIcon message={`搜索失败：${res.error}`} />}
+                {res?.status === "done" && (
+                    <>
+                        <div className="text-xs text-ink2">
+                            共找到 {res.results.length} 个作者。已默认勾选「已认证 + 名字带品牌」的账号，这类最可能是官方号；
+                            名字带品牌但没认证的，多半是粉丝号或经销商，请点开主页确认后再勾选。
+                        </div>
+                        <Table size="small" rowKey="handle" pagination={{ pageSize: 12 }} dataSource={res.results}
+                            rowSelection={{ selectedRowKeys: picked, onChange: (k) => setPicked(k as string[]), getCheckboxProps: (c) => ({ disabled: c.added }) }}
+                            columns={[
+                                { title: "账号", render: (_, c) => (
+                                    <div className="max-w-[260px]">
+                                        <a href={`https://www.tiktok.com/@${c.handle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
+                                            @{c.handle}{c.verified && <BadgeCheck size={13} className="text-brand2" />}
+                                        </a>
+                                        <div className="truncate text-xs text-ink2">{c.nickname}{c.bio ? ` · ${c.bio}` : ""}</div>
+                                    </div>
+                                ) },
+                                { title: "粉丝", render: (_, c) => fmt(c.followers), sorter: (a, b) => (a.followers ?? 0) - (b.followers ?? 0) },
+                                { title: "命中视频", dataIndex: "videos" },
+                                { title: "最高播放", render: (_, c) => <a href={c.sample_url} target="_blank" rel="noreferrer">{fmt(c.max_plays)}</a> },
+                                { title: "品牌", render: (_, c) => c.added ? <span className="text-ink2">已在监控</span> : (
+                                    <AutoComplete size="small" className="w-24" value={row(c).brand} options={BRANDS.map((v) => ({ value: v }))}
+                                        onChange={(v) => setEdits({ ...edits, [c.handle]: { ...edits[c.handle], brand: v } })} />
+                                ) },
+                                { title: "类型", render: (_, c) => !c.added && (
+                                    <Select size="small" className="w-24" value={row(c).kind} options={KINDS.map((v) => ({ value: v }))}
+                                        onChange={(v) => setEdits({ ...edits, [c.handle]: { ...edits[c.handle], kind: v } })} />
+                                ) },
+                            ]} />
+                    </>
+                )}
+            </div>
+        </Modal>
     );
 }
 
@@ -79,6 +189,7 @@ export default function Watch() {
     const [brand, setBrand] = useState<string>();
     const [sort, setSort] = useState("hot_score");
     const [openId, setOpenId] = useState<string | null>(null);
+    const [searching, setSearching] = useState(false);
 
     const { data: accs } = useQuery({
         queryKey: ["watch", "accounts"], queryFn: api.watchAccounts,
@@ -111,12 +222,13 @@ export default function Watch() {
             {accs && !accs.ready && (
                 <Alert className="mb-3" type="warning" showIcon message={<>还没有填写 Apify Token，无法抓取数据。<Link to="/settings">去设置页添加</Link></>} />
             )}
-            <Card title="监控账号" className="mb-3" extra={
+            <Card title="监控账号" className="mb-3" extra={<div className="flex gap-2">
+                <Button size="small" icon={<Search size={13} />} disabled={!accs?.ready} onClick={() => setSearching(true)}>搜索账号</Button>
                 <Button size="small" icon={<RefreshCw size={13} />} disabled={!accs?.ready || !accs.items.length} loading={sync.isPending || syncing} onClick={() => sync.mutate(undefined)}>全部同步</Button>
-            }>
+            </div>}>
                 <AddAccounts onDone={refresh} />
                 <Table className="mt-3" size="small" rowKey="id" pagination={false} dataSource={accs?.items ?? []}
-                    locale={{ emptyText: "还没有监控账号：先添加小米、三星等在尼日利亚、巴基斯坦的 TikTok 官方账号" }}
+                    locale={{ emptyText: "还没有监控账号：点右上角「搜索账号」，按市场一键找出三星、小米等竞品的 TikTok 官方号" }}
                     columns={[
                         { title: "账号", render: (_, a) => (
                             <a href={`https://www.tiktok.com/@${a.handle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
@@ -142,7 +254,8 @@ export default function Watch() {
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <Segmented value={grade} onChange={(v) => setGrade(v as string)} options={["全部", "爆款", "精品", "观察中"]} />
-                    <Segmented value={market} onChange={(v) => setMarket(v as string)} options={["全部", ...MARKETS]} />
+                    <Select className="w-32" value={market} onChange={setMarket}
+                        options={[{ value: "全部", label: "全部市场" }, ...REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: m })) }))]} />
                     <Select allowClear className="w-32" placeholder="全部品牌" value={brand} onChange={setBrand} options={brands.map((v) => ({ value: v }))} />
                     <Select className="w-36" value={sort} onChange={setSort} options={[
                         { value: "hot_score", label: "按爆款分" }, { value: "quality_score", label: "按精品分" }, { value: "plays", label: "按播放" },
@@ -156,6 +269,7 @@ export default function Watch() {
             </div>
             {!videos.length && <div className="py-16 text-center text-sm text-ink2">{accs?.items.length ? "还没有视频：点「全部同步」拉取数据" : "添加监控账号后，这里会显示抓到的视频"}</div>}
 
+            <SearchAccounts open={searching} onClose={() => setSearching(false)} onAdded={refresh} />
             <Drawer open={!!open} width={560} onClose={() => setOpenId(null)} title={open ? `@${open.account.handle} 的视频` : ""}
                 footer={open && (
                     <div className="flex justify-end gap-2">

@@ -41,6 +41,14 @@ def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(201, json={"data": {"id": "run1", "status": "RUNNING", "defaultDatasetId": "ds1"}})
     if p == "/v2/actor-runs/run1":
         return httpx.Response(200, json={"data": {"id": "run1", "status": "SUCCEEDED", "defaultDatasetId": "ds1"}})
+    if p == "/v2/datasets/ds1/items" and "searchQueries" in runs[-1]["input"]:
+        a = item("samsungnigeria", "s1", 90000, 3000, 100, 3)
+        a["authorMeta"].update(fans=800000, signature="Official Samsung Nigeria")
+        b = item("lagos_tech_guy", "t1", 250000, 20000, 900, 2, "Samsung A56 review")
+        b["authorMeta"].update(fans=60000, verified=False)
+        c = item("galaxyfan123", "f1", 500, 20, 0, 1)
+        c["authorMeta"].update(fans=300, verified=False)
+        return httpx.Response(200, json=[a, b, dict(b, id="t2"), c])
     if p == "/v2/datasets/ds1/items":
         g = 1 + day["n"] * 0.2
         rows = [item("xiaomi_ng", f"x{k}", int(20000 * g), 900, 20, 10 + k) for k in range(8)]
@@ -109,5 +117,25 @@ def test_watch_sync_score_promote():
 
         aid = items["ghost.acc"]["id"]
         assert c.delete(f"{W}/accounts/{aid}").json()["ok"]
+        c.delete("/api/v1/settings/secrets/apify")
+    apify.transport = None
+
+
+def test_search_accounts():
+    runs.clear()
+    apify.transport = httpx.MockTransport(handler)
+    apify.POLL_SECONDS = 0.01
+    with TestClient(app) as c:
+        assert c.post(W + "/search", json={"queries": ["Samsung Nigeria"]}).status_code == 400  # 没填 Token
+        c.put("/api/v1/settings/secrets/apify", json={"value": TOKEN})
+        job = c.post(W + "/search", json={"queries": ["Samsung Nigeria", " "]}).json()["job_id"]
+        wait_until(lambda: c.get(f"{W}/search/{job}").json()["status"] != "running")
+        res = c.get(f"{W}/search/{job}").json()
+        assert res["status"] == "done" and runs[-1]["input"]["searchQueries"] == ["Samsung Nigeria"]
+        r = {x["handle"]: x for x in res["results"]}
+        assert res["results"][0]["handle"] == "samsungnigeria"
+        assert r["samsungnigeria"]["brand"] == "三星" and r["samsungnigeria"]["kind"] == "竞品官方" and r["samsungnigeria"]["bio"]
+        assert r["galaxyfan123"]["brand"] == "三星" and r["galaxyfan123"]["kind"] == "达人"  # 名字带品牌但没认证：不当官方号
+        assert r["lagos_tech_guy"]["videos"] == 2 and r["lagos_tech_guy"]["kind"] == "达人"
         c.delete("/api/v1/settings/secrets/apify")
     apify.transport = None

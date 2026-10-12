@@ -30,11 +30,21 @@ async def check_key(token: str) -> tuple[bool, str]:
     return True, f"连接成功{'，账号 ' + name if name else ''}"
 
 
+NO_DOWNLOADS = {"shouldDownloadVideos": False, "shouldDownloadCovers": False, "shouldDownloadSubtitles": False}
+
+
 async def fetch_profiles(handles: list[str], per_profile: int = 30, timeout_seconds: float = 900) -> list[dict]:
     """拉一批账号最新的视频，返回 normalize 后的列表。"""
+    return await _run({"profiles": handles, "resultsPerPage": per_profile, "profileSorting": "latest", **NO_DOWNLOADS}, timeout_seconds)
+
+
+async def search_videos(queries: list[str], per_query: int = 30, timeout_seconds: float = 900) -> list[dict]:
+    """按关键词搜视频（如 "Samsung Nigeria"），用来从视频作者里找账号。"""
+    return await _run({"searchQueries": queries, "resultsPerPage": per_query, **NO_DOWNLOADS}, timeout_seconds)
+
+
+async def _run(body: dict, timeout_seconds: float) -> list[dict]:
     actor = settings_store.get_models()["tiktok_actor"]
-    body = {"profiles": handles, "resultsPerPage": per_profile, "profileSorting": "latest",
-            "shouldDownloadVideos": False, "shouldDownloadCovers": False, "shouldDownloadSubtitles": False}
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
         r = await c.post(f"{BASE}/acts/{actor}/runs", headers=_headers(), json=body)
         r.raise_for_status()
@@ -89,6 +99,7 @@ def normalize(i: dict) -> dict | None:
         "nickname": author.get("nickName") or author.get("nickname") or "",
         "followers": _num(author.get("fans"), author.get("followerCount"), author.get("followers")) or None,
         "verified": bool(author.get("verified")),
+        "bio": author.get("signature") or author.get("bio") or "",
         "url": i.get("webVideoUrl") or i.get("url") or (f"https://www.tiktok.com/@{handle}/video/{vid}" if handle else ""),
         "cover": vm.get("coverUrl") or vm.get("cover") or (covers.get("default", "") if isinstance(covers, dict) else ""),
         "text": i.get("text") or i.get("desc") or "",

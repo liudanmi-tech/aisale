@@ -121,6 +121,31 @@ def sync(body: SyncIn):
     return {"ok": True}
 
 
+class SearchIn(BaseModel):
+    queries: list[str]
+
+
+@router.post("/search")
+def search(body: SearchIn):
+    """在 TikTok 上按关键词找账号（后台运行，约 1–3 分钟），返回任务号供轮询。"""
+    if not settings_store.get_secret("apify"):
+        raise HTTPException(400, "还没有填写 Apify Token，请到设置页添加")
+    qs = [q.strip() for q in body.queries if q.strip()][:20]
+    if not qs:
+        raise HTTPException(400, "请填写搜索词")
+    job_id = monitor.start_search(qs)
+    spawn(monitor.search_accounts(job_id, qs))
+    return {"job_id": job_id}
+
+
+@router.get("/search/{job_id}")
+def search_result(job_id: str):
+    job = monitor._searches.get(job_id)
+    if not job:
+        raise HTTPException(404, "not found")
+    return job
+
+
 @router.get("/videos")
 def videos(market: str | None = None, brand: str | None = None, grade: str | None = None, sort: str = "hot_score",
            db: Session = Depends(get_db)):

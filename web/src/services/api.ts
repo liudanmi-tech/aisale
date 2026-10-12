@@ -163,6 +163,20 @@ export interface WatchAccount {
     last_synced: string | null;
     videos: number;
 }
+export interface AccountCandidate {
+    handle: string;
+    nickname: string;
+    verified: boolean;
+    followers: number | null;
+    bio: string;
+    videos: number;
+    max_plays: number;
+    sample_url: string;
+    sample_text: string;
+    brand: string;
+    kind: string;
+    added: boolean;
+}
 export interface WatchVideo {
     id: string;
     external_id: string;
@@ -232,6 +246,8 @@ export const api = {
     patchWatchAccount: (id: string, body: Partial<Pick<WatchAccount, "brand" | "market" | "kind" | "enabled">>) => http.patch(`/watch/accounts/${id}`, body).then((r) => r.data),
     deleteWatchAccount: (id: string) => http.delete(`/watch/accounts/${id}`).then((r) => r.data),
     syncWatch: (account_ids?: string[]) => post("/watch/sync", { account_ids: account_ids ?? null }),
+    searchAccounts: (queries: string[]) => post<{ job_id: string }>("/watch/search", { queries }),
+    searchResult: (id: string) => get<{ status: "running" | "done" | "error"; error: string; queries: string[]; results: AccountCandidate[] }>(`/watch/search/${id}`),
     watchVideos: (params: { market?: string; brand?: string; grade?: string; sort?: string }) => get<WatchVideo[]>("/watch/videos", params),
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
