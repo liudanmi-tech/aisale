@@ -247,7 +247,8 @@ export const api = {
     deleteWatchAccount: (id: string) => http.delete(`/watch/accounts/${id}`).then((r) => r.data),
     syncWatch: (account_ids?: string[]) => post("/watch/sync", { account_ids: account_ids ?? null }),
     searchAccounts: (queries: string[]) => post<{ job_id: string }>("/watch/search", { queries }),
-    searchResult: (id: string) => get<{ status: "running" | "done" | "error"; error: string; queries: string[]; results: AccountCandidate[] }>(`/watch/search/${id}`),
+    searchResult: (id: string) => get<{ status: "running" | "done" | "error"; error: string; queries: string[]; results: AccountCandidate[];
+        progress: { run_id: string; status: string; items: number | null; elapsed: number } | null }>(`/watch/search/${id}`),
     watchVideos: (params: { market?: string; brand?: string; grade?: string; sort?: string }) => get<WatchVideo[]>("/watch/videos", params),
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),

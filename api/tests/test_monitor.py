@@ -46,9 +46,13 @@ def handler(req: httpx.Request) -> httpx.Response:
         a["authorMeta"].update(fans=800000, signature="Official Samsung Nigeria")
         b = item("lagos_tech_guy", "t1", 250000, 20000, 900, 2, "Samsung A56 review")
         b["authorMeta"].update(fans=60000, verified=False)
+        d = item("officialsamsungng", "o1", 2000, 50, 1, 4)
+        d["authorMeta"].update(fans=121500, verified=False, nickName="Samsung Nigeria", signature="Official TikTok of Samsung Nigeria")
+        e = item("maikuditaila", "m1", 7000, 50, 1, 4)
+        e["authorMeta"].update(fans=1500, verified=False, nickName="Ali Maikuditela", signature="CEO Mekudi Tela Phones")
         c = item("galaxyfan123", "f1", 500, 20, 0, 1)
         c["authorMeta"].update(fans=300, verified=False)
-        return httpx.Response(200, json=[a, b, dict(b, id="t2"), c])
+        return httpx.Response(200, json=[a, b, dict(b, id="t2"), c, d, e])
     if p == "/v2/datasets/ds1/items":
         g = 1 + day["n"] * 0.2
         rows = [item("xiaomi_ng", f"x{k}", int(20000 * g), 900, 20, 10 + k) for k in range(8)]
@@ -136,6 +140,8 @@ def test_search_accounts():
         assert res["results"][0]["handle"] == "samsungnigeria"
         assert r["samsungnigeria"]["brand"] == "三星" and r["samsungnigeria"]["kind"] == "竞品官方" and r["samsungnigeria"]["bio"]
         assert r["galaxyfan123"]["brand"] == "三星" and r["galaxyfan123"]["kind"] == "达人"  # 名字带品牌但没认证：不当官方号
+        assert r["officialsamsungng"]["brand"] == "三星" and r["officialsamsungng"]["kind"] == "竞品官方"  # 没蓝 V 但简介写明官方
+        assert r["maikuditaila"]["brand"] == ""  # 名字里含 "itel" 字母不算 itel
         assert r["lagos_tech_guy"]["videos"] == 2 and r["lagos_tech_guy"]["kind"] == "达人"
         c.delete("/api/v1/settings/secrets/apify")
     apify.transport = None

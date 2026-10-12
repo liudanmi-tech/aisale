@@ -38,12 +38,13 @@ async def fetch_profiles(handles: list[str], per_profile: int = 30, timeout_seco
     return await _run({"profiles": handles, "resultsPerPage": per_profile, "profileSorting": "latest", **NO_DOWNLOADS}, timeout_seconds)
 
 
-async def search_videos(queries: list[str], per_query: int = 30, timeout_seconds: float = 900) -> list[dict]:
+async def search_videos(queries: list[str], per_query: int = 30, timeout_seconds: float = 1200, on_progress=None) -> list[dict]:
     """按关键词搜视频（如 "Samsung Nigeria"），用来从视频作者里找账号。"""
-    return await _run({"searchQueries": queries, "resultsPerPage": per_query, **NO_DOWNLOADS}, timeout_seconds)
+    return await _run({"searchQueries": queries, "resultsPerPage": per_query, **NO_DOWNLOADS}, timeout_seconds, on_progress)
 
 
-async def _run(body: dict, timeout_seconds: float) -> list[dict]:
+async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dict]:
+    """启动 Actor 并等它跑完；on_progress 每轮收到 {run_id, status, items, elapsed}。"""
     actor = settings_store.get_models()["tiktok_actor"]
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
         r = await c.post(f"{BASE}/acts/{actor}/runs", headers=_headers(), json=body)
@@ -58,6 +59,14 @@ async def _run(body: dict, timeout_seconds: float) -> list[dict]:
             r = await c.get(f"{BASE}/actor-runs/{run['id']}", headers=_headers())
             r.raise_for_status()
             run = r.json()["data"]
+            if on_progress:
+                items = None
+                try:  # 进度只是展示用，拿不到不影响主流程
+                    d = await c.get(f"{BASE}/datasets/{run['defaultDatasetId']}", headers=_headers())
+                    items = (d.json().get("data") or {}).get("itemCount") if d.status_code == 200 else None
+                except Exception:  # noqa: BLE001
+                    pass
+                on_progress({"run_id": run["id"], "status": run.get("status"), "items": items, "elapsed": round(waited)})
         if run.get("status") != "SUCCEEDED":
             raise RuntimeError(f"Apify 运行失败：{run.get('status')}")
         r = await c.get(f"{BASE}/datasets/{run['defaultDatasetId']}/items", headers=_headers(), params={"clean": "true"})

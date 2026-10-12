@@ -71,7 +71,7 @@ function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: ()
         refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false),
     });
     useEffect(() => {
-        if (res?.status === "done") setPicked(res.results.filter((c) => !c.added && c.brand && c.verified).map((c) => c.handle));
+        if (res?.status === "done") setPicked(res.results.filter((c) => !c.added && c.kind === "竞品官方").map((c) => c.handle));
     }, [res?.status]); // eslint-disable-line react-hooks/exhaustive-deps
     const row = (c: AccountCandidate) => ({ brand: edits[c.handle]?.brand ?? c.brand, kind: edits[c.handle]?.kind ?? c.kind });
     const add = useMutation({
@@ -113,13 +113,17 @@ function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: ()
                 <div className="text-xs text-ink2">
                     将搜索：{queries.join(" · ")}（约 {queries.length * 30} 条视频，按 Apify 用量计费，约 ${(queries.length * 30 * 0.003).toFixed(2)}）
                 </div>
-                {running && <Alert type="info" showIcon message="正在 TikTok 上搜索，通常需要 1–3 分钟，可以先关掉窗口，稍后再打开查看" />}
+                {running && <Alert type="info" showIcon message={<>
+                    正在 TikTok 上搜索，{queries.length} 个词通常需要 3–10 分钟，可以先关掉窗口，稍后再打开查看。
+                    {res?.progress && <>已运行 {Math.floor(res.progress.elapsed / 60)} 分 {res.progress.elapsed % 60} 秒{res.progress.items != null && `，已抓到 ${res.progress.items} 条视频`}。
+                        <a href={`https://console.apify.com/actors/runs/${res.progress.run_id}`} target="_blank" rel="noreferrer">在 Apify 后台查看</a></>}
+                </>} />}
                 {startError && !running && <Alert type="error" showIcon message={`没能开始搜索：${startError}`} />}
                 {res?.status === "error" && <Alert type="error" showIcon message={`搜索失败：${res.error}`} />}
                 {res?.status === "done" && (
                     <>
                         <div className="text-xs text-ink2">
-                            共找到 {res.results.length} 个作者。已默认勾选「已认证 + 名字带品牌」的账号，这类最可能是官方号；
+                            共找到 {res.results.length} 个作者。已默认勾选「名字带品牌，且已认证或简介写明 official、粉丝过万」的账号，这类最可能是官方号；
                             名字带品牌但没认证的，多半是粉丝号或经销商，请点开主页确认后再勾选。
                         </div>
                         <Table size="small" rowKey="handle" pagination={{ pageSize: 12 }} dataSource={res.results}
@@ -209,7 +213,7 @@ export default function Watch() {
         onSuccess: () => { message.info("已开始同步，通常需要 1–3 分钟"); refresh(); },
         onError: (e) => message.error(errMsg(e)),
     });
-    const patch = useMutation({ mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.patchWatchAccount(id, { enabled }), onSuccess: refresh });
+    const patch = useMutation({ mutationFn: ({ id, ...body }: { id: string; enabled?: boolean; kind?: string }) => api.patchWatchAccount(id, body), onSuccess: refresh });
     const del = useMutation({ mutationFn: api.deleteWatchAccount, onSuccess: () => { message.success("已删除"); refresh(); } });
     const promote = useMutation({
         mutationFn: api.promoteVideo,
@@ -239,7 +243,11 @@ export default function Watch() {
                                 {a.nickname && <span className="text-ink2">· {a.nickname}</span>}
                             </a>
                         ) },
-                        { title: "品牌", dataIndex: "brand" }, { title: "市场", dataIndex: "market" }, { title: "类型", dataIndex: "kind" },
+                        { title: "品牌", dataIndex: "brand" }, { title: "市场", dataIndex: "market" },
+                        { title: "类型", render: (_, a) => (
+                            <Select size="small" variant="borderless" className="w-24" value={a.kind} options={KINDS.map((v) => ({ value: v }))}
+                                onChange={(kind) => patch.mutate({ id: a.id, kind })} />
+                        ) },
                         { title: "粉丝", render: (_, a) => fmt(a.followers) }, { title: "视频", dataIndex: "videos" },
                         { title: "最近同步", render: (_, a) => when(a.last_synced) }, { title: "状态", render: (_, a) => <StatusTag a={a} /> },
                         { title: "", width: 150, render: (_, a) => (

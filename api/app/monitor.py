@@ -10,6 +10,7 @@
 """
 import asyncio
 import logging
+import re
 import statistics
 from datetime import datetime, timedelta
 
@@ -112,17 +113,23 @@ _searches: dict[str, dict] = {}
 
 
 def guess_brand(*texts: str) -> str:
+    # 品牌词前面必须是开头或非字母：避免 "Maikuditela" 被认成 itel；后面不限，因为账号名常连写（realmenigeria）
     t = " ".join(texts).lower()
-    return next((b for k, b in BRAND_KEYS.items() if k in t), "")
+    return next((b for k, b in BRAND_KEYS.items() if re.search(rf"(?<![a-z]){k}", t)), "")
+
+
+def looks_official(c: dict) -> bool:
+    """已认证；或简介写明 official 且粉丝过万（不少品牌的国家号没有蓝 V）。"""
+    return bool(c["brand"]) and (c["verified"] or ("official" in (c["bio"] or "").lower() and (c["followers"] or 0) >= 10_000))
 
 
 async def search_accounts(job_id: str, queries: list[str]) -> None:
     """按关键词搜视频，把作者汇总成候选账号：已认证、名字带品牌、粉丝多的排前面。"""
     job = _searches[job_id]
     try:
-        items = await apify.search_videos(queries)
+        items = await apify.search_videos(queries, on_progress=lambda p: job.update(progress=p))
     except Exception as e:  # noqa: BLE001
-        job.update(status="error", error=str(e)[:300])
+        job.update(status="error", error=str(e)[:300] or type(e).__name__)
         return
     with SessionLocal() as db:
         existing = {a.handle.lower() for a in db.query(WatchAccount)}
@@ -141,13 +148,13 @@ async def search_accounts(job_id: str, queries: list[str]) -> None:
         c["verified"] = c["verified"] or it["verified"]
     for c in found.values():
         c["brand"] = guess_brand(c["handle"], c["nickname"])
-        c["kind"] = "竞品官方" if c["brand"] and c["verified"] else "达人"
+        c["kind"] = "竞品官方" if looks_official(c) else "达人"
     job.update(status="done", results=sorted(found.values(), key=lambda c: (not c["brand"], not c["verified"], -(c["followers"] or 0))))
 
 
 def start_search(queries: list[str]) -> str:
     job_id = new_id("ws")
-    _searches[job_id] = {"status": "running", "queries": queries, "results": [], "error": ""}
+    _searches[job_id] = {"status": "running", "queries": queries, "results": [], "error": "", "progress": None}
     for old in list(_searches)[:-20]:  # 只留最近 20 次
         _searches.pop(old, None)
     return job_id
