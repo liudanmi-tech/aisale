@@ -47,4 +47,7 @@ if WEB_DIST.exists():
     @app.get("/{path:path}")
     def spa(path: str):
         f = WEB_DIST / path
-        return FileResponse(f if path and f.is_file() else WEB_DIST / "index.html")
+        if path and f.is_file():
+            return FileResponse(f)
+        # index.html 不缓存，发版后浏览器总能拿到新的文件清单
+        return FileResponse(WEB_DIST / "index.html", headers={"Cache-Control": "no-cache"})

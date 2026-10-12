@@ -6,8 +6,21 @@ import { AppLayout } from "@/layouts/app-layout";
 import CanvasPage from "@/pages/canvas-page";
 import Home from "@/pages/home";
 
+/** 新版本发布后，旧标签页去拉旧文件名会失败：自动刷新一次拿到新版本（10 秒内不重复刷新，避免死循环）。 */
+const reloadOnStale = <T,>(load: () => Promise<T>) => () =>
+    load().catch((e) => {
+        let last = 0;
+        try { last = Number(sessionStorage.getItem("aigc-chunk-reload")) || 0; } catch { /* 无痕模式等 */ }
+        if (Date.now() - last > 10_000) {
+            try { sessionStorage.setItem("aigc-chunk-reload", String(Date.now())); } catch { /* 同上 */ }
+            window.location.reload();
+            return new Promise<T>(() => {});
+        }
+        throw e;
+    });
+
 const page = (load: () => Promise<{ default: ComponentType }>) => {
-    const C = lazy(load);
+    const C = lazy(reloadOnStale(load));
     return (
         <Suspense fallback={<div className="flex h-full items-center justify-center"><Spin /></div>}>
             <C />
