@@ -1,0 +1,39 @@
+{
+  "name": "aigc-ads-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 3000"
+  },
+  "dependencies": {
+    "@ant-design/cssinjs": "^2.1.2",
+    "@ant-design/icons": "^6.1.1",
+    "@tanstack/react-query": "^5.100.9",
+    "antd": "^6.4.2",
+    "axios": "^1.16.0",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.20",
+    "echarts": "^5.6.0",
+    "lucide-react": "^1.16.0",
+    "motion": "^12.38.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "react-router-dom": "^7.12.0",
+    "tailwind-merge": "^3.6.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "^5.2.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^7.3.0"
+  }
+}

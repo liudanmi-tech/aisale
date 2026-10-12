@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIGC 投放平台原型</title>
+<style>
+:root{
+  --bg:#0E0F13; --surface:#17181D; --elev:#22242B; --border:#2C2F37;
+  --text:#F2F3F5; --text2:#9095A1; --brand:#7C5CFF; --brand2:#3E8BFF;
+  --good:#2BC48A; --warn:#F5A524; --bad:#F25F5C; --idle:#4A4E59;
+  --t-ad:#FF7A45; --t-sp:#36CFC9; --t-aud:#9254DE; --t-script:#7C5CFF; --t-video:#3E8BFF;
+  --t-eval:#F5A524; --t-deliver:#2BC48A; --t-data:#13C2C2; --t-opt:#EB2F96;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.5 "PingFang SC","Noto Sans SC","Microsoft YaHei",Inter,system-ui,sans-serif}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--border);background:var(--elev);
+  border-radius:8px;padding:6px 12px}
+button:hover{border-color:#454955}
+button.primary{background:linear-gradient(90deg,var(--brand),var(--brand2));border:none;color:#fff}
+button.good{background:rgba(43,196,138,.15);border-color:var(--good);color:var(--good)}
+button.bad{background:rgba(242,95,92,.12);border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.4;cursor:not-allowed}
+input,textarea,select{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;outline:none}
+input:focus,textarea:focus{border-color:var(--brand)}
+.muted{color:var(--text2)}
+.small{font-size:12px}
+.row{display:flex;gap:12px;align-items:center}
+.wrap{flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;background:var(--elev);border:1px solid var(--border);
+  font-size:12px;color:var(--text2);margin:2px 4px 2px 0}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:1px 8px;border-radius:10px}
+.b-pass{background:rgba(43,196,138,.15);color:var(--good)}
+.b-wait{background:rgba(245,165,36,.15);color:var(--warn)}
+.b-reject{background:rgba(242,95,92,.15);color:var(--bad)}
+.b-run{background:rgba(124,92,255,.18);color:#B5A3FF}
+.b-none{background:var(--elev);color:var(--text2)}
+.b-live{background:rgba(62,139,255,.18);color:#8DB8FF}
+h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:0 0 12px} h3{font-size:15px;margin:0 0 8px}
+
+/* top nav */
+#nav{height:52px;display:flex;align-items:center;gap:4px;padding:0 16px;border-bottom:1px solid var(--border);
+  background:var(--surface);position:sticky;top:0;z-index:20;overflow-x:auto;white-space:nowrap}
+#nav .logo{font-weight:700;margin-right:16px;background:linear-gradient(90deg,var(--brand),var(--brand2));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+#nav a.nv{padding:6px 10px;border-radius:8px;color:var(--text2)}
+#nav a.nv.on{color:var(--text);background:var(--elev)}
+#nav .cnt{background:var(--warn);color:#000;border-radius:9px;font-size:11px;padding:0 6px;margin-left:4px}
+#nav .route{margin-left:auto;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text2);
+  border:1px dashed var(--border);border-radius:6px;padding:2px 8px}
+#app{min-height:calc(100% - 52px)}
+.page{padding:24px;max-width:1440px;margin:0 auto}
+
+/* home */
+.hero{padding:32px;border-radius:16px;background:radial-gradient(120% 140% at 0% 0%,rgba(124,92,255,.35),transparent 60%),
+  radial-gradient(120% 140% at 100% 0%,rgba(62,139,255,.25),transparent 60%),var(--surface);border:1px solid var(--border)}
+.hero .ask{display:flex;gap:8px;margin-top:16px}
+.hero .ask input{flex:1;padding:14px 16px;font-size:15px;border-radius:12px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{border:1px solid var(--border);border-radius:16px;padding:4px 12px;font-size:12px;color:var(--text2);cursor:pointer;background:var(--elev)}
+.chip:hover,.chip.on{color:var(--text);border-color:var(--brand)}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+.kpi .v{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .d{font-size:12px}
+.up{color:var(--good)} .down{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+
+/* ad cards */
+.adgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.adc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;position:relative}
+.adc:hover{border-color:var(--brand)}
+.cover{aspect-ratio:9/16;position:relative;display:flex;align-items:flex-end;padding:10px;font-weight:600;font-size:13px}
+.cover .score{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);border-radius:8px;padding:2px 8px;font-size:12px}
+.cover .mk{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);border-radius:8px;padding:2px 8px;font-size:12px}
+.adc .meta{padding:8px 10px;font-size:12px;color:var(--text2)}
+.est{border-bottom:1px dashed var(--text2)}
+
+/* drawer */
+#drawer{position:fixed;top:52px;right:0;bottom:0;width:min(640px,100%);background:var(--surface);border-left:1px solid var(--border);
+  transform:translateX(100%);transition:transform .25s;z-index:30;display:flex;flex-direction:column}
+#drawer.open{transform:none}
+#drawer .body{padding:20px;overflow:auto;flex:1}
+#drawer .foot{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+
+/* canvas page */
+.studio{display:flex;height:calc(100vh - 52px)}
+.agent{width:30%;min-width:340px;max-width:520px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface)}
+.agent.collapsed{width:56px;min-width:56px}
+.agent.collapsed .ag-body,.agent.collapsed .ag-foot,.agent.collapsed .ag-title{display:none}
+.ag-head{height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--border)}
+.ag-body{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:92%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
+.msg.m-user{align-self:flex-end;background:rgba(124,92,255,.18)}
+.msg.m-agent{align-self:flex-start;background:var(--elev)}
+.msg.m-sys{align-self:center;font-size:12px;color:var(--text2);background:none;padding:0}
+.ref{display:inline-block;padding:0 6px;border-radius:6px;background:rgba(124,92,255,.22);color:#C9BCFF;cursor:pointer;font-size:12px;margin:0 2px}
+.ref:hover{background:rgba(124,92,255,.4)}
+.plan{border:1px solid var(--brand);border-radius:12px;padding:12px;background:rgba(124,92,255,.06);align-self:stretch}
+.plan ol{margin:6px 0 8px;padding-left:18px}
+.plan li.done{color:var(--good)}
+.plan li.done::marker{content:"✓ "}
+.ag-foot{border-top:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:8px}
+.ctx{font-size:12px;background:var(--elev);border-radius:6px;padding:4px 8px;display:flex;justify-content:space-between}
+.ag-foot textarea{resize:none;height:64px}
+.quick{display:flex;gap:6px;flex-wrap:wrap}
+.quick .chip{font-size:11px;padding:2px 8px}
+.canvas{flex:1;position:relative;overflow:hidden;background-color:var(--bg);
+  background-image:radial-gradient(#252832 1px,transparent 1px);background-size:20px 20px;touch-action:none}
+.world{position:absolute;left:0;top:0;transform-origin:0 0}
+.world svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.toolbar{position:absolute;top:12px;right:12px;display:flex;gap:6px;z-index:5}
+.toolbar button{padding:4px 10px;font-size:12px;background:var(--surface)}
+.legend{position:absolute;left:12px;bottom:12px;font-size:12px;color:var(--text2);background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;padding:6px 10px;z-index:5}
+.node{position:absolute;width:168px;min-height:66px;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:8px 10px;cursor:grab;user-select:none;transition:box-shadow .2s,border-color .2s,opacity .2s}
+.node:hover{border-color:#4A4E59}
+.node.sel{border-color:var(--brand);box-shadow:0 0 0 2px rgba(124,92,255,.45)}
+.node.hl{box-shadow:0 0 0 3px rgba(245,165,36,.7)}
+.node.dim{opacity:.3}
+.node.ghost{border:1.5px dashed var(--brand);background:rgba(124,92,255,.08);cursor:default}
+.node.ghost-mod{border:1.5px solid var(--warn)}
+.node.s-run{border-color:var(--brand)}
+.node.s-run::after{content:"";position:absolute;inset:-1px;border-radius:12px;border:1.5px solid transparent;
+  background:linear-gradient(90deg,var(--brand),var(--brand2)) border-box;
+  -webkit-mask:linear-gradient(#000 0 0) padding-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+  animation:pulse 1s infinite alternate}
+@keyframes pulse{from{opacity:.3}to{opacity:1}}
+.nh{display:flex;align-items:center;gap:6px}
+.ni{width:20px;height:20px;border-radius:6px;font-size:11px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex:none}
+.nt{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ns{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4}
+.nstat{font-size:11px;margin-top:4px}
+.agent-cursor{position:absolute;top:-18px;left:8px;font-size:10px;background:var(--brand);color:#fff;border-radius:4px;padding:0 6px}
+
+/* sub pages */
+.subbar{display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+.cols3{display:grid;grid-template-columns:280px 1fr 320px;gap:16px;padding:16px 24px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top;font-size:13px}
+th{color:var(--text2);font-weight:500}
+td[contenteditable]:focus{outline:1px solid var(--brand);background:var(--elev)}
+.phone{aspect-ratio:9/16;width:100%;max-width:240px;border-radius:16px;position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.shots{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
+.shot{flex:none;width:150px;background:var(--elev);border:1px solid var(--border);border-radius:10px;padding:8px;font-size:12px}
+.shot .th{aspect-ratio:9/16;border-radius:8px;margin-bottom:6px;display:flex;align-items:center;justify-content:center;font-size:11px}
+.bar{height:6px;background:var(--elev);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .3s}
+.avatars{display:grid;grid-template-columns:repeat(8,minmax(0,56px));gap:10px;justify-content:center}
+.av{aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;
+  background:var(--elev);border:2px solid var(--border);position:relative;transition:all .25s;cursor:default}
+.av.watch{border-color:var(--brand2)}
+.av.gone{opacity:.25;filter:grayscale(1)}
+.av.done{border-color:var(--good)}
+.av.click::after{content:"👆";position:absolute;right:-6px;bottom:-6px;font-size:12px}
+.log{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#0A0B0E;border:1px solid var(--border);border-radius:8px;padding:10px;min-height:120px}
+.log div{padding:2px 0}
+.qlist .qi{padding:10px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer}
+.qlist .qi.on{border-color:var(--brand);background:rgba(124,92,255,.08)}
+.heat td{text-align:center;font-variant-numeric:tabular-nums}
+
+/* flow tracker */
+#flow{position:fixed;right:16px;bottom:16px;width:280px;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;z-index:40;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+#flow .fh{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:600}
+#flow .fb{padding:0 12px 12px}
+#flow.min .fb{display:none}
+#drawer.open ~ #flow{display:none}
+.page{padding-bottom:380px}
+#flow .st{display:flex;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;color:var(--text2)}
+#flow .st.ok{color:var(--good)}
+#flow .st.cur{color:var(--text);font-weight:600}
+#flow .st .n{width:18px;height:18px;border-radius:50%;border:1px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none}
+#toast{position:fixed;left:50%;top:64px;transform:translateX(-50%);background:var(--elev);border:1px solid var(--border);
+  padding:8px 14px;border-radius:8px;z-index:50;display:none}
+
+@media (max-width:900px){
+  .kpis{grid-template-columns:repeat(2,1fr)} .grid2,.cols3{grid-template-columns:1fr}
+  .studio{flex-direction:column;height:auto}
+  .agent{width:100%;max-width:none;min-width:0;height:48vh;border-right:none;border-bottom:1px solid var(--border)}
+  .canvas{height:60vh;flex:none}
+  .page{padding:16px} #flow{width:calc(100% - 32px)}
+}
+</style>
+</head>
+<body>
+<nav id="nav"></nav>
+<main id="app"></main>
+<aside id="drawer"></aside>
+<div id="flow"></div>
+<div id="toast"></div>
+
+<script>
+/* ============ 数据与状态 ============ */
+const TYPES = {
+  ad:{label:'爆款',ch:'爆',col:0,module:'爆款挖掘'}, sp:{label:'卖点',ch:'卖',col:0,module:'资产'},
+  aud:{label:'人群包',ch:'群',col:0,module:'资产'}, script:{label:'剧本',ch:'剧',col:1,module:'剧本工厂'},
+  video:{label:'视频',ch:'视',col:2,module:'视频生成'}, eval:{label:'评测',ch:'评',col:3,module:'Agent 评测'},
+  deliver:{label:'投放',ch:'投',col:4,module:'自动投放'}, data:{label:'数据',ch:'数',col:5,module:'数据回收'},
+  opt:{label:'优化',ch:'优',col:6,module:'自动优化'}
+};
+const STATUS = {pass:'已通过',wait:'待审核',run:'生成中',reject:'已驳回',none:'未开始',live:'投放中'};
+const HUES = ['#FF7A45,#7C5CFF','#36CFC9,#3E8BFF','#EB2F96,#F5A524','#2BC48A,#13C2C2','#9254DE,#3E8BFF','#F25F5C,#FF7A45'];
+const ADS = [
+ {no:12,brand:'竞品 A',market:'尼日利亚',title:'夜拍对比实测',hook:'对比实测',sp:'拍照',days:21,ctr:'1.8–2.4%',vtr:'34%',score:92,est:false},
+ {no:13,brand:'竞品 B',market:'尼日利亚',title:'停电一整天还有电',hook:'痛点提问',sp:'续航',days:18,ctr:'1.5–2.0%',vtr:'29%',score:88,est:true},
+ {no:14,brand:'传音历史',market:'巴基斯坦',title:'婚礼现场自拍',hook:'故事剧情',sp:'拍照',days:26,ctr:'2.0–2.6%',vtr:'38%',score:90,est:false},
+ {no:15,brand:'竞品 C',market:'巴基斯坦',title:'开箱 30 秒',hook:'开箱',sp:'性价比',days:15,ctr:'1.2–1.6%',vtr:'25%',score:81,est:true},
+ {no:16,brand:'竞品 A',market:'尼日利亚',title:'市场摊主一天',hook:'故事剧情',sp:'续航',days:30,ctr:'1.9–2.5%',vtr:'36%',score:91,est:false},
+ {no:17,brand:'竞品 D',market:'巴基斯坦',title:'256G 装下全部照片',hook:'反差',sp:'存储',days:12,ctr:'1.1–1.5%',vtr:'22%',score:77,est:true},
+ {no:18,brand:'竞品 B',market:'尼日利亚',title:'学生党拍 vlog',hook:'开箱',sp:'拍照',days:16,ctr:'1.6–2.1%',vtr:'31%',score:85,est:true},
+ {no:19,brand:'传音历史',market:'尼日利亚',title:'足球之夜直播不卡',hook:'痛点提问',sp:'性能',days:20,ctr:'1.7–2.2%',vtr:'33%',score:87,est:false},
+ {no:20,brand:'竞品 C',market:'巴基斯坦',title:'斋月夜晚团聚',hook:'故事剧情',sp:'拍照',days:24,ctr:'2.1–2.7%',vtr:'37%',score:89,est:true},
+ {no:21,brand:'竞品 D',market:'尼日利亚',title:'10 分钟充一半',hook:'对比实测',sp:'续航',days:14,ctr:'1.4–1.8%',vtr:'27%',score:80,est:true}
+];
+const SHOT_LIB = {
+ '续航':[['0–3s','停电夜，市场摊位一片漆黑，只有手机亮着','Light don cut again? My phone still dey kampe!','又停电了？我的手机还撑得住！'],
+        ['3–7s','摊主一边收款一边刷视频','From morning till night, no charger.','从早到晚，不用充电。'],
+        ['7–11s','产品特写：电池参数（官方素材）','6000mAh big battery.','6000mAh 大电池。'],
+        ['11–15s','顾客围过来问价，CTA 出现','Get am for TECNO shop near you!','附近 TECNO 门店就能买！']],
+ '拍照':[['0–3s','两部手机同时拍夜景，左暗右亮','Which one be better? Look am well!','哪个更好？仔细看！'],
+        ['3–7s','朋友聚会夜拍合影','Night photos wey clear like day.','夜拍清楚得像白天。'],
+        ['7–11s','产品特写：镜头与参数（官方素材）','AI night camera.','AI 夜拍镜头。'],
+        ['11–15s','分享到社交平台，CTA','Shop now!','立即购买！']]
+};
+const DEFAULT_STATE = () => ({
+  counters:{ad:12,sp:1,aud:2,script:2,video:0,eval:0,deliver:0,data:0,opt:0},
+  nodes:[
+    {id:'n_ad12',type:'ad',no:12,title:'爆款 #12',sub:'对比实测 · 尼日利亚',status:'pass',x:40,y:60,data:{adNo:12}},
+    {id:'n_sp1',type:'sp',no:1,title:'卖点 · 续航',sub:'6000mAh · 18W 快充',status:'pass',x:40,y:170,data:{}},
+    {id:'n_aud1',type:'aud',no:1,title:'人群包 · 小商贩',sub:'尼日利亚 · 25–35 岁',status:'pass',x:40,y:280,data:{}},
+    {id:'n_aud2',type:'aud',no:2,title:'人群包 · 学生',sub:'尼日利亚 · 18–24 岁',status:'pass',x:40,y:390,data:{}},
+    {id:'n_s1',type:'script',no:1,title:'剧本 #1',sub:'续航 · 小商贩 · 15s',status:'pass',x:280,y:120,data:{sp:'续航',aud:'小商贩',ver:1,shots:SHOT_LIB['续航'].map(a=>a.slice())}},
+    {id:'n_s2',type:'script',no:2,title:'剧本 #2',sub:'拍照 · 学生 · 15s',status:'wait',x:280,y:230,data:{sp:'拍照',aud:'学生',ver:1,shots:SHOT_LIB['拍照'].map(a=>a.slice())}}
+  ],
+  edges:[
+    {id:'e1',from:'n_ad12',to:'n_s1'},{id:'e2',from:'n_aud1',to:'n_s1'},{id:'e3',from:'n_sp1',to:'n_s1'},
+    {id:'e4',from:'n_ad12',to:'n_s2'},{id:'e5',from:'n_aud2',to:'n_s2'}
+  ],
+  reviews:[{id:'r1',nodeId:'n_s2',module:'剧本工厂',title:'剧本 #2',conclusion:'拍照卖点 · 学生人群，夜拍对比钩子，15 秒',status:'wait',at:'10:24'}],
+  chat:[{role:'agent',text:'你好，我是投放 Agent。可以直接说要做什么，我会先给出执行计划和画布预览，你确认后才会改动画布。\n当前：{{n_s2}} 待审核。'}],
+  plan:null, history:[], selected:[], view:{x:40,y:40,z:1},
+  delivery:{launched:false,log:[]}, flags:{}, eid:6, rid:2, pid:1, agentCollapsed:false
+});
+let S;
+try{ S = JSON.parse(localStorage.getItem('aigc_proto_v1')) || DEFAULT_STATE(); }catch(e){ S = DEFAULT_STATE(); }
+function hydratePlan(){ if (S.plan && PLAN_KINDS[S.plan.kind]){ S.plan.steps = PLAN_KINDS[S.plan.kind].steps; S.plan.build = PLAN_KINDS[S.plan.kind].build; } }
+function save(){ try{ localStorage.setItem('aigc_proto_v1', JSON.stringify(S)); }catch(e){} }
+function resetAll(){ S = DEFAULT_STATE(); save(); location.hash = '#/'; render(); toast('演示数据已重置'); }
+
+/* ============ 工具 ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const node = id => S.nodes.find(n => n.id === id);
+const byType = t => S.nodes.filter(n => n.type === t);
+const now = () => { const d = new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+function toast(t){ const el = $('#toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(()=>el.style.display='none', 2200); }
+function grad(i){ const h = HUES[i % HUES.length].split(','); return `linear-gradient(160deg,${h[0]},${h[1]})`; }
+function badge(st){ return `<span class="badge b-${st}">${STATUS[st]||st}</span>`; }
+function typeColor(t){ return `var(--t-${t})`; }
+function nextPos(type, k){ // 新节点按类型列摆放
+  const col = TYPES[type].col; const list = S.nodes.filter(n => TYPES[n.type].col === col && !n.ghost);
+  const maxY = list.length ? Math.max(...list.map(n => n.y)) : -50;
+  return {x: 40 + col * 240, y: maxY + 110 + k * 110};
+}
+function richText(t){ // {{nodeId}} -> 可点击芯片
+  return esc(t).replace(/\{\{(\w+)\}\}/g, (m, id) => { const n = node(id); return n ? `<span class="ref" data-ref="${id}">${esc(n.title)}</span>` : ''; });
+}
+function agentSay(text){ S.chat.push({role:'agent', text}); }
+
+/* ============ 路由 ============ */
+const ROUTES = [
+  {re:/^\/$/, page:pageHome, nav:'/'},
+  {re:/^\/ads$/, page:pageAds, nav:'/ads'},
+  {re:/^\/p\/p1$/, page:pageCanvas, nav:'/p/p1'},
+  {re:/^\/p\/p1\/script\/(\w+)$/, page:pageScript, nav:'/p/p1'},
+  {re:/^\/p\/p1\/video\/(\w+)$/, page:pageVideo, nav:'/p/p1'},
+  {re:/^\/p\/p1\/eval\/(\w+)$/, page:pageEval, nav:'/p/p1'},
+  {re:/^\/delivery$/, page:pageDelivery, nav:'/delivery'},
+  {re:/^\/data$/, page:pageData, nav:'/data'},
+  {re:/^\/review$/, page:pageReview, nav:'/review'},
+  {re:/^\/assets$/, page:pageAssets, nav:'/assets'},
+  {re:/^\/settings$/, page:pageSettings, nav:'/settings'}
+];
+const NAV = [['/','工作台'],['/p/p1','项目画布'],['/ads','爆款库'],['/assets','资产库'],['/delivery','投放中心'],['/data','数据看板'],['/review','审核中心'],['/settings','设置']];
+function go(path){ location.hash = '#' + path; }
+function currentPath(){ return (location.hash.slice(1) || '/').split('?')[0]; }
+window.addEventListener('hashchange', render);
+
+function render(){
+  const path = currentPath();
+  let r = ROUTES.find(x => x.re.test(path)) || ROUTES[0];
+  const m = path.match(r.re) || [];
+  const wait = S.reviews.filter(x => x.status === 'wait').length;
+  $('#nav').innerHTML = `<span class="logo">AIGC 投放平台</span>` +
+    NAV.map(([p,l]) => `<a class="nv ${r.nav===p?'on':''}" href="#${p}">${l}${p==='/review'&&wait?`<span class="cnt">${wait}</span>`:''}</a>`).join('') +
+    `<span class="route" title="当前路由">#${esc(path)}</span><button class="small" style="margin-left:8px" onclick="resetAll()">重置演示</button>`;
+  closeDrawer();
+  r.page(m[1]);
+  renderFlow();
+  save();
+}
+
+/* ============ 核心链路追踪 ============ */
+const STEPS = [
+  ['在爆款库选爆款并「一键洗剧本」', () => S.flags.washed, '/ads'],
+  ['Agent 在画布上生成剧本（先计划后执行）', () => S.counters.script > 2, '/p/p1'],
+  ['审核中心通过剧本', () => S.flags.scriptPassed, '/review'],
+  ['Agent 生成视频（Seedance）', () => byType('video').length > 0, '/p/p1'],
+  ['审核通过视频', () => byType('video').some(n => n.status === 'pass'), '/review'],
+  ['40 Agent 评测并通过', () => byType('eval').some(n => n.status === 'pass'), '/p/p1'],
+  ['投放方案审核后下发 TikTok', () => S.delivery.launched, '/delivery'],
+  ['数据回收 + 优化建议', () => byType('opt').length > 0, '/data'],
+  ['采纳建议，迭代再生成剧本', () => S.flags.iterated, '/data']
+];
+function renderFlow(){
+  const done = STEPS.map(s => !!s[1]());
+  const cur = done.indexOf(false);
+  if (S.flowMin === undefined) S.flowMin = window.innerWidth < 900;
+  const min = S.flowMin ? 'min' : '';
+  $('#flow').className = min;
+  $('#flow').innerHTML = `<div class="fh" onclick="S.flowMin=!S.flowMin;renderFlow();save()"><span>核心链路 ${done.filter(Boolean).length}/${STEPS.length}</span><span class="muted small">${S.flowMin?'展开':'收起'}</span></div>
+   <div class="fb">${STEPS.map((s,i) => `<div class="st ${done[i]?'ok':''} ${i===cur?'cur':''}" onclick="go('${s[2]}')"><span class="n">${done[i]?'✓':i+1}</span><span>${s[0]}</span></div>`).join('')}
+   <div class="small muted" style="margin-top:6px">点击步骤跳到对应页面</div></div>`;
+}
+
+/* ============ 页面：工作台 ============ */
+function pageHome(){
+  const wait = S.reviews.filter(r => r.status === 'wait');
+  const byMod = {}; wait.forEach(r => byMod[r.module] = (byMod[r.module]||0) + 1);
+  $('#app').innerHTML = `<div class="page">
+    <div class="hero"><h1>一句话开始投放项目</h1><div class="muted">Agent 会新建画布、摆好节点，并在每一步产出结论后等你审核</div>
+      <div class="ask"><input id="homeAsk" placeholder="例如：给 TECNO 新机在尼日利亚的小商贩写 3 个续航剧本"><button class="primary" onclick="homeGo()">开始</button></div>
+      <div class="chips">${['给小商贩写 3 个续航剧本','给学生写 2 个拍照剧本','生成视频','跑 40 Agent 评测'].map(c => `<span class="chip" onclick="$('#homeAsk').value='${c}'">${c}</span>`).join('')}</div>
+    </div>
+    <div class="kpis">${[['本周花费','$4,820','+12%','up'],['CPA','$1.86','-9%','up'],['CTR','2.14%','+0.3pt','up'],['完播率','31.5%','-1.2pt','down']].map(k => `<div class="card kpi"><div class="muted small">${k[0]}</div><div class="v">${k[1]}</div><div class="d ${k[3]}">${k[2]} 环比</div></div>`).join('')}</div>
+    <div class="grid2">
+      <div class="card"><div class="row" style="justify-content:space-between"><h2>本周飙升爆款</h2><a class="muted small" href="#/ads">进入爆款库 →</a></div>
+        <div class="adgrid">${ADS.slice(0,5).map((a,i) => adCard(a,i)).join('')}</div></div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><h2>待办</h2>${wait.length ? Object.entries(byMod).map(([k,v]) => `<div class="row" style="justify-content:space-between;padding:4px 0"><span>${k}</span><a href="#/review" class="badge b-wait">${v} 条待审核</a></div>`).join('') : '<div class="muted">暂无待审核</div>'}</div>
+        <div class="card"><h2>最近项目</h2><a href="#/p/p1" class="row" style="justify-content:space-between"><span>TECNO 新机 · 尼日利亚</span><span class="muted small">${S.nodes.length} 个节点 →</span></a></div>
+      </div>
+    </div></div>`;
+  document.querySelectorAll('.adc').forEach(el => el.onclick = () => { go('/ads'); setTimeout(() => openAd(+el.dataset.no), 50); });
+}
+function homeGo(){ const v = $('#homeAsk').value.trim(); go('/p/p1'); if (v) setTimeout(() => sendAgent(v), 80); }
+
+/* ============ 页面：爆款库 ============ */
+function adCard(a, i){
+  return `<div class="adc" data-no="${a.no}"><div class="cover" style="background:${grad(i)}"><span class="mk">${a.market}</span><span class="score">爆款分 ${a.score}</span>${esc(a.title)}</div>
+    <div class="meta">${a.brand} · 投放 ${a.days} 天<br>CTR <span class="${a.est?'est':''}">${a.ctr}${a.est?' 估':''}</span> · 完播 ${a.vtr}</div></div>`;
+}
+let adFilter = {market:'全部', sp:'全部'};
+function pageAds(){
+  const list = ADS.filter(a => (adFilter.market==='全部'||a.market===adFilter.market) && (adFilter.sp==='全部'||a.sp===adFilter.sp));
+  const chip = (k, v) => `<span class="chip ${adFilter[k]===v?'on':''}" onclick="adFilter.${k}='${v}';pageAds()">${v}</span>`;
+  $('#app').innerHTML = `<div class="page"><h1>爆款库</h1><div class="muted" style="margin-bottom:12px">来源：第三方广告情报 + TikTok Creative Center + 传音历史投放；带「估」的为估算值</div>
+    <div class="card" style="margin-bottom:12px"><div class="row wrap"><span class="muted small">市场</span>${['全部','尼日利亚','巴基斯坦'].map(v => chip('market',v)).join('')}
+    <span class="muted small" style="margin-left:16px">卖点</span>${['全部','拍照','续航','存储','性价比','性能'].map(v => chip('sp',v)).join('')}</div></div>
+    <div class="adgrid">${list.map(a => adCard(a, ADS.indexOf(a))).join('')}</div></div>`;
+  document.querySelectorAll('.adc').forEach(el => el.onclick = () => openAd(+el.dataset.no));
+}
+function openAd(no){
+  const a = ADS.find(x => x.no === no), i = ADS.indexOf(a);
+  $('#drawer').innerHTML = `<div class="body"><div class="row" style="justify-content:space-between"><h2>爆款 #${a.no} · ${esc(a.title)}</h2><button onclick="closeDrawer()">关闭</button></div>
+    <div class="row" style="align-items:flex-start;gap:16px"><div class="phone" style="background:${grad(i)};max-width:180px">▶ 预览</div>
+    <div class="grow"><table><tr><th>品牌</th><td>${a.brand}</td></tr><tr><th>市场</th><td>${a.market}</td></tr><tr><th>投放天数</th><td>${a.days} 天（持续加版本，跑量信号强）</td></tr>
+    <tr><th>CTR</th><td>${a.ctr}${a.est?'（估算）':''}</td></tr><tr><th>完播率</th><td>${a.vtr}</td></tr><tr><th>爆款分</th><td>${a.score}</td></tr></table></div></div>
+    <h3 style="margin-top:16px">创意 DNA</h3><div><span class="tag">钩子：${a.hook}</span><span class="tag">主卖点：${a.sp}</span><span class="tag">卖点出现：第 3 秒</span><span class="tag">人物：本地年轻人</span><span class="tag">BGM：Afrobeats</span><span class="tag">CTA：门店</span></div>
+    <h3 style="margin-top:16px">分镜时间轴</h3><div class="shots">${(SHOT_LIB[a.sp]||SHOT_LIB['拍照']).map(s => `<div class="shot"><div class="th" style="background:${grad(i+1)}">${s[0]}</div>${esc(s[1])}</div>`).join('')}</div>
+    <h3 style="margin-top:16px">评论洞察</h3><div class="muted">购买意向词占比 7.2%（price / how much / where to buy）</div></div>
+    <div class="foot"><button onclick="addAdToCanvas(${a.no},false)">加入画布</button><button class="primary" onclick="addAdToCanvas(${a.no},true)">一键洗剧本</button></div>`;
+  $('#drawer').classList.add('open');
+}
+function closeDrawer(){ $('#drawer').classList.remove('open'); }
+function addAdToCanvas(no, wash){
+  const a = ADS.find(x => x.no === no);
+  let n = S.nodes.find(x => x.type === 'ad' && x.data.adNo === no);
+  if (!n){ const p = nextPos('ad',0); n = {id:'n_ad'+no, type:'ad', no, title:'爆款 #'+no, sub:a.hook+' · '+a.market, status:'pass', x:p.x, y:p.y, data:{adNo:no}}; S.nodes.push(n); }
+  S.selected = [n.id];
+  if (wash){ S.flags.washed = true; go('/p/p1'); setTimeout(() => sendAgent(`用 @爆款 #${no} 给小商贩写 3 个${a.sp==='拍照'?'拍照':'续航'}剧本`), 80); }
+  else { save(); toast('已加入画布'); closeDrawer(); }
+}
+
+/* ============ 页面：项目画布（左 Agent 右画布） ============ */
+function pageCanvas(){
+  $('#app').innerHTML = `<div class="studio">
+    <section class="agent ${S.agentCollapsed?'collapsed':''}" id="agent">
+      <div class="ag-head"><button class="small" onclick="S.agentCollapsed=!S.agentCollapsed;pageCanvas()">${S.agentCollapsed?'»':'«'}</button>
+        <b class="ag-title">投放 Agent</b><span class="ag-title muted small" id="agState" style="margin-left:auto"></span></div>
+      <div class="ag-body" id="chat"></div>
+      <div class="ag-foot">
+        <div id="ctxBar"></div>
+        <div class="quick">${['给小商贩写 3 个续航剧本','生成视频','跑评测','生成投放方案','哪个视频预测 CTR 最高？','整理画布','撤销上一步'].map(q => `<span class="chip" onclick="sendAgent('${q}')">${q}</span>`).join('')}</div>
+        <textarea id="agIn" placeholder="输入指令，@ 引用节点，/ 调用工具（Enter 发送）"></textarea>
+        <div class="row" style="justify-content:space-between"><span class="small muted">Agent 只通过画布工具改画布，所有改动可撤销</span><button class="primary" onclick="sendAgent($('#agIn').value)">发送</button></div>
+      </div>
+    </section>
+    <section class="canvas" id="canvas">
+      <div class="toolbar"><button onclick="sendAgent('整理画布')">整理</button><button onclick="sendAgent('撤销上一步')">撤销</button><button onclick="zoomBy(1.15)">＋</button><button onclick="zoomBy(1/1.15)">－</button><button onclick="S.view={x:40,y:40,z:1};applyView()">复位</button></div>
+      <div class="world" id="world"><svg id="edges" width="1" height="1"></svg><div id="nodes"></div></div>
+      <div class="legend">实线 = 已放行 · 灰虚线 = 上游待审核 · 紫虚线框 = Agent 计划预览　|　单击选中 · Shift 多选 · 双击打开 · 拖动画布</div>
+    </section></div>`;
+  $('#agIn').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendAgent($('#agIn').value); } });
+  bindCanvas(); renderChat(); renderCanvas();
+}
+function renderChat(){
+  const el = $('#chat'); if (!el) return;
+  el.innerHTML = S.chat.map((m, i) => {
+    if (m.role === 'plan') return planCard(m, i);
+    return `<div class="msg m-${m.role}">${richText(m.text)}</div>`;
+  }).join('');
+  el.querySelectorAll('[data-ref]').forEach(r => { r.onmouseenter = () => highlight([r.dataset.ref]); r.onmouseleave = () => highlight([]); r.onclick = () => focusNode(r.dataset.ref); });
+  el.scrollTop = el.scrollHeight;
+  const st = S.plan ? '等待确认' : (S.nodes.some(n => n.status === 'run') ? '执行中' : (S.reviews.some(r => r.status==='wait') ? '等待审核' : '空闲'));
+  if ($('#agState')) $('#agState').textContent = st;
+  const cb = $('#ctxBar');
+  if (cb) cb.innerHTML = S.selected.length ? `<div class="ctx"><span>已选 ${S.selected.length} 个节点：${S.selected.map(id => esc(node(id)?.title||'')).join('、')}</span><a href="javascript:void 0" onclick="S.selected=[];renderCanvas();renderChat()">×</a></div>` : '';
+}
+function planCard(m, i){
+  const active = S.plan && S.plan.chatIndex === i;
+  return `<div class="plan"><b>执行计划</b> <span class="small muted">${esc(m.summary)}</span>
+    <ol>${m.steps.map((s, k) => `<li class="${m.done && m.done[k] ? 'done' : ''}">${esc(s)}</li>`).join('')}</ol>
+    <div class="small muted">费用：${esc(m.cost)} · ${m.review ? '完成后进入人工审核' : '无需审核'}</div>
+    ${active ? `<div class="row" style="margin-top:8px">${m.count ? `<span class="small muted">数量</span><button class="small" onclick="adjustPlan(-1)">－</button><b>${m.count}</b><button class="small" onclick="adjustPlan(1)">＋</button>` : ''}
+      <span class="grow"></span><button onclick="cancelPlan()">取消</button><button class="primary" onclick="executePlan()">执行</button></div>` : `<div class="small muted" style="margin-top:6px">${m.state || ''}</div>`}</div>`;
+}
+
+/* 画布渲染 */
+const NW = 168, NH = 66;
+function allNodesForRender(){ return S.nodes.concat(S.plan ? S.plan.ghosts : []); }
+function renderCanvas(){
+  const box = $('#nodes'); if (!box) return;
+  const list = allNodesForRender();
+  box.innerHTML = list.map(n => {
+    const sel = S.selected.includes(n.id) ? 'sel' : '';
+    return `<div class="node s-${n.status} ${n.ghost?'ghost':''} ${sel}" data-id="${n.id}" style="left:${n.x}px;top:${n.y}px">
+      ${n.status==='run'?'<span class="agent-cursor">Agent 正在编辑</span>':''}
+      <div class="nh"><span class="ni" style="background:${typeColor(n.type)}">${TYPES[n.type].ch}</span><span class="nt">${esc(n.title)}</span></div>
+      <div class="ns">${esc(n.sub||'')}</div><div class="nstat">${n.ghost?'<span class="badge b-run">计划预览</span>':badge(n.status)}${n.data&&n.data.score?` <span class="small muted">得分 ${n.data.score}</span>`:''}</div></div>`;
+  }).join('');
+  renderEdges(); applyView();
+}
+function renderEdges(){
+  const svg = $('#edges'); if (!svg) return;
+  const list = allNodesForRender(); const get = id => list.find(n => n.id === id);
+  const edges = S.edges.map(e => ({...e})).concat(S.plan ? S.plan.ghostEdges.map(e => ({...e, ghost:true})) : []);
+  svg.innerHTML = `<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5A5F6B"/></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7C5CFF"/></marker></defs>` +
+    edges.map(e => { const a = get(e.from), b = get(e.to); if (!a || !b) return '';
+      const x1 = a.x + NW, y1 = a.y + NH/2, x2 = b.x, y2 = b.y + NH/2, dx = Math.max(40, (x2 - x1) / 2);
+      const open = a.status === 'pass' || a.status === 'live';
+      const stroke = e.ghost ? '#7C5CFF' : (open ? '#5A5F6B' : '#3A3E48');
+      const dash = e.ghost ? '5 4' : (open ? '' : '4 4');
+      return `<path d="M${x1} ${y1}C${x1+dx} ${y1} ${x2-dx} ${y2} ${x2} ${y2}" fill="none" stroke="${stroke}" stroke-width="1.5" ${dash?`stroke-dasharray="${dash}"`:''} marker-end="url(#${e.ghost?'arb':'ar'})"/>`;
+    }).join('');
+}
+function applyView(){ const w = $('#world'); if (w) w.style.transform = `translate(${S.view.x}px,${S.view.y}px) scale(${S.view.z})`; }
+function zoomBy(f){ S.view.z = Math.min(2, Math.max(.4, S.view.z * f)); applyView(); save(); }
+function highlight(ids){ document.querySelectorAll('.node').forEach(el => { el.classList.toggle('hl', ids.includes(el.dataset.id)); el.classList.toggle('dim', ids.length > 0 && !ids.includes(el.dataset.id)); }); }
+function focusNode(id){
+  const n = node(id); const c = $('#canvas'); if (!n || !c) return;
+  S.view.x = c.clientWidth/2 - (n.x + NW/2) * S.view.z; S.view.y = c.clientHeight/2 - (n.y + NH/2) * S.view.z;
+  const w = $('#world'); w.style.transition = 'transform .3s'; applyView(); setTimeout(() => w.style.transition = '', 320);
+  S.selected = [id]; renderCanvas(); renderChat(); highlight([id]); setTimeout(() => highlight([]), 1200);
+}
+function bindCanvas(){
+  const c = $('#canvas'); let drag = null;
+  c.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.node'); c.setPointerCapture(e.pointerId);
+    if (el && !el.classList.contains('ghost')){ const n = node(el.dataset.id); drag = {kind:'node', n, sx:e.clientX, sy:e.clientY, ox:n.x, oy:n.y, moved:false, shift:e.shiftKey}; }
+    else drag = {kind:'pan', sx:e.clientX, sy:e.clientY, ox:S.view.x, oy:S.view.y, moved:false};
+  });
+  c.addEventListener('pointermove', e => {
+    if (!drag) return; const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    if (drag.kind === 'node' && drag.moved){ drag.n.x = drag.ox + dx / S.view.z; drag.n.y = drag.oy + dy / S.view.z;
+      const el = c.querySelector(`.node[data-id="${drag.n.id}"]`); if (el){ el.style.left = drag.n.x+'px'; el.style.top = drag.n.y+'px'; } renderEdges(); }
+    if (drag.kind === 'pan' && drag.moved){ S.view.x = drag.ox + dx; S.view.y = drag.oy + dy; applyView(); }
+  });
+  c.addEventListener('pointerup', () => {
+    if (!drag) return;
+    if (!drag.moved){
+      if (drag.kind === 'node'){ const id = drag.n.id;
+        if (drag.shift) S.selected = S.selected.includes(id) ? S.selected.filter(x => x !== id) : S.selected.concat(id); else S.selected = [id]; }
+      else S.selected = [];
+      renderCanvas(); renderChat();
+    }
+    drag = null; save();
+  });
+  c.addEventListener('dblclick', e => { const el = e.target.closest('.node'); if (el && !el.classList.contains('ghost')) openNode(el.dataset.id); });
+  c.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.1 : 1/1.1; const r = c.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top, z2 = Math.min(2, Math.max(.4, S.view.z * f));
+    S.view.x = px - (px - S.view.x) * (z2 / S.view.z); S.view.y = py - (py - S.view.y) * (z2 / S.view.z); S.view.z = z2; applyView(); }, {passive:false});
+}
+function openNode(id){
+  const n = node(id); if (!n) return;
+  const map = {script:'/p/p1/script/', video:'/p/p1/video/', eval:'/p/p1/eval/'};
+  if (map[n.type]) go(map[n.type] + id);
+  else if (n.type === 'deliver') go('/delivery');
+  else if (n.type === 'data' || n.type === 'opt') go('/data');
+  else if (n.type === 'ad'){ go('/ads'); setTimeout(() => openAd(n.data.adNo), 60); }
+  else toast(n.title + '：在资产库中维护');
+}
+
+/* ============ Agent：意图 → 计划 → 预览 → 执行 ============ */
+function sendAgent(text){
+  text = (text || '').trim(); if (!text) return;
+  if (currentPath() !== '/p/p1'){ go('/p/p1'); setTimeout(() => sendAgent(text), 60); return; }
+  if ($('#agIn')) $('#agIn').value = '';
+  S.chat.push({role:'user', text});
+  if (S.plan){ S.chat[S.plan.chatIndex].state = '已被新指令替代'; S.plan = null; }
+  const t = text.replace(/\s/g, '');
+  if (/撤销/.test(t)) undo();
+  else if (/整理|排列/.test(t)){ autoLayout(); agentSay('已按「爆款/资产 → 剧本 → 视频 → 评测 → 投放 → 数据 → 优化」从左到右整理画布（布局类操作免确认，可撤销）。'); }
+  else if (/最高|哪个|最好|最佳/.test(t)) queryBest();
+  else if (/总结|进度/.test(t)) summary();
+  else if (/剧本|写|变体/.test(t)) planScripts(t);
+  else if (/视频|成片/.test(t)) planVideos();
+  else if (/评测|打分/.test(t)) planEval();
+  else if (/投放|下发|方案/.test(t)) planDeliver();
+  else agentSay('我可以：写剧本（如「给学生写 2 个拍照剧本」）、生成视频、跑评测、生成投放方案、整理画布、查询（如「哪个视频预测 CTR 最高」）、撤销。\n选中节点后再下指令，只会作用于选中的节点。');
+  renderCanvas(); renderChat(); save();
+}
+function proposePlan(p){
+  S.chat.push({role:'plan', summary:p.summary, steps:p.steps(p), cost:p.cost, review:p.review, count:p.count});
+  p.chatIndex = S.chat.length - 1; p.build(p); S.plan = p;
+}
+function rebuildPlan(){ const p = S.plan; p.build(p); S.chat[p.chatIndex].steps = p.steps(p); S.chat[p.chatIndex].count = p.count; renderCanvas(); renderChat(); save(); }
+function adjustPlan(d){ const p = S.plan; if (!p || !p.count) return; p.count = Math.min(6, Math.max(1, p.count + d)); rebuildPlan(); }
+function cancelPlan(){ S.chat[S.plan.chatIndex].state = '已取消'; S.plan = null; agentSay('好的，已取消，画布没有改动。'); renderCanvas(); renderChat(); save(); }
+// 计划对象需要可序列化：把构建逻辑放在按 kind 分派的函数里
+const PLAN_KINDS = {
+  scripts:{ steps:p => [`新增 ${p.count} 个剧本节点（${p.sp} · ${p.aud}）`, `新增 ${p.count*2} 条连线：${p.srcTitle}、${p.audTitle} → 新剧本`, '生成分镜与本地语言口播（英语 / 皮钦语）', '完成后逐个提交审核'],
+    build:p => { p.ghosts = []; p.ghostEdges = []; for (let k = 0; k < p.count; k++){ const pos = nextPos('script', k); const id = 'g_s' + k;
+      p.ghosts.push({id, ghost:true, type:'script', title:`剧本 #${S.counters.script + k + 1}`, sub:`${p.sp} · ${p.aud} · 15s`, status:'none', x:pos.x, y:pos.y});
+      p.ghostEdges.push({id:'ge_a'+k, from:p.src, to:id}, {id:'ge_b'+k, from:p.audId, to:id}); } } },
+  videos:{ steps:p => [`为 ${p.srcs.length} 个已通过的剧本各新增 1 个视频节点`, '按镜调用 Seedance（9:16 · 1080p），产品镜头使用官方素材', 'TTS 配音 + 字幕 + BGM 合成，自动质检', '完成后逐个提交审核'],
+    build:p => { p.ghosts = []; p.ghostEdges = []; p.srcs.forEach((sid, k) => { const pos = nextPos('video', k); const id = 'g_v' + k; const s = node(sid);
+      p.ghosts.push({id, ghost:true, type:'video', title:`视频 #${S.counters.video + k + 1}`, sub:`来自 ${s.title} · 15s`, status:'none', x:pos.x, y:pos.y});
+      p.ghostEdges.push({id:'ge_v'+k, from:sid, to:id}); }); } },
+  eval:{ steps:p => [`新增 1 个评测节点，覆盖 ${p.srcs.length} 个视频`, '按目标人群抽取 40 个虚拟用户画像', '逐秒记录划走 / 看完 / 点击，预测 CTR 与完播率', '输出入选名单与建议人群，提交审核'],
+    build:p => { const pos = nextPos('eval', 0); p.ghosts = [{id:'g_e', ghost:true, type:'eval', title:`评测 #${S.counters.eval + 1}`, sub:`40 Agent · ${p.srcs.length} 个视频`, status:'none', x:pos.x, y:pos.y}];
+      p.ghostEdges = p.srcs.map((sid, k) => ({id:'ge_e'+k, from:sid, to:'g_e'})); } },
+  deliver:{ steps:p => ['新增 1 个投放节点（TikTok · 尼日利亚）', `入选素材 ${p.picks} 条，按建议人群建 ${p.groups} 个广告组`, '测试期预算 $30/天 × 3 天，CPA 上限 $2.5', '生成投放方案卡，提交审核（通过后在投放中心下发）'],
+    build:p => { const pos = nextPos('deliver', 0); p.ghosts = [{id:'g_d', ghost:true, type:'deliver', title:`投放 #${S.counters.deliver + 1}`, sub:'TikTok · 测试期', status:'none', x:pos.x, y:pos.y}];
+      p.ghostEdges = [{id:'ge_d', from:p.src, to:'g_d'}]; } },
+  iterate:{ steps:p => [`基于 ${p.srcTitle} 的跑赢元素新增 ${p.count} 个剧本变体`, '保留「对比实测」钩子，替换第 4–6 秒流失镜头', '连线：优化建议 → 新剧本', '完成后提交审核，进入下一轮'],
+    build:p => { p.ghosts = []; p.ghostEdges = []; for (let k = 0; k < p.count; k++){ const pos = nextPos('script', k); const id = 'g_i' + k;
+      p.ghosts.push({id, ghost:true, type:'script', title:`剧本 #${S.counters.script + k + 1}`, sub:`迭代 · ${p.sp} · v2`, status:'none', x:pos.x, y:pos.y});
+      p.ghostEdges.push({id:'ge_i'+k, from:p.src, to:id}); } } }
+};
+function mkPlan(kind, extra){ const p = Object.assign({kind}, extra); p.steps = PLAN_KINDS[kind].steps; p.build = PLAN_KINDS[kind].build; return p; }
+function planScripts(t){
+  const m = t.match(/(\d+)个/); const count = m ? Math.min(6, +m[1]) : 3;
+  const sp = /拍照|夜拍/.test(t) ? '拍照' : (/存储/.test(t) ? '存储' : '续航');
+  const aud = /学生/.test(t) ? '学生' : '小商贩';
+  const selAd = S.selected.map(node).find(n => n && n.type === 'ad');
+  const refNo = (t.match(/爆款#?(\d+)/) || [])[1];
+  const src = (refNo && S.nodes.find(n => n.type === 'ad' && n.data.adNo === +refNo)) || selAd || byType('ad')[0];
+  const audN = byType('aud').find(n => n.title.includes(aud));
+  proposePlan(mkPlan('scripts', {count, sp, aud, src:src.id, srcTitle:src.title, audId:audN.id, audTitle:audN.title, summary:'写剧本', cost:'约 0.2 积分（文本生成）', review:true}));
+  agentSay(`我会用 {{${src.id}}} 的结构，给 {{${audN.id}}} 写 ${count} 个${sp}剧本。画布上紫色虚线框是预览，确认后执行；可以先调整数量。`);
+}
+function planVideos(){
+  const pool = (S.selected.length ? S.selected.map(node) : byType('script')).filter(n => n && n.type === 'script');
+  const ok = pool.filter(n => n.status === 'pass' && !S.edges.some(e => e.from === n.id && node(e.to)?.type === 'video'));
+  if (!ok.length){ const w = byType('script').filter(n => n.status === 'wait');
+    agentSay(w.length ? `还没有可生成视频的剧本：需要先审核通过。待审核：${w.map(n => `{{${n.id}}}`).join(' ')}，可以去审核中心或双击节点审核。` : '没有已通过且未生成视频的剧本，先写剧本吧。'); return; }
+  proposePlan(mkPlan('videos', {srcs:ok.map(n => n.id), summary:'生成视频', cost:`约 ${ok.length * 15} 秒 Seedance 生成 ≈ $${(ok.length * 15 * 0.08).toFixed(2)}（示例单价）`, review:true}));
+  agentSay(`将为 ${ok.map(n => `{{${n.id}}}`).join(' ')} 生成视频。生成视频会产生费用，需要你确认。`);
+}
+function planEval(){
+  const vids = byType('video').filter(n => n.status === 'pass' && !S.edges.some(e => e.from === n.id && node(e.to)?.type === 'eval'));
+  if (!vids.length){ const w = byType('video').filter(n => n.status !== 'pass');
+    agentSay(w.length ? `评测需要已通过审核的视频。当前：${w.map(n => `{{${n.id}}} ${STATUS[n.status]}`).join('，')}。` : '还没有视频，先说「生成视频」。'); return; }
+  proposePlan(mkPlan('eval', {srcs:vids.map(n => n.id), summary:'40 Agent 评测', cost:'约 1.5 积分（多模态模型）', review:true}));
+  agentSay(`将对 ${vids.map(n => `{{${n.id}}}`).join(' ')} 跑 40 Agent 评测，画像按「尼日利亚 · 小商贩 / 学生」真实分布抽样。`);
+}
+function planDeliver(){
+  const ev = byType('eval').find(n => n.status === 'pass' && !S.edges.some(e => e.from === n.id));
+  if (!ev){ const w = byType('eval')[0]; agentSay(w ? `投放方案需要评测结论先通过审核：{{${w.id}}} ${STATUS[w.status]}。` : '还没有评测结果，先说「跑评测」。'); return; }
+  proposePlan(mkPlan('deliver', {src:ev.id, picks:ev.data.picks.length, groups:2, summary:'生成投放方案', cost:'方案生成免费；下发后测试期预算 $180', review:true}));
+  agentSay(`根据 {{${ev.id}}} 的入选名单生成 TikTok 投放方案。真正花钱的「下发」在审核通过后，由你在投放中心点击。`);
+}
+function executePlan(){
+  const p = S.plan; if (!p) return;
+  const group = {nodes:[], edges:[], reviews:[]}; const created = [];
+  const idMap = {};
+  p.ghosts.forEach((g, k) => {
+    const type = g.type; S.counters[type]++; const no = S.counters[type]; const id = 'n_' + type + no + '_' + (S.eid++);
+    idMap[g.id] = id;
+    const n = {id, type, no, title:`${TYPES[type].label} #${no}`, sub:g.sub, status:'run', x:g.x, y:g.y, data:{}};
+    if (type === 'script'){ const sp = p.sp || 'kind'; n.data = {sp:p.sp, aud:p.aud || '小商贩', ver:1, shots:(SHOT_LIB[p.sp] || SHOT_LIB['续航']).map(a => a.slice())}; }
+    if (type === 'video'){ const s = node(p.srcs[k]); n.data = {script:s.id, shots:(s.data.shots || []).map(a => a.slice()), progress:0}; }
+    if (type === 'eval'){ n.data = {videos:p.srcs.slice()}; }
+    if (type === 'deliver'){ n.data = {eval:p.src}; }
+    S.nodes.push(n); group.nodes.push(id); created.push(n);
+  });
+  p.ghostEdges.forEach(e => { const id = 'e' + (S.eid++); S.edges.push({id, from:idMap[e.from] || e.from, to:idMap[e.to] || e.to}); group.edges.push(id); });
+  S.history.push(group);
+  const card = S.chat[p.chatIndex]; card.state = '执行中…'; card.done = card.steps.map(() => false);
+  if (p.kind === 'iterate') S.flags.iterated = true;
+  S.plan = null; S.selected = created.map(n => n.id);
+  renderCanvas(); renderChat(); save();
+  // 逐步落地
+  card.steps.forEach((_, k) => setTimeout(() => { card.done[k] = true; renderChat(); save(); }, 500 + k * 450));
+  created.forEach((n, k) => setTimeout(() => finishNode(n.id, group), 1200 + k * 700));
+  setTimeout(() => { card.state = '已完成，可撤销'; agentSay(`已完成：${created.map(n => `{{${n.id}}}`).join(' ')}，均已提交审核。去「审核中心」或双击节点审核。`); renderChat(); renderCanvas(); save(); }, 1400 + created.length * 700);
+}
+function finishNode(id, group){
+  const n = node(id); if (!n) return;
+  if (n.type === 'eval'){ const vids = n.data.videos.map(node).filter(Boolean);
+    n.data.results = vids.map((v, i) => ({id:v.id, title:v.title, score:[86, 79, 91, 74, 83][(v.no + i) % 5], ctr:[2.3, 1.7, 2.6, 1.4, 2.0][(v.no + i) % 5], vtr:[34, 27, 38, 22, 31][(v.no + i) % 5]}));
+    n.data.results.sort((a, b) => b.score - a.score); n.data.picks = n.data.results.filter(r => r.score >= 80).map(r => r.id);
+    if (!n.data.picks.length) n.data.picks = [n.data.results[0].id];
+    n.data.score = n.data.results[0].score; n.sub = `最高 ${n.data.results[0].title} · 预测 CTR ${n.data.results[0].ctr}%`; }
+  if (n.type === 'video') n.data.progress = 100;
+  n.status = 'wait';
+  const r = {id:'r' + (S.rid++), nodeId:id, module:TYPES[n.type].module, title:n.title, conclusion:conclusionOf(n), status:'wait', at:now()};
+  S.reviews.push(r); if (group) group.reviews.push(r.id);
+  renderCanvas(); renderChat(); render0(); save();
+}
+function conclusionOf(n){
+  if (n.type === 'script') return `${n.data.sp}卖点 · ${n.data.aud}，${n.data.shots.length} 镜 15 秒，合规自检通过`;
+  if (n.type === 'video') return 'Seedance 生成 4 镜 + 官方产品镜头，质检 4/4 通过';
+  if (n.type === 'eval') return `入选 ${n.data.picks.length} 条；最高分 ${n.data.score}，建议人群：小商贩`;
+  if (n.type === 'deliver') return 'TikTok · 2 个广告组 · $30/天 × 3 天 · CPA 上限 $2.5';
+  if (n.type === 'opt') return '暂停 1 条低 CTR 素材；视频 #1 扩量 +20%；基于剧本 #1 生成 2 个变体';
+  return '';
+}
+function render0(){ const wait = S.reviews.filter(x => x.status === 'wait').length; const a = [...document.querySelectorAll('#nav a.nv')].find(x => x.getAttribute('href') === '#/review'); if (a) a.innerHTML = '审核中心' + (wait ? `<span class="cnt">${wait}</span>` : ''); renderFlow(); }
+function undo(){
+  const g = S.history.pop();
+  if (!g){ agentSay('没有可撤销的 Agent 操作。'); return; }
+  S.nodes = S.nodes.filter(n => !g.nodes.includes(n.id)); S.edges = S.edges.filter(e => !g.edges.includes(e.id) && !g.nodes.includes(e.from) && !g.nodes.includes(e.to));
+  S.reviews = S.reviews.filter(r => !g.reviews.includes(r.id)); S.selected = [];
+  if (g.layout) g.layout.forEach(([id, x, y]) => { const n = node(id); if (n){ n.x = x; n.y = y; } });
+  agentSay(g.layout ? '已撤销上一次整理画布。' : `已撤销上一组操作（${g.nodes.length} 个节点、${g.edges.length} 条连线）。`);
+}
+function autoLayout(){
+  const g = {nodes:[], edges:[], reviews:[], layout:S.nodes.map(n => [n.id, n.x, n.y])};
+  const cols = {}; S.nodes.forEach(n => { const c = TYPES[n.type].col; (cols[c] = cols[c] || []).push(n); });
+  Object.entries(cols).forEach(([c, list]) => list.forEach((n, i) => { n.x = 40 + c * 240; n.y = 40 + i * 110; }));
+  S.history.push(g);
+}
+function queryBest(){
+  const ev = byType('eval').filter(n => n.data.results);
+  if (!ev.length){ agentSay('还没有评测结果，跑完评测后我可以告诉你哪个视频预测 CTR 最高。'); return; }
+  const all = ev.flatMap(e => e.data.results).sort((a, b) => b.ctr - a.ctr); const b = all[0];
+  agentSay(`预测 CTR 最高的是 {{${b.id}}}：${b.ctr}%，预测完播率 ${b.vtr}%，评测得分 ${b.score}。已在画布上高亮。`);
+  setTimeout(() => { highlight([b.id]); setTimeout(() => highlight([]), 2500); }, 100);
+}
+function summary(){
+  const c = t => byType(t).length, w = S.reviews.filter(r => r.status === 'wait');
+  agentSay(`当前画布：剧本 ${c('script')}、视频 ${c('video')}、评测 ${c('eval')}、投放 ${c('deliver')}。待审核 ${w.length} 条${w.length ? '：' + w.map(r => `{{${r.nodeId}}}`).join(' ') : ''}。`);
+}
+
+/* ============ 审核 ============ */
+function decide(rid, decision, comment){
+  const r = S.reviews.find(x => x.id === rid); if (!r || r.status !== 'wait') return;
+  const n = node(r.nodeId); r.status = decision; r.comment = comment || ''; r.decidedAt = now();
+  if (!n) return;
+  if (decision === 'pass'){
+    n.status = 'pass';
+    if (n.type === 'script') S.flags.scriptPassed = true;
+    const next = {script:'下一步可以说「生成视频」', video:'下一步可以说「跑评测」', eval:'下一步可以说「生成投放方案」', deliver:'去投放中心点击「下发到 TikTok」', opt:'优化建议已采纳，Agent 将生成迭代剧本'};
+    agentSay(`{{${n.id}}} 已通过审核。${next[n.type] || ''}`);
+    if (n.type === 'opt') adoptOptimization();
+  } else {
+    n.status = 'reject';
+    agentSay(`{{${n.id}}} 被驳回：「${comment || '未填写'}」。我会把意见作为输入重做，完成后重新提交审核。`);
+    setTimeout(() => { const m = node(n.id); if (!m) return; m.status = 'run'; renderCanvas(); setTimeout(() => {
+      m.data.ver = (m.data.ver || 1) + 1; m.sub = m.sub.replace(/ · v\d+$/, '') + ' · v' + m.data.ver;
+      if (m.type === 'script' && m.data.shots) m.data.shots[0][2] = m.data.shots[0][2] + ' (rewritten)';
+      finishNode(m.id, null); agentSay(`{{${m.id}}} 已按意见重做（v${m.data.ver}），重新提交审核。`); renderChat(); }, 1500); }, 400);
+  }
+  save(); render();
+}
+function pageReview(sel){
+  const mods = ['全部', ...new Set(S.reviews.map(r => r.module))];
+  const f = S.reviewFilter || '全部'; const only = S.reviewOnlyWait !== false;
+  const list = S.reviews.filter(r => (f === '全部' || r.module === f) && (!only || r.status === 'wait')).slice().reverse();
+  const cur = list.find(r => r.id === S.reviewCur) || list[0];
+  $('#app').innerHTML = `<div class="page"><h1>审核中心</h1><div class="muted" style="margin-bottom:12px">每个模块产出结论后都会停在这里；通过后工作流才继续。快捷键：A 通过 · R 驳回</div>
+   <div class="cols3" style="padding:0">
+    <div class="card"><h3>按模块</h3>${mods.map(m => { const c = S.reviews.filter(r => (m === '全部' || r.module === m) && r.status === 'wait').length;
+      return `<div class="row" style="justify-content:space-between;padding:6px 8px;border-radius:8px;cursor:pointer;${f===m?'background:var(--elev)':''}" onclick="S.reviewFilter='${m}';pageReview()"><span>${m}</span>${c?`<span class="badge b-wait">${c}</span>`:''}</div>`; }).join('')}
+      <label class="row small muted" style="margin-top:12px"><input type="checkbox" ${only?'checked':''} onchange="S.reviewOnlyWait=this.checked;pageReview()"> 只看待审核</label></div>
+    <div class="card qlist">${list.length ? list.map(r => `<div class="qi ${cur&&cur.id===r.id?'on':''}" onclick="S.reviewCur='${r.id}';pageReview()"><div class="row" style="justify-content:space-between"><b>${esc(r.title)}</b>${badge(r.status)}</div><div class="small muted">${r.module} · ${r.at}</div><div class="small">${esc(r.conclusion)}</div></div>`).join('') : '<div class="muted">没有待审核的内容</div>'}</div>
+    <div class="card">${cur ? reviewDetail(cur) : '<div class="muted">选择左侧一项查看</div>'}</div>
+   </div></div>`;
+  document.onkeydown = e => { if (currentPath() !== '/review' || !cur || cur.status !== 'wait' || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (e.key === 'a' || e.key === 'A') decide(cur.id, 'pass'); if (e.key === 'r' || e.key === 'R') rejectPrompt(cur.id); };
+}
+function reviewDetail(r){
+  const n = node(r.nodeId);
+  const open = n ? `<a class="small" style="color:#B5A3FF" href="javascript:void 0" onclick="openNode('${n.id}')">打开 ${esc(n.title)} →</a>` : '';
+  return `<h3>${esc(r.title)} ${badge(r.status)}</h3><div class="small muted">${r.module} · 提交于 ${r.at}</div>
+    <h3 style="margin-top:12px">Agent 结论</h3><div>${esc(r.conclusion)}</div>
+    <h3 style="margin-top:12px">依据</h3><div class="small muted">${evidenceOf(n)}</div>
+    <div style="margin-top:8px">${open}</div>
+    ${r.status === 'wait' ? `<div class="row" style="margin-top:16px"><button class="good" onclick="decide('${r.id}','pass')">通过 (A)</button><button class="bad" onclick="rejectPrompt('${r.id}')">驳回 (R)</button><button onclick="decide('${r.id}','pass','修改后通过')">修改后通过</button></div>` :
+     `<div class="small muted" style="margin-top:12px">${r.decidedAt||''} ${r.status==='pass'?'已通过':'已驳回'}${r.comment?'：'+esc(r.comment):''}</div>`}`;
+}
+function evidenceOf(n){
+  if (!n) return '';
+  if (n.type === 'script') return '参考 爆款 #12 的「对比实测」结构；卖点取自卖点库；与参考素材画面相似度 18%（阈值 40%）；禁用词 0 处';
+  if (n.type === 'video') return '画面崩坏 0 · 产品形态与官方素材一致 · 字幕错字 0 · 时长 15.0s · 9:16 1080p';
+  if (n.type === 'eval') return (n.data.results || []).map(x => `${x.title}：${x.score} 分 / CTR ${x.ctr}% / 完播 ${x.vtr}%`).join('；');
+  if (n.type === 'deliver') return '政策预审通过 · 落地页可访问 · 追踪参数完整 · 预算在市场日上限内';
+  if (n.type === 'opt') return '视频 #1 CPA $1.62（目标 80% 以内）；视频 #2 CTR 0.9% 低于均值 60%；第 4–6 秒流失 41%';
+  return '';
+}
+function rejectPrompt(rid){ const c = prompt('驳回理由（会作为 Agent 重做的输入）', '钩子不够抓人，换成停电场景'); if (c !== null) decide(rid, 'reject', c); }
+function reviewBar(n){
+  const r = S.reviews.find(x => x.nodeId === n.id && x.status === 'wait');
+  return r ? `<span class="grow"></span><button class="good" onclick="decide('${r.id}','pass')">通过</button><button class="bad" onclick="rejectPrompt('${r.id}')">驳回</button>` : '<span class="grow"></span>';
+}
+
+/* ============ 页面：剧本编辑器 ============ */
+function pageScript(id){
+  const n = node(id); if (!n){ go('/p/p1'); return; }
+  const ad = byType('ad')[0];
+  $('#app').innerHTML = `<div class="subbar"><a href="#/p/p1" class="muted">← 画布</a><b>${esc(n.title)}</b>${badge(n.status)}<span class="small muted">v${n.data.ver||1} · 尼日利亚 · 英语/皮钦语</span>${reviewBar(n)}</div>
+   <div class="cols3">
+    <div class="card"><h3>参考爆款</h3><div class="phone" style="background:${grad(0)};max-width:140px;margin-bottom:8px">▶ ${esc(ad.title)}</div>
+      <div><span class="tag">钩子：对比实测</span><span class="tag">卖点第 3 秒出现</span></div>
+      <h3 style="margin-top:12px">本剧本设定</h3><div class="small">主卖点：${esc(n.data.sp)}<br>人群：${esc(n.data.aud)}<br>时长：15 秒 · 9:16</div></div>
+    <div class="card"><h3>分镜表 <span class="small muted">（单元格可直接编辑）</span></h3>
+      <table><tr><th>镜</th><th>时长</th><th>画面</th><th>口播（本地语言）</th><th>中文对照</th><th></th></tr>
+      ${n.data.shots.map((s, i) => `<tr><td>${i+1}</td><td>${s[0]}</td><td contenteditable data-i="${i}" data-k="1">${esc(s[1])}</td><td contenteditable data-i="${i}" data-k="2">${esc(s[2])}</td><td contenteditable data-i="${i}" data-k="3">${esc(s[3])}</td><td><button class="small" onclick="rewriteShot('${n.id}',${i})">重写</button></td></tr>`).join('')}</table></div>
+    <div class="card"><h3>合规自检</h3><div class="small">✓ 禁用词 0 处<br>✓ 宗教 / 文化敏感 0 处<br>✓ 与参考素材相似度 18%<br>✓ 续航描述与卖点库一致</div>
+      <h3 style="margin-top:12px">对这个剧本下指令</h3><textarea id="scIn" style="width:100%;height:60px" placeholder="例如：第 1 镜换成停电场景"></textarea>
+      <button class="primary" style="margin-top:8px" onclick="rewriteShot('${n.id}',0,$('#scIn').value)">让 Agent 改</button></div>
+   </div>`;
+  document.querySelectorAll('td[contenteditable]').forEach(td => td.oninput = () => { n.data.shots[+td.dataset.i][+td.dataset.k] = td.textContent; save(); });
+}
+function rewriteShot(id, i, hint){
+  const n = node(id); const alt = ['Light off for 2 days? This phone no dey die!', 'Customer dey wait, phone still dey work!', 'One charge, full market day.'];
+  n.data.shots[i][2] = alt[((n.data.ver || 1) + i) % alt.length]; n.data.shots[i][3] = hint ? `（按指令修改）${hint}` : '换了一个更口语的说法';
+  toast(`第 ${i+1} 镜已重写（差异已高亮）`); save(); pageScript(id);
+  const td = document.querySelector(`td[data-i="${i}"][data-k="2"]`); if (td){ td.style.background = 'rgba(245,165,36,.18)'; }
+}
+
+/* ============ 页面：视频工作室 ============ */
+function pageVideo(id){
+  const n = node(id); if (!n){ go('/p/p1'); return; }
+  const shots = n.data.shots || [];
+  $('#app').innerHTML = `<div class="subbar"><a href="#/p/p1" class="muted">← 画布</a><b>${esc(n.title)}</b>${badge(n.status)}<span class="small muted">模型 Seedance · 9:16 · 1080p · 15s · 预估 $1.20</span>${reviewBar(n)}</div>
+   <div class="cols3">
+    <div class="card"><h3>资产</h3><div class="small">角色：Ada（本地面孔，一致性已锁定）<br>产品素材库：官方实拍 12 段<br>BGM：Afrobeats 商用库<br>字体与品牌包：TECNO 2026</div></div>
+    <div class="card"><h3>分镜（每镜可单独重生成）</h3><div class="shots">${shots.map((s, i) => `<div class="shot"><div class="th" style="background:${grad(i+2)}">${i===2?'官方产品镜头':'Seedance'}</div><b>镜 ${i+1}</b> ${s[0]}<br><span class="muted">${esc(s[1])}</span>
+      <div class="row" style="margin-top:6px"><select class="small" style="padding:2px"><option>${i===2?'产品素材库':'AI 生成'}</option><option>AI 生成</option><option>数字人口播</option></select></div>
+      <button class="small" style="margin-top:6px" onclick="toast('镜 ${i+1} 已提交重生成（Seedance 异步任务）')">重生成</button></div>`).join('')}</div>
+      <h3 style="margin-top:16px">时间线</h3><div class="small muted">视频轨 ▮▮▮▮　配音轨（英语 / 皮钦语 TTS）▮▮▮　字幕轨 ▮▮▮▮　BGM ▮▮▮▮▮</div></div>
+    <div class="card"><h3>成片预览</h3><div class="phone" style="background:${grad(3)};margin:0 auto">${n.status==='run'?'生成中…':'▶ 15s 成片'}</div>
+      <h3 style="margin-top:12px">自动质检</h3><div class="small">${['画面崩坏','产品形态','字幕错字','时长与规格'].map(q => `<span style="color:var(--good)">●</span> ${q} 通过`).join('<br>')}</div></div>
+   </div>`;
+}
+
+/* ============ 页面：评测 ============ */
+function pageEval(id){
+  const n = node(id); if (!n){ go('/p/p1'); return; }
+  const res = n.data.results || [];
+  const people = Array.from({length:40}, (_, i) => ({i, drop: [3,5,8,15,15,15,2,15,11,15][i % 10] + (i % 3), click: i % 7 === 0, name: ['Ada','Musa','Chi','Bola','Femi','Ngozi','Tunde','Zara'][i % 8]}));
+  $('#app').innerHTML = `<div class="subbar"><a href="#/p/p1" class="muted">← 画布</a><b>${esc(n.title)}</b>${badge(n.status)}<span class="small muted">40 个虚拟用户 · 尼日利亚 · 小商贩 60% / 学生 40%</span>${reviewBar(n)}</div>
+   <div class="cols3">
+    <div class="card"><h3>播放与流失曲线</h3><div class="phone" style="background:${grad(1)};max-width:180px;margin:0 auto" id="evPlay">▶</div>
+      <div class="bar" style="margin-top:10px"><i id="evBar" style="width:0"></i></div><div class="small muted" id="evT">0.0s / 15s</div>
+      <svg viewBox="0 0 200 60" style="width:100%;margin-top:8px"><polyline fill="none" stroke="#7C5CFF" stroke-width="2" points="0,5 20,10 40,18 60,24 80,30 100,33 140,36 200,40"/><text x="0" y="58" fill="#9095A1" font-size="8">0s</text><text x="180" y="58" fill="#9095A1" font-size="8">15s</text></svg>
+      <button class="primary" style="margin-top:8px;width:100%" onclick="playEval()">播放评测过程</button></div>
+    <div class="card"><h3>40 Agent 实时反应 <span class="small muted">紫=观看中 · 灰=划走 · 绿=看完 · 👆=点击 CTA</span></h3>
+      <div class="avatars" id="avs">${people.map(p => `<div class="av" data-drop="${p.drop}" data-click="${p.click?1:0}" title="${p.name} · ${p.i<24?'小商贩':'学生'}">${p.name}</div>`).join('')}</div></div>
+    <div class="card"><h3>结论</h3>${res.length ? `<table><tr><th>视频</th><th>得分</th><th>预测 CTR</th><th>完播</th></tr>${res.map(r => `<tr><td><a href="javascript:void 0" onclick="go('/p/p1');setTimeout(()=>focusNode('${r.id}'),60)">${esc(r.title)}</a></td><td>${r.score}</td><td>${r.ctr}%</td><td>${r.vtr}%</td></tr>`).join('')}</table>
+      <div class="small" style="margin-top:8px">入选（≥80 分）：${n.data.picks.map(id => esc(node(id)?.title||'')).join('、')}<br>建议人群：小商贩（得分高 9 分）<br>主要问题：前 3 秒流失 18%，建议换停电场景钩子</div>` : '<div class="muted">评测中…</div>'}</div>
+   </div>`;
+}
+function playEval(){
+  let t = 0; const avs = [...document.querySelectorAll('.av')]; avs.forEach(a => a.className = 'av watch');
+  clearInterval(playEval.h); playEval.h = setInterval(() => {
+    t += .25; const b = $('#evBar'); if (!b){ clearInterval(playEval.h); return; }
+    b.style.width = (t / 15 * 100) + '%'; $('#evT').textContent = t.toFixed(1) + 's / 15s';
+    avs.forEach(a => { const d = +a.dataset.drop; if (d < 15 && t >= d) a.className = 'av gone'; if (t >= 15 && d >= 15) a.className = 'av done' + (a.dataset.click === '1' ? ' click' : ''); });
+    if (t >= 15) clearInterval(playEval.h);
+  }, 60);
+}
+
+/* ============ 页面：投放中心 ============ */
+function pageDelivery(){
+  const ds = byType('deliver'); const d = ds[ds.length - 1];
+  const r = d && S.reviews.find(x => x.nodeId === d.id && x.status === 'wait');
+  $('#app').innerHTML = `<div class="page"><h1>投放中心</h1><div class="muted" style="margin-bottom:12px">TikTok 已连接（Marketing API）· Facebook、X 二期接入</div>
+   ${!d ? `<div class="card">还没有投放方案。回到 <a href="#/p/p1" style="color:#B5A3FF">项目画布</a> 对 Agent 说「生成投放方案」。</div>` : `
+   <div class="grid2"><div class="card"><div class="row"><h2 style="margin:0">投放方案卡 · ${esc(d.title)}</h2>${badge(d.status)}</div>
+     <table style="margin-top:8px"><tr><th>平台与账户</th><td>TikTok · TECNO Nigeria Ads（已连接）</td></tr>
+     <tr><th>广告结构</th><td>广告系列「Camon 续航 · 测试」→ 广告组：小商贩 / 学生 → 广告：${(node(d.data.eval)?.data.picks || []).map(id => esc(node(id)?.title || '')).join('、')}</td></tr>
+     <tr><th>定向</th><td><span class="tag">尼日利亚</span><span class="tag">18–35 岁</span><span class="tag">兴趣：手机 / 足球 / 小生意</span></td></tr>
+     <tr><th>预算与出价</th><td>$30/天 × 3 天测试期 · 最低成本出价 · CPA 上限 $2.5</td></tr>
+     <tr><th>护栏</th><td>市场日上限 $500 · 单素材花费上限 $60 · CPA 超限自动暂停</td></tr>
+     <tr><th>上线前自检</th><td><span style="color:var(--good)">●</span> 政策预审　<span style="color:var(--good)">●</span> 落地页　<span style="color:var(--good)">●</span> 追踪参数</td></tr></table>
+     <div class="row" style="margin-top:12px">${r ? `<span class="badge b-wait">方案待审核</span><button class="good" onclick="decide('${r.id}','pass')">通过方案</button>` : ''}
+       <span class="grow"></span><button class="primary" ${d.status==='pass'&&!S.delivery.launched?'':'disabled'} onclick="launch('${d.id}')">${S.delivery.launched?'已下发':'下发到 TikTok'}</button></div></div>
+     <div class="card"><h3>执行日志</h3><div class="log" id="log">${S.delivery.log.map(l => `<div>${esc(l)}</div>`).join('') || '<span class="muted">等待下发</span>'}</div>
+       <div class="small muted" style="margin-top:8px">API 不支持的步骤会改由浏览器 Agent 在云虚拟机中执行，并显示实时画面</div></div></div>`}
+   <div class="card" style="margin-top:16px"><h3>投放列表</h3><table><tr><th>素材</th><th>状态</th><th>花费</th><th>CTR</th><th>完播率</th><th>CPA</th></tr>
+     ${S.delivery.launched ? [['视频 #1','扩量中','$412','2.4%','35%','$1.62'],['视频 #2','已暂停','$58','0.9%','19%','$4.10'],['视频 #3','测试中','$96','1.9%','30%','$2.05']].slice(0, Math.max(1, (node(d.data.eval)?.data.picks||[]).length)).map(x => `<tr>${x.map(c => `<td>${c}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="6" class="muted">尚未下发</td></tr>'}</table></div></div>`;
+}
+function launch(id){
+  const d = node(id); const lines = ['上传素材到 TikTok 素材库 ✓', '创建广告系列「Camon 续航 · 测试」✓', '创建广告组：小商贩 ✓', '创建广告组：学生 ✓', '创建广告并提交平台审核 ✓', '平台审核通过，开始投放 ✓'];
+  S.delivery.log = []; lines.forEach((l, i) => setTimeout(() => { S.delivery.log.push(now() + '  ' + l); const el = $('#log'); if (el) el.innerHTML = S.delivery.log.map(x => `<div>${esc(x)}</div>`).join('');
+    if (i === lines.length - 1){ S.delivery.launched = true; d.status = 'live'; afterLaunch(d); save(); toast('已下发，数据每小时回收'); pageDelivery(); } save(); }, 400 * (i + 1)));
+}
+function afterLaunch(d){
+  S.counters.data++; S.counters.opt++;
+  const pd = nextPos('data', 0), dn = {id:'n_data' + (S.eid++), type:'data', no:S.counters.data, title:'数据 #' + S.counters.data, sub:'花费 $566 · CTR 2.0% · CPA $1.86', status:'pass', x:pd.x, y:pd.y, data:{}};
+  S.nodes.push(dn); S.edges.push({id:'e' + (S.eid++), from:d.id, to:dn.id});
+  const po = nextPos('opt', 0), on = {id:'n_opt' + (S.eid++), type:'opt', no:S.counters.opt, title:'优化 #' + S.counters.opt, sub:'3 条建议', status:'run', x:po.x, y:po.y, data:{}};
+  S.nodes.push(on); S.edges.push({id:'e' + (S.eid++), from:dn.id, to:on.id});
+  setTimeout(() => { finishNode(on.id, null); }, 600);
+  agentSay(`投放已上线：{{${dn.id}}} 开始回收数据，{{${on.id}}} 生成了 3 条优化建议，待审核。`);
+}
+
+/* ============ 页面：数据看板 ============ */
+function pageData(){
+  const opt = byType('opt')[0]; const r = opt && S.reviews.find(x => x.nodeId === opt.id && x.status === 'wait');
+  const spend = [320, 410, 480, 560, 610, 590, 650], cpa = [2.6, 2.4, 2.2, 2.0, 1.9, 1.95, 1.86];
+  const pts = (arr, max) => arr.map((v, i) => `${20 + i * 60},${150 - v / max * 120}`).join(' ');
+  $('#app').innerHTML = `<div class="page"><h1>数据看板</h1><div class="muted" style="margin-bottom:12px">${S.delivery.launched ? 'TikTok 报表每小时回收；转化数据 72 小时内持续修正' : '尚未下发投放，以下为示例数据'}</div>
+   <div class="kpis">${[['花费','$3,620'],['曝光','1.82M'],['CTR','2.03%'],['完播率','31.8%'],].map(k => `<div class="card kpi"><div class="muted small">${k[0]}</div><div class="v">${k[1]}</div></div>`).join('')}</div>
+   <div class="grid2"><div class="card"><h3>近 7 日花费（$，紫）与 CPA（$，橙）</h3>
+     <svg viewBox="0 0 420 170" style="width:100%;height:220px"><line x1="20" y1="150" x2="400" y2="150" stroke="#2C2F37"/>
+     <polyline fill="none" stroke="#7C5CFF" stroke-width="2" points="${pts(spend, 700)}"/><polyline fill="none" stroke="#F5A524" stroke-width="2" points="${pts(cpa, 3)}"/>
+     ${['10/06','10/07','10/08','10/09','10/10','10/11','10/12'].map((d, i) => `<text x="${20 + i * 60}" y="165" fill="#9095A1" font-size="10" text-anchor="middle">${d}</text>`).join('')}
+     <text x="380" y="${150 - 650/700*120 - 6}" fill="#B5A3FF" font-size="10" text-anchor="end">$650</text><text x="380" y="${150 - 1.86/3*120 + 14}" fill="#F5A524" font-size="10" text-anchor="end">CPA $1.86</text></svg></div>
+     <div class="card"><h3>优化建议 ${opt ? badge(opt.status) : ''}</h3>${opt ? `<div class="small">1. 暂停 视频 #2（CTR 0.9%，低于均值 60%）<br>2. 视频 #1 扩量：预算 +20%，复制到类似人群<br>3. 基于 剧本 #1 生成 2 个变体：保留对比实测钩子，替换第 4–6 秒</div>
+       <div class="row" style="margin-top:12px">${r ? `<button class="good" onclick="decide('${r.id}','pass')">采纳（通过审核）</button><button class="bad" onclick="rejectPrompt('${r.id}')">驳回</button>` : (S.flags.iterated ? '<span class="small muted">已采纳，迭代剧本已在画布生成</span>' : '')}</div>` : '<div class="muted small">投放上线后生成</div>'}</div></div>
+   <div class="grid2" style="margin-top:16px"><div class="card"><h3>创意元素洞察：钩子 × 人群（CTR 相对大盘）</h3><table class="heat"><tr><th></th><th>小商贩</th><th>学生</th></tr>
+     ${[['对比实测', 1.32, 1.05], ['痛点提问', 1.18, 0.86], ['开箱', 0.92, 1.12], ['故事剧情', 1.08, 1.21]].map(rw => `<tr><th>${rw[0]}</th>${rw.slice(1).map(v => `<td style="background:rgba(${v >= 1 ? '43,196,138' : '242,95,92'},${Math.min(.55, Math.abs(v - 1) * 1.6)})">${v.toFixed(2)}×</td>`).join('')}</tr>`).join('')}</table></div>
+     <div class="card"><h3>评测校准</h3><div class="small">Agent 预测 CTR 与实测 CTR 的排序相关系数：<b>0.52</b>（门槛 0.4，已达标）<br>样本：3 条素材 · 3 天</div></div></div></div>`;
+}
+function adoptOptimization(){
+  const opt = byType('opt')[0]; const best = byType('script').find(n => n.status === 'pass') || byType('script')[0];
+  go('/p/p1');
+  setTimeout(() => { S.chat.push({role:'user', text:'采纳优化建议：基于跑赢元素生成迭代剧本'});
+    proposePlan(mkPlan('iterate', {count:2, src:opt.id, srcTitle:best.title, sp:best.data.sp, aud:best.data.aud, summary:'迭代再生成', cost:'约 0.2 积分', review:true}));
+    agentSay(`闭环第二轮：基于 {{${best.id}}} 的跑赢元素生成 2 个变体，连到 {{${opt.id}}}。确认后执行。`); renderCanvas(); renderChat(); save(); }, 120);
+}
+
+/* ============ 资产库 / 设置 ============ */
+function pageAssets(){
+  $('#app').innerHTML = `<div class="page"><h1>资产库</h1><div class="grid2"><div class="card"><h3>卖点库 · TECNO Camon</h3><table><tr><th>卖点</th><th>参数</th><th>合规表述</th><th>优先级</th></tr>
+   <tr><td>续航</td><td>6000mAh · 18W</td><td>不承诺具体使用天数</td><td>P0</td></tr><tr><td>拍照</td><td>AI 夜拍 · 50MP</td><td>样张需为实拍</td><td>P0</td></tr><tr><td>存储</td><td>256GB</td><td>—</td><td>P1</td></tr></table></div>
+   <div class="card"><h3>人群包</h3><table><tr><th>名称</th><th>标签</th></tr><tr><td>尼日利亚 · 小商贩</td><td>25–35 岁 · 小生意 · 续航痛点</td></tr><tr><td>尼日利亚 · 学生</td><td>18–24 岁 · 拍照 · 社交</td></tr><tr><td>巴基斯坦 · 年轻家庭</td><td>25–40 岁 · 婚礼 · 斋月</td></tr></table></div></div>
+   <div class="card" style="margin-top:16px"><h3>角色资产 / 产品素材 / 本土化词库</h3><div class="muted small">角色 6 个（本地面孔，已授权）· 官方产品素材 12 段 · 皮钦语 / 豪萨语 / 乌尔都语词库</div></div></div>`;
+}
+function pageSettings(){
+  $('#app').innerHTML = `<div class="page"><h1>设置</h1><div class="grid2"><div class="card"><h3>广告账户与 API</h3><table>
+   <tr><td>TikTok Marketing API</td><td><span class="badge b-pass">已连接</span></td></tr><tr><td>Seedance（BytePlus ModelArk）</td><td><span class="badge b-wait">待填写 API Key</span></td></tr>
+   <tr><td>第三方广告情报</td><td><span class="badge b-wait">待采购</span></td></tr><tr><td>Meta / X</td><td><span class="badge b-none">二期</span></td></tr></table></div>
+   <div class="card"><h3>规则阈值（自动优化）</h3><table><tr><td>淘汰</td><td>曝光 ≥ 5,000 且 CTR &lt; 均值 60%</td></tr><tr><td>扩量</td><td>CPA ≤ 目标 80% 且转化 ≥ 10</td></tr><tr><td>疲劳</td><td>CTR 连续 3 天降 30%</td></tr><tr><td>免确认指令</td><td>查询、整理画布</td></tr></table></div></div></div>`;
+}
+
+hydratePlan();
+render();
+</script>
+</body>
+</html>

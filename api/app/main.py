@@ -1,0 +1,45 @@
+import asyncio
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from app import config
+from app.db import Base, SessionLocal, engine
+from app.events import set_loop
+from app.routers import ops, projects
+from app.seed import seed
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    set_loop(asyncio.get_running_loop())
+    Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        seed(db)
+    yield
+
+
+app = FastAPI(title="AIGC 投放平台 API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
+app.include_router(projects.router)
+app.include_router(ops.router)
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
+
+# 生产部署时由 API 直接托管前端构建产物（web/dist），单容器即可运行
+WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+if WEB_DIST.exists():
+    app.mount("/static", StaticFiles(directory=WEB_DIST / "static"), name="static")
+
+    @app.get("/{path:path}")
+    def spa(path: str):
+        f = WEB_DIST / path
+        return FileResponse(f if path and f.is_file() else WEB_DIST / "index.html")
