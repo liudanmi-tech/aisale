@@ -134,7 +134,7 @@ export function VideoStudio() {
     const qc: Record<string, boolean> = n.data.qc || {};
     return (
         <div className="pb-12">
-            <ReviewBar node={n} extra="模型 Seedance · 9:16 · 1080p · 15s" />
+            <ReviewBar node={n} extra={`引擎 ${n.data.engine || "—"} · 9:16 · 15s`} />
             <div className="grid grid-cols-[260px_1fr_300px] gap-4 px-6 py-4 max-[1100px]:grid-cols-1">
                 <Card title="资产">
                     <div className="text-sm leading-7">角色：Ada（本地面孔，一致性已锁定）<br />产品素材库：官方实拍 12 段<br />BGM：Afrobeats 商用库<br />品牌包：TECNO 2026</div>
@@ -145,7 +145,9 @@ export function VideoStudio() {
                             const t = tasks[i] || {};
                             return (
                                 <div key={i} className="rounded-lg border border-line bg-elev p-2 text-xs">
-                                    <Cover gradient={COVER_GRADIENTS[(i + 2) % 6]} className="mb-1.5 items-center justify-center text-[11px]">{t.source === "official" ? "官方产品镜头" : "Seedance"}</Cover>
+                                    {(t.url || "").startsWith("http")
+                                        ? <video src={t.url} className="mb-1.5 aspect-[9/16] w-full rounded-lg bg-black object-cover" muted loop playsInline controls preload="metadata" />
+                                        : <Cover gradient={COVER_GRADIENTS[(i + 2) % 6]} className="mb-1.5 items-center justify-center text-[11px]">{t.source === "official" ? "官方产品镜头" : t.status === "processing" ? "生成中…" : t.status === "failed" ? "生成失败" : "Seedance（模拟）"}</Cover>}
                                     <b>镜 {i + 1}</b> {s[0]}
                                     <div className="mt-0.5 text-ink2">{s[1]}</div>
                                     <Select size="small" className="mt-1.5 w-full" defaultValue={t.source === "official" ? "official" : "ai"}
@@ -159,7 +161,10 @@ export function VideoStudio() {
                     <div className="mt-3 text-xs text-ink2">时间线：视频轨 · 配音轨（英语 / 皮钦语 TTS）· 字幕轨 · BGM 轨</div>
                 </Card>
                 <Card title="成片预览">
-                    <Cover gradient={COVER_GRADIENTS[3]} className="mx-auto w-[200px] items-center justify-center">{n.status === "run" ? "生成中…" : <Play size={32} />}</Cover>
+                    {(n.data.video_url || "").startsWith("http")
+                        ? <video src={n.data.video_url} className="mx-auto block aspect-[9/16] w-[220px] rounded-xl bg-black object-cover" controls playsInline preload="metadata" />
+                        : <Cover gradient={COVER_GRADIENTS[3]} className="mx-auto w-[200px] items-center justify-center">{n.status === "run" ? "生成中…" : <Play size={32} />}</Cover>}
+                    {(n.data.shot_urls || []).length > 1 && <div className="mt-2 text-center text-xs text-ink2">共 {n.data.shot_urls.length} 个 AI 镜头，成片合成（拼接 + 配音 + 字幕）在下一版接入</div>}
                     <h4 className="mb-1 mt-3">自动质检</h4>
                     {Object.entries(qc).map(([k, v]) => <div key={k} className="text-sm"><span className={v ? "text-good" : "text-bad"}>●</span> {k} {v ? "通过" : "未通过"}</div>)}
                 </Card>
@@ -189,7 +194,7 @@ export function EvalPage() {
     const curve = Array.from({ length: 16 }, (_, s) => (cur ? cur.reactions.filter((r: any) => r.drop_at > s || r.completed).length / 40 : 1));
     return (
         <div className="pb-12">
-            <ReviewBar node={n} extra="40 个虚拟用户 · 尼日利亚 · 小商贩 60% / 学生 40%" />
+            <ReviewBar node={n} extra={`40 个虚拟用户 · ${personas[0]?.segment || ""} 60% / ${personas[39]?.segment || ""} 40%`} />
             <div className="grid grid-cols-[260px_1fr_340px] gap-4 px-6 py-4 max-[1100px]:grid-cols-1">
                 <Card title="播放与流失曲线">
                     <Select className="mb-2 w-full" value={cur?.id} onChange={setVid} options={results.map((r) => ({ value: r.id, label: r.title }))} />
@@ -208,7 +213,7 @@ export function EvalPage() {
                             const gone = r && !r.completed && t >= r.drop_at && t > 0;
                             const done = r && r.completed && t >= 15;
                             return (
-                                <div key={p.id} title={`${p.name} · ${p.segment} · ${p.age} 岁`}
+                                <div key={p.id} title={`${p.name} · ${p.segment} · ${p.age} 岁 · ${p.city || ""} · ${p.phone || ""}${r?.comment ? `\n“${r.comment}”` : ""}${r ? `\n${r.completed ? "看完" : `第 ${r.drop_at} 秒划走`}${r.clicked ? " · 点击了" : ""}` : ""}`}
                                     className={`relative flex aspect-square items-center justify-center rounded-full border-2 bg-elev text-[10px] transition ${gone ? "border-line opacity-25 grayscale" : done ? "border-good" : t > 0 ? "border-brand2" : "border-line"}`}>
                                     {p.name}
                                     {done && r.clicked && <span className="absolute -bottom-1 -right-1 text-warn">★</span>}
@@ -224,7 +229,19 @@ export function EvalPage() {
                                 { title: "视频", render: (_, r) => <a onClick={() => { focus(r.id); nav(`/p/${n.project_id}`); }}>{r.title}</a> },
                                 { title: "得分", dataIndex: "score" }, { title: "预测 CTR", render: (_, r) => `${r.ctr}%` }, { title: "完播", render: (_, r) => `${r.vtr}%` },
                             ]} />
-                            <div className="mt-2 text-sm leading-7">入选（≥80 分）：{(n.data.picks || []).map((id: string) => results.find((r) => r.id === id)?.title).join("、")}<br />建议人群：{n.data.suggest_audience}<br />主要问题：{n.data.issue}</div>
+                            {cur?.dims && (
+                                <div className="mt-3 grid grid-cols-5 gap-1.5 text-center text-[11px]">
+                                    {[["hook", "钩子"], ["clarity", "卖点"], ["trust", "可信"], ["local", "本地感"], ["intent", "购买意向"]].map(([k, l]) => (
+                                        <div key={k}><div className="mx-auto h-14 w-3 overflow-hidden rounded bg-elev"><div className="w-full rounded bg-brand" style={{ height: `${cur.dims[k] * 10}%`, marginTop: `${100 - cur.dims[k] * 10}%` }} /></div>{l} {cur.dims[k]}</div>
+                                    ))}
+                                </div>
+                            )}
+                            {cur?.reactions?.some((x: any) => x.comment) && (
+                                <div className="mt-3 max-h-40 overflow-auto rounded-lg bg-elev p-2 text-xs leading-5">
+                                    {cur.reactions.filter((x: any) => x.comment).slice(0, 8).map((x: any) => <div key={x.persona}><b>{personas[x.persona]?.name}</b>（{personas[x.persona]?.segment}）：{x.comment}</div>)}
+                                </div>
+                            )}
+                            <div className="mt-2 text-sm leading-7">评测引擎：{n.data.engine || "模拟"}<br />入选（≥70 分）：{(n.data.picks || []).map((id: string) => results.find((r) => r.id === id)?.title).join("、")}<br />建议人群：{n.data.suggest_audience}<br />主要问题：{n.data.issue}</div>
                         </>
                     ) : <div className="text-ink2">评测中…</div>}
                 </Card>

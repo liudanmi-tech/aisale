@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app import config
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
-from app.routers import ops, projects
+from app.routers import ops, projects, settings
 from app.seed import seed
 
 
@@ -23,10 +23,11 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="AIGC 投放平台 API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AIGC 投放平台 API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 app.include_router(projects.router)
 app.include_router(ops.router)
+app.include_router(settings.router)
 
 
 @app.get("/api/health")

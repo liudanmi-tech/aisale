@@ -150,3 +150,19 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Secret(Base):
+    """第三方服务密钥：加密存储，接口只返回末 4 位。"""
+
+    __tablename__ = "secret"
+    name: Mapped[str] = mapped_column(String, primary_key=True)  # fal | openrouter
+    ciphertext: Mapped[str] = mapped_column(Text)
+    last4: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Setting(Base):
+    __tablename__ = "setting"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON)

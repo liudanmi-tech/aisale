@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, canvas, config, workflows
-from app.adapters import llm, seedance
-from app.db import get_db
+from app import agent, canvas, config, settings_store, workflows
+from app.adapters import llm
+from app.db import SessionLocal, get_db
 from app.events import emit, spawn
 from app.models import Audience, MetricDaily, Node, Project, RefAd, ReviewTask, SellingPoint
 
@@ -65,7 +65,7 @@ async def rewrite_shot(nid: str, i: int, body: RewriteIn, db: Session = Depends(
     if not 0 <= i < len(shots):
         raise HTTPException(400, "bad shot index")
     line, zh = ALT_LINES[(n.data.get("version", 1) + i) % 3], body.hint or "换了一个更口语的说法"
-    if config.LLM_ENABLED:
+    if settings_store.llm_enabled():
         try:
             out = await llm.chat_json("你是尼日利亚市场的广告编剧，只输出 JSON：{\"line\": 皮钦英语口播, \"zh\": 中文对照}",
                                       f"原镜头：{shots[i]}；修改要求：{body.hint or '更口语、更抓人'}")
@@ -82,18 +82,34 @@ async def rewrite_shot(nid: str, i: int, body: RewriteIn, db: Session = Depends(
 
 
 @router.post("/nodes/{nid}/shots/{i}/regenerate")
-async def regenerate_shot(nid: str, i: int, db: Session = Depends(get_db)):
+def regenerate_shot(nid: str, i: int, db: Session = Depends(get_db)):
     n = db.get(Node, nid)
     if not n or n.type != "video":
         raise HTTPException(404, "video not found")
-    shot = (n.data.get("shots") or [])[i]
-    tid = await seedance.create_task(f"{shot[1]}，9:16 竖屏")
-    tasks = [t.copy() for t in n.data.get("tasks", [])]
-    if i < len(tasks):
-        tasks[i] = {**tasks[i], "task_id": tid, "status": "processing", "source": "seedance"}
+    tasks = [t.copy() for t in (n.data or {}).get("tasks", [])]
+    if not 0 <= i < len(tasks) or tasks[i].get("source") == "official":
+        raise HTTPException(400, "该镜头不能重生成")
+    tasks[i] = {**tasks[i], "status": "processing", "error": None}
     n.data = {**n.data, "tasks": tasks}
     db.commit()
-    return {"task_id": tid}
+    spawn(_regen(nid, i, tasks[i].get("prompt") or f"{n.data['shots'][i][1]}。{workflows.VIDEO_STYLE}"))
+    return {"ok": True}
+
+
+async def _regen(nid: str, i: int, prompt: str) -> None:
+    res = await workflows._gen_shot(prompt)
+    with SessionLocal() as db:
+        n = db.get(Node, nid)
+        if not n:
+            return
+        tasks = [t.copy() for t in n.data.get("tasks", [])]
+        tasks[i] = {**tasks[i], **res, "url": res.get("video_url"), "prompt": prompt}
+        urls = [t["url"] for t in tasks if (t.get("url") or "").startswith("http")]
+        n.data = {**n.data, "tasks": tasks, "shot_urls": urls, "video_url": urls[0] if urls else n.data.get("video_url")}
+        if n.status == "failed" and all(t.get("status") == "completed" for t in tasks):
+            n.status = "wait"
+        db.commit()
+        emit(n.project_id, "canvas")
 
 
 @router.get("/reviews")
@@ -281,12 +297,3 @@ def assets(db: Session = Depends(get_db)):
     return {"selling_points": [{"id": s.id, "model_sku": s.model_sku, "title": s.title, "specs": s.specs,
                                 "compliant_copy": s.compliant_copy, "priority": s.priority} for s in db.query(SellingPoint)],
             "audiences": [{"id": a.id, "market": a.market, "name": a.name, "tags": a.tags} for a in db.query(Audience)]}
-
-
-@router.get("/settings/integrations")
-def integrations():
-    return [{"name": "TikTok Marketing API", "mode": config.TIKTOK_MODE, "ready": bool(config.TIKTOK_ACCESS_TOKEN)},
-            {"name": "Seedance（BytePlus ModelArk）", "mode": config.SEEDANCE_MODE, "ready": bool(config.SEEDANCE_API_KEY)},
-            {"name": "第三方广告情报", "mode": config.INTEL_MODE, "ready": False},
-            {"name": "大模型（Agent 意图 / 剧本）", "mode": "on" if config.LLM_ENABLED else "rules", "ready": config.LLM_ENABLED},
-            {"name": "Meta / X", "mode": "phase2", "ready": False}]

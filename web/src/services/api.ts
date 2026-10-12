@@ -2,6 +2,17 @@ import axios from "axios";
 
 export const http = axios.create({ baseURL: "/api/v1" });
 
+/** 公网部署开启了管理员口令时，设置页的写操作带上它（只存在当前标签页）。 */
+export const adminToken = {
+    get: () => { try { return sessionStorage.getItem("aigc-admin-token") || ""; } catch { return ""; } },
+    set: (v: string) => { try { sessionStorage.setItem("aigc-admin-token", v); } catch { /* 无痕模式等 */ } },
+};
+http.interceptors.request.use((cfg) => {
+    const t = adminToken.get();
+    if (t) cfg.headers.set("X-Admin-Token", t);
+    return cfg;
+});
+
 export type NodeType = "ad" | "sp" | "aud" | "script" | "video" | "eval" | "deliver" | "data" | "opt";
 export type NodeStatus = "none" | "run" | "wait" | "pass" | "reject" | "live" | "failed";
 
@@ -123,6 +134,19 @@ export interface Creative {
     score: number | null;
 }
 
+export interface ModelOption {
+    id: string;
+    label: string;
+    hint: string;
+}
+export interface PlatformSettings {
+    admin_required: boolean;
+    secrets: Record<"fal" | "openrouter", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution", string>;
+    catalog: { llm: ModelOption[]; video: ModelOption[]; resolutions: string[] };
+    integrations: { name: string; mode: string; ready: boolean }[];
+}
+
 export const api = {
     projects: () => get<ProjectSummary[]>("/projects"),
     project: (pid: string) => get<{ id: string; name: string; market: string; brand: string; model_sku: string }>(`/projects/${pid}`),
@@ -152,7 +176,11 @@ export const api = {
     optimizations: (pid: string) => get<(CanvasNode & { review_id: string | null })[]>(`/projects/${pid}/optimizations`),
     dashboard: () => get<any>("/dashboard"),
     assets: () => get<any>("/assets"),
-    integrations: () => get<{ name: string; mode: string; ready: boolean }[]>("/settings/integrations"),
+    settings: () => get<PlatformSettings>("/settings"),
+    saveSecret: (name: string, value: string) => http.put(`/settings/secrets/${name}`, { value }).then((r) => r.data),
+    deleteSecret: (name: string) => http.delete(`/settings/secrets/${name}`).then((r) => r.data),
+    testSecret: (name: string, value?: string) => post<{ ok: boolean; message: string }>(`/settings/secrets/${name}/test`, { value: value || null }),
+    saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
 };
 
 export const PROJECT_ID = "p1";

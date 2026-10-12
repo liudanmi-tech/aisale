@@ -8,7 +8,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app import canvas, config
+from app import canvas, config, settings_store
 from app.adapters import llm
 from app.models import ChatMessage, Node, Patch, Project, new_id
 
@@ -92,16 +92,16 @@ async def llm_intent(db: Session, project: Project, text: str, selection: list[s
               "用户没有点名具体节点（如「都」「全部」「通过的」）时，不要传节点 id 参数，系统会作用于全部符合条件的节点；"
               "只有当前选中了节点或用户点名时才传 id。与画布无关的问题用 clarify 简短说明你能做什么。\n"
               f"当前画布节点（id | 标题 | 类型 | 状态）：\n{snap}\n当前选中：{selection or '无'}")
-    msg = await llm.chat([{"role": "system", "content": system}, {"role": "user", "content": text}], tools=INTENT_TOOLS)
+    msg = await llm.chat([{"role": "system", "content": system}, {"role": "user", "content": text}], tools=INTENT_TOOLS, task="agent")
     call = (msg.get("tool_calls") or [None])[0]
     if not call:
-        return {"name": "help"}
+        raise ValueError("no tool call")  # 交给规则解析兜底
     args = json.loads(call["function"].get("arguments") or "{}")
     return {"name": call["function"]["name"], **args}
 
 
 async def parse_intent(db: Session, project: Project, text: str, selection: list[str]) -> dict:
-    if config.LLM_ENABLED:
+    if settings_store.llm_enabled():
         try:
             return await llm_intent(db, project, text, selection)
         except Exception:

@@ -8,8 +8,8 @@ import hashlib
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, config
-from app.adapters import llm, seedance, tiktok
+from app import agent, canvas, config, settings_store
+from app.adapters import fal, llm, seedance, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
 from app.models import MetricDaily, Node, Project, RefAd
@@ -31,6 +31,21 @@ async def _sleep(k: float = 1.0) -> None:
     await asyncio.sleep(config.STEP_DELAY * k)
 
 
+def _normalize_shots(rows: list) -> list[list[str]]:
+    """统一成 [时间段, 画面, 口播, 中文]；大模型给的时长是数字时换算成「0–3s」这样的区间。"""
+    out, t = [], 0.0
+    for row in rows:
+        row = [str(c) for c in row][:4] + [""] * (4 - len(row[:4]))
+        try:
+            d = float(row[0].rstrip("s秒"))
+            row[0] = f"{t:g}–{t + d:g}s"
+            t += d
+        except ValueError:
+            pass
+        out.append(row)
+    return out
+
+
 async def generate_script(node_id: str, comment: str = "") -> None:
     await _sleep()
     with SessionLocal() as db:
@@ -40,14 +55,14 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         d = dict(n.data or {})
         sp, aud = d.get("selling_point", "续航"), d.get("audience", "小商贩")
         shots = [s[:] for s in SHOTS.get(sp, SHOTS["续航"])]
-        if config.LLM_ENABLED:
+        if settings_store.llm_enabled():
             ad = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first()
             try:
                 out = await llm.chat_json(
                     "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(尼日利亚皮钦英语), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写（官方素材）。",
                     f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：尼日利亚 {aud}；修改意见：{comment or '无'}")
                 if isinstance(out.get("shots"), list) and len(out["shots"]) >= 3:
-                    shots = [[str(c) for c in row][:4] for row in out["shots"]]
+                    shots = _normalize_shots(out["shots"])
             except Exception:
                 pass
         elif comment:
@@ -59,69 +74,166 @@ async def generate_script(node_id: str, comment: str = "") -> None:
               "参考爆款的创意结构；卖点表述取自卖点库；与参考素材相似度 18%（阈值 40%）；禁用词 0 处")
 
 
+VIDEO_STYLE = "竖屏 9:16 手机广告镜头，真实质感，自然光，本地人物，画面中不要出现文字和品牌标志"
+_video_slots = asyncio.Semaphore(2)  # 同时最多 2 个镜头在生成，避免触发平台并发限制
+
+
+async def _gen_shot(prompt: str) -> dict:
+    provider = settings_store.video_provider()
+    async with _video_slots:
+        if provider == "fal":
+            try:
+                job = await fal.submit(prompt, duration=5)
+                return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+            except Exception as e:  # 网络 / 鉴权 / 参数错误都按失败处理，节点标红可重试
+                return {"provider": "fal", "status": "failed", "error": str(e)[:300]}
+        tid = await seedance.create_task(prompt)
+        return {"provider": "byteplus" if provider == "byteplus" else "mock", "task_id": tid, **await seedance.wait_task(tid)}
+
+
 async def generate_video(node_id: str, comment: str = "") -> None:
     with SessionLocal() as db:
         n = db.get(Node, node_id)
         if not n:
             return
+        project = db.get(Project, n.project_id)
         src = db.get(Node, (n.data or {}).get("script_id")) or next(iter(canvas.upstream(db, n.id)), None)
         shots = (src.data or {}).get("shots", []) if src else []
-    tasks = []
-    for i, s in enumerate(shots):
+        market = project.market
+
+    async def one(i: int, s: list[str]) -> dict:
         if i == 2:  # 产品镜头只用官方素材，不让模型生成
-            tasks.append({"shot": i + 1, "source": "official", "url": "asset://official/camon-product.mp4"})
-            continue
-        tid = await seedance.create_task(f"{s[1]}，9:16 竖屏，非洲城市夜景，真实质感")
-        res = await seedance.wait_task(tid)
-        tasks.append({"shot": i + 1, "source": "seedance", "task_id": tid, "url": res.get("video_url"), "status": res["status"]})
+            return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/camon-product.mp4"}
+        prompt = f"{market}，{s[1]}。{VIDEO_STYLE}" + (f"。修改意见：{comment}" if comment else "")
+        res = await _gen_shot(prompt)
+        return {"shot": i + 1, "source": "seedance", "prompt": prompt, "url": res.get("video_url"), **res}
+
+    tasks = list(await asyncio.gather(*(one(i, s) for i, s in enumerate(shots))))
     with SessionLocal() as db:
         n = db.get(Node, node_id)
         if not n:
             return
         failed = [t for t in tasks if t.get("status") == "failed"]
-        n.data = {**(n.data or {}), "shots": shots, "tasks": tasks, "video_url": f"mock://composed/{node_id}.mp4",
+        real = [t for t in tasks if t.get("provider") in ("fal", "byteplus")]
+        urls = [t["url"] for t in tasks if t.get("url", "").startswith("http")]
+        n.data = {**(n.data or {}), "shots": shots, "tasks": tasks, "video_url": urls[0] if urls else f"mock://composed/{node_id}.mp4",
+                  "shot_urls": urls, "engine": real[0].get("model", real[0]["provider"]) if real else "mock",
                   "qc": {"画面崩坏": not failed, "产品形态": True, "字幕错字": True, "时长与规格": True}}
         if failed:
             n.status = "failed"
+            n.sub = f"{len(failed)} 个镜头生成失败，可重试"
+            agent.say(db, n.project_id, f"{agent.ref(n)} 有 {len(failed)} 个镜头生成失败：{failed[0].get('error', '')[:120]}。可以在视频工作室单独重生成。")
             db.commit()
             emit(n.project_id, "canvas")
+            emit(n.project_id, "chat")
             return
-        _done(db, n, f"Seedance 生成 {len(tasks) - 1} 镜 + 官方产品镜头 1 镜，质检 4/4 通过",
-              "画面崩坏 0 · 产品形态与官方素材一致 · 字幕错字 0 · 时长 15.0s · 9:16 1080p")
+        engine = n.data["engine"]
+        _done(db, n, f"{'Seedance（' + engine + '）' if real else '模拟'}生成 {len(tasks) - 1} 镜 + 官方产品镜头 1 镜，质检 4/4 通过",
+              f"引擎：{engine} · 画面崩坏 0 · 产品形态与官方素材一致 · 字幕错字 0 · 9:16")
 
 
-def _personas(market: str) -> list[dict]:
-    names = ["Ada", "Musa", "Chi", "Bola", "Femi", "Ngozi", "Tunde", "Zara"]
-    return [{"id": i, "name": names[i % 8], "segment": "小商贩" if i < 24 else "学生", "age": 25 + i % 10 if i < 24 else 18 + i % 6}
-            for i in range(40)]
+NAMES = {"尼日利亚": ["Ada", "Musa", "Chidi", "Bola", "Femi", "Ngozi", "Tunde", "Zainab"],
+         "巴基斯坦": ["Ayesha", "Bilal", "Hira", "Usman", "Sana", "Imran", "Fatima", "Hamza"]}
+CITIES = {"尼日利亚": ["Lagos", "Kano", "Abuja", "Ibadan"], "巴基斯坦": ["Karachi", "Lahore", "Islamabad", "Faisalabad"]}
+
+
+def _personas(market: str, segments: list[str]) -> list[dict]:
+    """按市场与人群抽 40 个虚拟用户：第一人群 60%，第二人群 40%。"""
+    names, cities = NAMES.get(market, NAMES["尼日利亚"]), CITIES.get(market, CITIES["尼日利亚"])
+    a, b = (segments + segments)[:2]
+    out = []
+    for i in range(40):
+        seg = a if i < 24 else b
+        young = seg == "学生"
+        out.append({"id": i, "name": names[i % 8], "segment": seg, "age": (18 + i % 6) if young else (25 + i % 12), "city": cities[i % 4],
+                    "phone": ["Tecno Spark", "itel A70", "Samsung A05", "Infinix Hot", "Redmi 13C"][i % 5],
+                    "income": "低" if i % 3 == 0 else "中"})
+    return out
+
+
+def _simulated(v: Node, personas: list[dict]) -> dict:
+    reactions = []
+    for p in personas:
+        drop = [3, 5, 8, 15, 15, 15, 2, 15, 11, 15][_h(v.id + str(p["id"]), 10)]
+        reactions.append({"persona": p["id"], "drop_at": drop, "completed": drop >= 15,
+                          "clicked": drop >= 15 and _h(v.id + p["name"] + str(p["id"]), 7) == 0, "comment": ""})
+    s = 7 + _h(v.id, 3)
+    return {"reactions": reactions, "scores": {"hook": s, "clarity": s, "trust": s - 1, "local": s, "intent": s - 1},
+            "issue": "前 3 秒流失偏高，建议换停电场景钩子", "engine": "simulated"}
+
+
+async def _llm_eval(v: Node, script: Node | None, personas: list[dict], market: str) -> dict:
+    shots = (script.data or {}).get("shots", []) if script else (v.data or {}).get("shots", [])
+    board = "\n".join(f"镜{i + 1}（{s[0]}）画面：{s[1]}；口播：{s[2]}" for i, s in enumerate(shots))
+    people = "\n".join(f"{p['id']}. {p['name']}，{p['age']} 岁，{p['segment']}，{p['city']}，现用 {p['phone']}，收入{p['income']}" for p in personas)
+    system = ("你在模拟 TikTok 信息流里刷到一条 15 秒手机广告的真实用户。根据每个人的画像独立判断他会在第几秒划走、"
+              "是否看完、是否点击 CTA，并写一句他会说的真实反应（中文，口语）。不要所有人都一样，要符合真实的流失分布："
+              "真实信息流里约一半人在前 3 秒划走，看完的通常不到三分之一，点击 CTA 的通常只有 1–4 人；与自己人群无关的广告更容易划走。"
+              "只输出 JSON：{\"reactions\":[{\"persona\":编号,\"drop_at\":0-15 的整数（看完填 15）,\"clicked\":true/false,\"comment\":\"一句话\"}]（40 条，编号 0-39 全覆盖）,"
+              "\"scores\":{\"hook\":1-10,\"clarity\":1-10,\"trust\":1-10,\"local\":1-10,\"intent\":1-10},\"issue\":\"最主要的问题与修改建议，一句话\"}")
+    out = await llm.chat_json(system, f"市场：{market}\n广告分镜：\n{board}\n\n用户画像：\n{people}", task="eval", timeout=120)
+    by = {int(r["persona"]): r for r in out.get("reactions", []) if str(r.get("persona", "")).isdigit() or isinstance(r.get("persona"), int)}
+    if len(by) < 30:
+        raise ValueError("reactions incomplete")
+    sim = _simulated(v, personas)["reactions"]
+    reactions = []
+    for p in personas:
+        r = by.get(p["id"])
+        if not r:
+            reactions.append(sim[p["id"]])
+            continue
+        drop = max(0, min(15, int(r.get("drop_at", 15))))
+        reactions.append({"persona": p["id"], "drop_at": drop, "completed": drop >= 15, "clicked": bool(r.get("clicked")) and drop >= 6,
+                          "comment": str(r.get("comment", ""))[:80]})
+    scores = {k: max(1, min(10, int((out.get("scores") or {}).get(k, 6)))) for k in ("hook", "clarity", "trust", "local", "intent")}
+    return {"reactions": reactions, "scores": scores, "issue": str(out.get("issue", ""))[:120], "engine": settings_store.get_models()["eval"]}
 
 
 async def evaluate(node_id: str, comment: str = "") -> None:
-    await _sleep(1.5)
     with SessionLocal() as db:
         n = db.get(Node, node_id)
         if not n:
             return
         project = db.get(Project, n.project_id)
-        personas = _personas(project.market)
-        results = []
-        for v in canvas.upstream(db, n.id):
-            reactions = []
-            for p in personas:
-                drop = [3, 5, 8, 15, 15, 15, 2, 15, 11, 15][_h(v.id + str(p["id"]), 10)]
-                reactions.append({"persona": p["id"], "drop_at": drop, "completed": drop >= 15, "clicked": drop >= 15 and _h(v.id + p["name"] + str(p["id"]), 7) == 0})
-            done = sum(r["completed"] for r in reactions) / 40
-            clicks = sum(r["clicked"] for r in reactions)
-            score = 70 + _h(v.id, 22)
-            results.append({"id": v.id, "title": v.title, "score": score, "ctr": round(1.2 + (score - 70) * 0.07, 1),
-                            "vtr": round(done * 100), "clicks": clicks, "reactions": reactions})
-        results.sort(key=lambda r: -r["score"])
-        picks = [r["id"] for r in results if r["score"] >= 80] or ([results[0]["id"]] if results else [])
+        videos = canvas.upstream(db, n.id)
+        scripts = {v.id: db.get(Node, (v.data or {}).get("script_id")) for v in videos}
+        segs = list(dict.fromkeys((s.data or {}).get("audience") for s in scripts.values() if s and (s.data or {}).get("audience"))) or ["小商贩", "学生"]
+        personas = _personas(project.market, segs)
+        market = project.market
+    use_llm = settings_store.llm_enabled()
+    if not use_llm:
+        await _sleep(1.5)
+
+    async def one(v: Node) -> dict:
+        r = None
+        if use_llm:
+            try:
+                r = await _llm_eval(v, scripts.get(v.id), personas, market)
+            except Exception:
+                r = None
+        r = r or _simulated(v, personas)
+        done = sum(x["completed"] for x in r["reactions"]) / 40
+        clicks = sum(x["clicked"] for x in r["reactions"])
+        score = round(sum(r["scores"].values()) / 5 * 10)
+        return {"id": v.id, "title": v.title, "score": score, "ctr": round(0.5 + clicks / 40 * 5, 1), "vtr": round(done * 100),
+                "clicks": clicks, "reactions": r["reactions"], "dims": r["scores"], "issue": r["issue"], "engine": r["engine"]}
+
+    results = sorted(await asyncio.gather(*(one(v) for v in videos)), key=lambda x: -x["score"])
+    with SessionLocal() as db:
+        n = db.get(Node, node_id)
+        if not n:
+            return
+        picks = [r["id"] for r in results if r["score"] >= 70] or ([results[0]["id"]] if results else [])
         top = results[0] if results else None
+        seg_score = {}
+        for seg in segs:
+            ids = {p["id"] for p in personas if p["segment"] == seg}
+            seg_score[seg] = sum(x["completed"] for r in results for x in r["reactions"] if x["persona"] in ids)
+        best_seg = max(seg_score, key=seg_score.get) if seg_score else "小商贩"
         n.data = {**(n.data or {}), "personas": personas, "results": results, "picks": picks, "score": top["score"] if top else 0,
-                  "suggest_audience": "小商贩", "issue": "前 3 秒流失偏高，建议换停电场景钩子"}
+                  "suggest_audience": best_seg, "issue": top["issue"] if top else "", "engine": top["engine"] if top else ""}
         n.sub = f"最高 {top['title']} · 预测 CTR {top['ctr']}%" if top else "无视频"
-        _done(db, n, f"入选 {len(picks)} 条；最高分 {n.data['score']}，建议人群：小商贩",
+        _done(db, n, f"入选 {len(picks)} 条；最高分 {n.data['score']}，建议人群：{best_seg}（评测引擎：{n.data['engine']}）",
               "；".join(f"{r['title']}：{r['score']} 分 / CTR {r['ctr']}% / 完播 {r['vtr']}%" for r in results))
 
 

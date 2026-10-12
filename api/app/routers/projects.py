@@ -32,6 +32,7 @@ def list_projects(db: Session = Depends(get_db)):
 
 
 class ProjectIn(BaseModel):
+    model_config = {"protected_namespaces": ()}
     name: str
     market: str = "尼日利亚"
     brand: str = "TECNO"

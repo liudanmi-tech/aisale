@@ -253,27 +253,3 @@ export function Assets() {
         </div>
     );
 }
-
-export function Settings() {
-    const { data = [] } = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
-    const label: Record<string, string> = { mock: "模拟", real: "真实调用", on: "已开启", rules: "规则解析", phase2: "二期" };
-    return (
-        <div className={page}>
-            <PageTitle title="设置" desc="外部服务通过环境变量切换模拟 / 真实调用，见 README" />
-            <div className="grid grid-cols-2 gap-4 max-[1000px]:grid-cols-1">
-                <Card title="广告账户与外部服务">
-                    <Table size="small" pagination={false} rowKey="name" dataSource={data} columns={[
-                        { title: "服务", dataIndex: "name" }, { title: "模式", render: (_, r) => label[r.mode] || r.mode },
-                        { title: "凭证", render: (_, r) => (r.ready ? <span className="text-good">已配置</span> : <span className="text-warn">未配置</span>) },
-                    ]} />
-                </Card>
-                <Card title="自动优化规则阈值">
-                    <Descriptions column={1} size="small" items={[
-                        { label: "淘汰", children: "曝光 ≥ 5,000 且 CTR < 均值 60%" }, { label: "扩量", children: "CPA ≤ 目标 80% 且转化 ≥ 10" },
-                        { label: "疲劳", children: "CTR 连续 3 天降 30%" }, { label: "免确认指令", children: "查询、整理画布" },
-                    ]} />
-                </Card>
-            </div>
-        </div>
-    );
-}

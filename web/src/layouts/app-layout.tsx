@@ -82,7 +82,7 @@ export function AppLayout() {
                 <div className="border-t border-line p-2">
                     <FlowProgress collapsed={collapsed} />
                     <NavLink to="/settings" className={clsx("mt-1 flex items-center gap-2.5 rounded-lg py-2 text-sm text-ink2 hover:text-ink", collapsed ? "justify-center" : "px-2.5")}>
-                        <Settings size={17} />{!collapsed && <><span className="flex-1">设置</span><span className="text-[11px]">v0.2</span></>}
+                        <Settings size={17} />{!collapsed && <><span className="flex-1">设置</span><span className="text-[11px]">v0.3</span></>}
                     </NavLink>
                 </div>
             </aside>
