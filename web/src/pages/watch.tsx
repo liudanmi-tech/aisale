@@ -62,8 +62,10 @@ function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: ()
     const start = useMutation({
         mutationFn: () => api.searchAccounts(queries),
         onSuccess: (r) => { setJob(r.job_id); setPicked([]); setEdits({}); },
-        onError: (e) => message.error(errMsg(e)),
     });
+    const startError = start.error && ([404, 405].includes((start.error as any)?.response?.status)
+        ? "后端还是旧版本：请在运行服务的终端按 Ctrl+C，再重新启动（.venv/bin/uvicorn app.main:app --port 8000）"
+        : errMsg(start.error));
     const { data: res } = useQuery({
         queryKey: ["watch", "search", job], queryFn: () => api.searchResult(job!), enabled: !!job,
         refetchInterval: (q) => (q.state.data?.status === "running" ? 3000 : false),
@@ -112,6 +114,7 @@ function SearchAccounts({ open, onClose, onAdded }: { open: boolean; onClose: ()
                     将搜索：{queries.join(" · ")}（约 {queries.length * 30} 条视频，按 Apify 用量计费，约 ${(queries.length * 30 * 0.003).toFixed(2)}）
                 </div>
                 {running && <Alert type="info" showIcon message="正在 TikTok 上搜索，通常需要 1–3 分钟，可以先关掉窗口，稍后再打开查看" />}
+                {startError && !running && <Alert type="error" showIcon message={`没能开始搜索：${startError}`} />}
                 {res?.status === "error" && <Alert type="error" showIcon message={`搜索失败：${res.error}`} />}
                 {res?.status === "done" && (
                     <>
