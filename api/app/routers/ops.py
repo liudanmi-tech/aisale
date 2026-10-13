@@ -159,8 +159,8 @@ class DecideIn(BaseModel):
     comment: str = ""
 
 
-NEXT_HINT = {"script": "下一步可以说「生成视频」。", "video": "下一步可以说「跑评测」。", "eval": "下一步可以说「生成投放方案」。",
-             "deliver": "去投放中心点击「下发到 TikTok」。", "opt": ""}
+NEXT_HINT = {"deliver": "在投放节点上点「下发到 TikTok」开始花钱投放。", "opt": ""}
+AUTO_NEXT = ("script", "video", "eval")  # 这些节点通过后自动走下一步，见 agent.auto_advance
 
 
 @router.post("/reviews/{rid}/decide")
@@ -209,12 +209,15 @@ def _decide(db: Session, r: ReviewTask, body: "DecideIn") -> None:
     r.status = "reject" if body.decision == "reject" else "pass"
     r.comment, r.decided_at = body.comment or ("修改后通过" if body.decision == "edit_pass" else ""), datetime.utcnow()
     canvas.audit(db, r.project_id, "user", "review_" + r.status, {"review_id": r.id, "node_id": r.node_id, "comment": body.comment})
-    rework = False
+    rework, runs = False, []
     if n and r.status == "pass":
         n.status = "pass"
         if n.type == "script":
             project.flags = {**(project.flags or {}), "script_passed": True}
-        agent.say(db, project.id, f"{agent.ref(n)} 已通过审核。{NEXT_HINT.get(n.type, '')}")
+        if n.type in AUTO_NEXT:
+            runs = agent.auto_advance(db, project, n)
+        else:
+            agent.say(db, project.id, f"{agent.ref(n)} 已通过审核。{NEXT_HINT.get(n.type, '')}")
         if n.type == "opt":
             agent.compile_iterate(db, project, n)
             agent.say(db, project.id, f"已采纳优化建议。闭环第二轮：基于跑赢元素生成 2 个剧本变体，连到 {agent.ref(n)}，确认后执行。")
@@ -225,6 +228,7 @@ def _decide(db: Session, r: ReviewTask, body: "DecideIn") -> None:
     db.commit()
     if rework:
         workflows.rework(n, body.comment)
+    workflows.run(runs)
     for k in ("canvas", "chat", "reviews"):
         emit(r.project_id, k)
 

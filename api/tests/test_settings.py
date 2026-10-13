@@ -103,22 +103,16 @@ def test_settings_and_real_call_paths():
             wait_until(lambda: nodes("script") and nodes("script")[0]["status"] == "wait")
             assert nodes("script")[0]["data"]["shots"][0][2] == "Light don cut!"
             approve = lambda: [c.post(f"/api/v1/reviews/{r['id']}/decide", json={"decision": "pass"}) for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["project_id"] == pid]  # noqa: E731
-            approve()
+            approve()  # 剧本通过后自动生成视频
 
-            c.post(f"{P}/agent/chat", json={"text": "生成视频"})
-            p = c.get(f"{P}/canvas").json()["pending_patch"]
-            c.post(f"{P}/patches/{p['id']}/apply")
             wait_until(lambda: nodes("video") and nodes("video")[0]["status"] == "wait")
             v = nodes("video")[0]
             assert v["data"]["engine"] == "fal-ai/bytedance/seedance/v1/pro/text-to-video"
             assert v["data"]["video_url"].startswith("https://v3.fal.media/") and len(v["data"]["shot_urls"]) == 3
             path, body = calls["fal_submit"][0]
             assert path == "/fal-ai/bytedance/seedance/v1/pro/text-to-video" and body["aspect_ratio"] == "9:16" and body["duration"] == "5"
-            approve()
+            approve()  # 视频通过后自动评测
 
-            c.post(f"{P}/agent/chat", json={"text": "跑评测"})
-            p = c.get(f"{P}/canvas").json()["pending_patch"]
-            c.post(f"{P}/patches/{p['id']}/apply")
             wait_until(lambda: nodes("eval") and nodes("eval")[0]["status"] == "wait")
             ev = nodes("eval")[0]["data"]
             r0 = ev["results"][0]

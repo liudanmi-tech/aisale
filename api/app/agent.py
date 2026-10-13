@@ -269,6 +269,34 @@ def compile_delivery(db: Session, project: Project, intent: dict, selection: lis
                     "方案生成免费；下发后测试期预算约 $180", ops)
 
 
+def auto_advance(db: Session, project: Project, node: Node) -> list[tuple[str, str]]:
+    """审核通过后自动走下一步（审核即同意）：剧本 → 视频；视频全部通过 → 一起评测；评测 → 投放方案。
+    下发投放要真花钱，仍由人点击。返回要启动的 (节点, 动作)。"""
+    if node.type == "script":
+        res = compile_videos(db, project, {"script_node_ids": [node.id]}, [])
+        label = f"{ref(node)} 已通过，自动开始生成视频（Seedance 按镜生成，产品镜头用官方素材）"
+    elif node.type == "video":
+        pending = [v for v in canvas.nodes_of(db, project.id, "video") if v.id != node.id and v.status in ("none", "run", "wait")]
+        if pending:
+            say(db, project.id, f"{ref(node)} 已通过。还有 {' '.join(ref(v) for v in pending)} 没通过，全部通过后自动一起跑 40 人评测。")
+            return []
+        res = compile_eval(db, project, {}, [])
+        label = f"{ref(node)} 已通过，视频都齐了，自动开始 40 人评测"
+    elif node.type == "eval":
+        res = compile_delivery(db, project, {}, [])
+        label = f"{ref(node)} 已通过，自动生成 TikTok 投放方案（下发前还会请你确认）"
+    else:
+        return []
+    if isinstance(res, str):  # 没有可往下走的（例如已经生成过）：只提示
+        say(db, project.id, f"{ref(node)} 已通过审核。{res}")
+        return []
+    runs = canvas.apply_patch(db, project, res)
+    set_card_state(db, res, "applied")
+    created = [db.get(Node, i) for i in res.undo.get("nodes", [])]
+    say(db, project.id, f"{label}：" + " ".join(ref(n) for n in created if n) + "。完成后提交你审核，可撤销。")
+    return runs
+
+
 def compile_iterate(db: Session, project: Project, opt: Node) -> Patch:
     scripts = [s for s in canvas.nodes_of(db, project.id, "script") if s.status == "pass"]
     best = scripts[0] if scripts else None

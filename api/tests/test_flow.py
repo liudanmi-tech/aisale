@@ -82,25 +82,28 @@ def test_full_flow():
         wait_until(c, lambda: next(n for n in nodes(c) if n["id"] == r["node_id"])["status"] == "wait")
         assert next(n for n in nodes(c) if n["id"] == r["node_id"])["data"]["version"] == 2
 
-        # 3 审核通过剧本 → 4 视频 → 5 审核视频
+        # 3 审核通过剧本 → 自动生成视频（审核即同意，不用再下指令）
+        n_videos = len(nodes(c, "video"))
         approve_all(c)
+        assert any("自动开始生成视频" in (m.get("text") or "") for m in c.get(P + "/chat").json()[-8:])
+        assert len(nodes(c, "video")) > n_videos
+        # 手动指令仍然可用：种子里早就通过、还没视频的剧本
         patch = chat(c, "生成视频")
         assert patch["summary"] == "生成视频"
         c.post(f"{P}/patches/{patch['id']}/apply")
         wait_until(c, lambda: nodes(c, "video") and all(n["status"] == "wait" for n in nodes(c, "video")))
-        approve_all(c)
 
-        # 6 评测 → 查询最高 CTR
-        patch = chat(c, "跑评测")
-        c.post(f"{P}/patches/{patch['id']}/apply")
+        # 5 视频全部通过 → 自动一起评测（只建 1 个评测节点）
+        approve_all(c)
         wait_until(c, lambda: nodes(c, "eval") and nodes(c, "eval")[0]["status"] == "wait")
+        assert len(nodes(c, "eval")) == 1 and len(nodes(c, "eval")[0]["data"]["video_ids"]) == len(nodes(c, "video"))
+
+        # 6 评测通过 → 自动生成投放方案；查询最高 CTR
         approve_all(c)
         c.post(P + "/agent/chat", json={"text": "哪个视频预测 CTR 最高？"})
         assert "预测 CTR 最高" in c.get(P + "/chat").json()[-1]["text"]
 
-        # 7 投放方案 → 审核 → 下发
-        patch = chat(c, "生成投放方案")
-        c.post(f"{P}/patches/{patch['id']}/apply")
+        # 7 投放方案 → 审核 → 下发（下发要花钱，必须人点）
         wait_until(c, lambda: nodes(c, "deliver") and nodes(c, "deliver")[0]["status"] == "wait")
         d = nodes(c, "deliver")[0]
         assert c.post(f"/api/v1/nodes/{d['id']}/launch").status_code == 409  # 未审核不能下发
@@ -168,7 +171,8 @@ def test_pass_nodes_from_canvas():
         assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": ids[:1]}).json() == {"passed": 1}
         assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": ids}).json() == {"passed": 1}  # 已通过的不重复处理
         assert all(n["status"] == "pass" for n in scripts())
-        assert "已通过审核" in c.get(P + "/chat").json()[-1]["text"]
+        assert "已通过，自动开始生成视频" in c.get(P + "/chat").json()[-1]["text"]
+        wait_until(c, lambda: len([n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "video"]) == 2)  # 每个通过的剧本各出 1 个视频
 
 
 def test_revise_and_reject_on_canvas():

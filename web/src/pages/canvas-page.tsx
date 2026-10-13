@@ -49,10 +49,22 @@ export default function CanvasPage() {
         onSuccess: (r) => { setPicking(false); refresh(); select([r.node_id]); setDraft(r.prompt); setAskNonce(Date.now()); },
     });
 
+    // 通过后自动走下一步：等新节点出现，把视角移过去
+    const followNew = (before: Set<string>) => {
+        let tries = 0;
+        const tick = async () => {
+            const snap = await qc.fetchQuery({ queryKey: ["canvas", pid], queryFn: () => api.canvas(pid), staleTime: 0 });
+            const fresh = snap.nodes.filter((n) => !before.has(n.id));
+            if (fresh.length) { focus(fresh[0].id); setHighlight(fresh.map((n) => n.id)); setTimeout(() => setHighlight([]), 2500); }
+            else if (++tries < 5) setTimeout(tick, 800);
+        };
+        setTimeout(tick, 300);
+    };
     const pass = useMutation({
         mutationFn: (ids: string[]) => api.passNodes(ids),
-        onSuccess: (r) => { message.success(r.passed > 1 ? `已通过 ${r.passed} 个节点，可以继续下一步` : "已通过，可以继续下一步"); qc.invalidateQueries({ queryKey: ["reviews"] }); },
-        onSettled: refresh,
+        onMutate: () => new Set((data?.nodes ?? []).map((n) => n.id)),
+        onSettled: (_r, _e, _v, before) => { if (before) followNew(before); },
+        onSuccess: (r) => { message.success(`已通过${r.passed > 1 ? ` ${r.passed} 个节点` : ""}，自动进入下一步（进度见左侧对话）`); qc.invalidateQueries({ queryKey: ["reviews"] }); refresh(); },
     });
     const waiting = data?.nodes.filter((n) => n.status === "wait") ?? [];
     const [rejecting, setRejecting] = useState<CanvasNode | null>(null);
