@@ -218,3 +218,17 @@ def undo_last(db: Session, project: Project) -> Patch | None:
 
 def now() -> datetime:
     return datetime.utcnow()
+
+
+def recover_interrupted(db: Session) -> int:
+    """服务重启时进程内的后台任务都没了：停在「生成中」的节点改成失败，让用户可以重新生成。"""
+    n = 0
+    for node in db.query(Node).filter(Node.status == "run"):
+        node.status, node.sub = "failed", "服务重启，生成中断，可重新生成"
+        n += 1
+    for node in db.query(Node).filter(Node.type == "script"):
+        sb = (node.data or {}).get("storyboard") or {}
+        if sb.get("status") == "running":
+            node.data = {**node.data, "storyboard": {**sb, "status": "error", "error": "服务重启，分镜中断"}}
+    db.commit()
+    return n

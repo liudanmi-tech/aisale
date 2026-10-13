@@ -22,6 +22,7 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         seed(db)
         canvas.migrate_layouts(db)
+        canvas.recover_interrupted(db)
     task = asyncio.create_task(monitor.scheduler())
     yield
     task.cancel()

@@ -1,4 +1,5 @@
 """大模型网关（OpenAI 兼容协议，走 OpenRouter）。按任务读取设置页里选的模型与 Key。"""
+import asyncio
 import base64
 import json
 
@@ -21,7 +22,8 @@ async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode:
     if json_mode:
         body["response_format"] = {"type": "json_object"}
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-        r = await client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body)
+        # httpx 的 timeout 只管单次读写；OpenRouter 处理中会发保活空白，模型卡住时永远不超时，所以再加一个总时限
+        r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]
 
@@ -35,7 +37,7 @@ async def image(content: list[dict] | str, task: str = "storyboard", aspect_rati
     body = {"model": settings_store.get_models()[task], "modalities": ["image", "text"], "image_config": {"aspect_ratio": aspect_ratio},
             "messages": [{"role": "user", "content": content}]}
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-        r = await client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body)
+        r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
         r.raise_for_status()
         imgs = r.json()["choices"][0]["message"].get("images") or []
         if not imgs:

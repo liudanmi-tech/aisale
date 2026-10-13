@@ -1,8 +1,11 @@
 """项目级实时事件：节点状态、画布变化、审核、对话，经 WebSocket 推给前端。"""
 import asyncio
+import logging
 from collections import defaultdict
 
 from fastapi import WebSocket
+
+log = logging.getLogger(__name__)
 
 
 class Hub:
@@ -48,6 +51,12 @@ def spawn(coro) -> None:
         t = asyncio.run_coroutine_threadsafe(coro, _loop)
     _tasks.add(t)
     t.add_done_callback(_tasks.discard)
+    t.add_done_callback(_log_error)
+
+
+def _log_error(t) -> None:
+    if not t.cancelled() and t.exception() is not None:
+        log.error("后台任务出错", exc_info=t.exception())
 
 
 def emit(project_id: str, kind: str, **payload) -> None:
