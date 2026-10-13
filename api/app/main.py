@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import canvas, config, monitor, settings_store
+from app import agent, canvas, config, monitor, settings_store, workflows
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
 from app.routers import monitor as monitor_router
@@ -23,7 +23,9 @@ async def lifespan(_: FastAPI):
         seed(db)
         canvas.migrate_layouts(db)
         canvas.recover_interrupted(db)
+        cuts = agent.backfill_cuts(db)
     settings_store.migrate_models()
+    workflows.run([(c, "compose") for c in cuts])
     task = asyncio.create_task(monitor.scheduler())
     yield
     task.cancel()

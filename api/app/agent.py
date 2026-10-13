@@ -27,6 +27,8 @@ INTENT_TOOLS = [
             "required": ["instruction"]}}},
     {"type": "function", "function": {"name": "generate_videos", "description": "为已通过审核的剧本生成视频",
         "parameters": {"type": "object", "properties": {"script_node_ids": {"type": "array", "items": {"type": "string"}}}}}},
+    {"type": "function", "function": {"name": "compose_videos", "description": "把已通过的视频的各镜片段拼接成完整成片（加字幕和贴片）；已有成片的重新合成",
+        "parameters": {"type": "object", "properties": {"video_node_ids": {"type": "array", "items": {"type": "string"}}}}}},
     {"type": "function", "function": {"name": "run_evaluation", "description": "对已通过审核的视频跑 40 Agent 评测",
         "parameters": {"type": "object", "properties": {"video_node_ids": {"type": "array", "items": {"type": "string"}}}}}},
     {"type": "function", "function": {"name": "plan_delivery", "description": "根据已通过的评测结论生成 TikTok 投放方案",
@@ -40,7 +42,7 @@ INTENT_TOOLS = [
         "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}},
 ]
 
-HELP = ("我可以：写剧本（如「给学生写 2 个拍照剧本」）、改剧本（选中剧本后说怎么改）、生成视频、跑评测、生成投放方案、整理画布、"
+HELP = ("我可以：写剧本（如「给学生写 2 个拍照剧本」）、改剧本（选中剧本后说怎么改）、生成视频、合成成片、跑评测、生成投放方案、整理画布、"
         "查询（如「哪个视频预测 CTR 最高」）、撤销。\n选中节点后再下指令，只会作用于选中的节点。")
 
 
@@ -84,7 +86,9 @@ def rule_intent(text: str, selection: list[str], selected_types: set[str] | None
         return {"name": "write_scripts", "count": min(6, int(m.group(1))) if m else 3,
                 "selling_point": "拍照" if re.search("拍照|夜拍", t) else ("存储" if "存储" in t else "续航"),
                 "audience": "学生" if "学生" in t else ("年轻家庭" if re.search("家庭|婚礼|斋月", t) else "小商贩"), "ref_ad_no": int(ad.group(1)) if ad else None}
-    if re.search("视频|成片", t):
+    if re.search("合成|成片|拼接", t):
+        return {"name": "compose_videos"}
+    if re.search("视频", t):
         return {"name": "generate_videos"}
     if re.search("评测|打分", t):
         return {"name": "run_evaluation"}
@@ -250,6 +254,55 @@ def compile_compose(db: Session, project: Project, videos: list[Node]) -> Patch 
     return _propose(db, project, {"name": "compose", "video_node_ids": [v.id for v in ok]}, "合成成片", steps, "不额外收费（本地 ffmpeg）", ops)
 
 
+def backfill_cuts(db: Session) -> list[str]:
+    """成片节点上线前就通过的视频：每个项目补一次成片节点（之后删掉也不会再补）。返回要合成的成片节点。"""
+    out = []
+    for p in db.query(Project):
+        if (p.flags or {}).get("cuts_backfilled"):
+            continue
+        made = []
+        for v in canvas.nodes_of(db, p.id, "video"):
+            if v.status == "pass" and not _has_child(db, v.id, "cut"):
+                c = canvas.create_node(db, p, "cut", sub="合成中…", status="run",
+                                       data={"video_id": v.id, "captions": True, "backfill": True})
+                canvas.connect(db, p.id, v.id, c.id)
+                made.append(c)
+        p.flags = {**(p.flags or {}), "cuts_backfilled": True}
+        if made:
+            canvas.layout(db, p)
+            canvas.bump(p)
+            say(db, p.id, "新增了「成片」节点：已为通过的视频 " + " ".join(ref(c) for c in made) + " 补上成片，正在把片段拼成完整视频。")
+            out += [c.id for c in made]
+    db.commit()
+    return out
+
+
+def compose_videos(db: Session, project: Project, intent: dict, selection: list[str], runs: list) -> str:
+    """聊天里说「合成成片」：没有成片的视频新建成片节点，已有的重新合成（本地 ffmpeg，免费，直接执行不用确认）。"""
+    ids = set(intent.get("video_node_ids") or selection)
+    vids = [v for v in canvas.nodes_of(db, project.id, "video") if v.status == "pass"]
+    cuts = canvas.nodes_of(db, project.id, "cut")
+    if ids:
+        vids = [v for v in vids if v.id in ids or any(c.id in ids and (c.data or {}).get("video_id") == v.id for c in cuts)]
+    if not vids:
+        return "还没有通过审核的视频，视频通过后会自动拼成成片。"
+    done = []
+    for v in vids:
+        c = next((c for c in cuts if (c.data or {}).get("video_id") == v.id), None)
+        if c and c.status == "run":
+            continue
+        if not c:
+            c = canvas.create_node(db, project, "cut", data={"video_id": v.id, "captions": True})
+            canvas.connect(db, project.id, v.id, c.id)
+        c.status, c.sub = "run", "合成中…"
+        runs.append((c.id, "compose"))
+        done.append(c)
+    canvas.bump(project)
+    if not done:
+        return "成片正在合成中，稍等。"
+    return "开始合成：" + " ".join(ref(c) for c in done) + "（按剧本时长剪好每镜、拼成 9:16，加字幕和贴片）。"
+
+
 def _eval_sources(db: Session, project: Project) -> list[Node]:
     """评测的对象：成片节点（没有成片的老项目直接用视频节点）。"""
     cuts = canvas.nodes_of(db, project.id, "cut")
@@ -309,6 +362,10 @@ def auto_advance(db: Session, project: Project, node: Node) -> list[tuple[str, s
             return [(c.id, "compose") for c in cuts]
         label = f"{ref(node)} 已通过，自动把片段拼成成片（剪到剧本时长、加字幕和贴片）"
     elif node.type == "cut":
+        vid = (node.data or {}).get("video_id")
+        if (node.data or {}).get("backfill") and vid and _has_child(db, vid, "eval"):
+            say(db, project.id, f"{ref(node)} 合成好了，可以在画布上播放。原来的评测是按视频跑的，要按成片重新评测就说「跑评测」。")
+            return []
         if _has_child(db, node.id, "eval"):
             say(db, project.id, f"{ref(node)} 已重新合成。评测是按旧成片跑的，需要的话在评测节点上点「重新评测」。")
             return []
@@ -425,6 +482,13 @@ async def handle(db: Session, project: Project, text: str, selection: list[str])
         effects = [{"type": "highlight", "node_ids": intent.get("script_node_ids") or selection}]
     elif name == "clarify":
         say(db, project.id, intent.get("question") or HELP)
+    elif name == "compose_videos":
+        runs: list = []
+        say(db, project.id, compose_videos(db, project, intent, selection, runs))
+        db.commit()
+        from app import workflows  # 避免循环导入
+        workflows.run(runs)
+        return {"effects": effects}
     elif name in ("write_scripts", "generate_videos", "run_evaluation", "plan_delivery"):
         fn = {"write_scripts": compile_scripts, "generate_videos": compile_videos,
               "run_evaluation": compile_eval, "plan_delivery": compile_delivery}[name]

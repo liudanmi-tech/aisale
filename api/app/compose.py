@@ -51,8 +51,13 @@ def font_file(cjk: bool = False) -> str | None:
     return next((f for f in (CJK_FONTS if cjk else FONTS) if Path(f).exists()), None)
 
 
-def _has_cjk(parts: list[dict]) -> bool:
-    return any(re.search(r"[\u3000-\u9fff\uff00-\uffef]", p["line"] + p["overlay"]) for p in parts)
+def _has_cjk(text: str) -> bool:
+    return bool(re.search(r"[\u3000-\u9fff\uff00-\uffef]", text))
+
+
+def _font_for(text: str, fonts: dict) -> str | None:
+    """有中文用中文字体；没有中文字体时这一条不烧（不显示成方块）。"""
+    return fonts["cjk"] if _has_cjk(text) else fonts["latin"] or fonts["cjk"]
 
 
 def secs(x) -> float:
@@ -81,19 +86,21 @@ def _wrap(text: str, width: int = 26) -> str:
     return "\n".join(textwrap.wrap(text, width)[:3])
 
 
-def _filters(parts: list[dict], tmp: Path, captions: bool, font: str | None) -> str:
+def _filters(parts: list[dict], tmp: Path, captions: bool, fonts: dict) -> str:
     chains = []
     for k, p in enumerate(parts):
         f = (f"[{k}:v]trim=0:{p['dur']:.2f},setpts=PTS-STARTPTS,scale={W}:{H}:force_original_aspect_ratio=increase,"
              f"crop={W}:{H},fps={FPS},format=yuv420p,setsar=1")
-        if captions and font:
+        if captions:
             # 文字放进文件再引用，避免 drawtext 的转义问题
-            if p["line"]:
+            font = _font_for(p["line"], fonts)
+            if p["line"] and font:
                 tf = tmp / f"line{k}.txt"
                 tf.write_text(_wrap(p["line"]), encoding="utf-8")
                 f += (f",drawtext=fontfile='{font}':textfile='{tf}':fontsize=40:fontcolor=white:line_spacing=8:"
                       f"box=1:boxcolor=black@0.45:boxborderw=14:x=(w-text_w)/2:y=h-text_h-150")
-            if p["overlay"]:
+            font = _font_for(p["overlay"], fonts)
+            if p["overlay"] and font:
                 of = tmp / f"ov{k}.txt"
                 of.write_text(_wrap(p["overlay"], 18), encoding="utf-8")
                 f += (f",drawtext=fontfile='{font}':textfile='{of}':fontsize=58:fontcolor=white:borderw=4:bordercolor=black@0.7:"
@@ -106,17 +113,19 @@ def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions:
     exe = ffmpeg_exe()
     if not exe:
         raise RuntimeError("没有 ffmpeg：在 api 目录运行 pip install -r requirements.txt（会装上 imageio-ffmpeg），或 brew install ffmpeg")
-    font = font_file(_has_cjk(parts))
+    fonts = {"latin": font_file(), "cjk": font_file(cjk=True)}
+    font = fonts["latin"] or fonts["cjk"]
     tried = []
     for use_caps in ([True, False] if captions and font else [False]):
         cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"]
         for f in files:
             cmd += ["-i", str(f)]
-        cmd += ["-filter_complex", _filters(parts, tmp, use_caps, font), "-map", "[out]", "-c:v", "libx264", "-preset", "veryfast",
+        cmd += ["-filter_complex", _filters(parts, tmp, use_caps, fonts), "-map", "[out]", "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(out)]
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if p.returncode == 0 and out.exists():
-            return {"captions": use_caps, "font": font if use_caps else None}
+            skipped = [p["shot"] for p in parts if use_caps and any(t and not _font_for(t, fonts) for t in (p["line"], p["overlay"]))]
+            return {"captions": use_caps, "font": font if use_caps else None, "skipped_text": skipped}
         tried.append(p.stderr[-300:])
         log.warning("合成失败（字幕=%s）：%s", use_caps, p.stderr[-300:])
     raise RuntimeError("ffmpeg 合成失败：" + (tried[-1] if tried else ""))
@@ -181,7 +190,7 @@ async def run(cut_id: str, comment: str = "") -> None:
                 info = await asyncio.to_thread(render, parts, files, out, tmp, captions)
             url = f"/api/v1/media/cuts/{out.name}"
             _set(cut_id, data={"video_url": url, "mock": False, "duration": total, "source_sig": sig, "stage": "完成",
-                               "burned": info["captions"], "font": info["font"]},
+                               "burned": info["captions"], "font": info["font"], "skipped_text": info["skipped_text"]},
                  sub=f"{len(parts)} 镜 · {total:g} 秒 · 9:16" + (" · 已加字幕" if info["captions"] else ""))
     except Exception as e:  # noqa: BLE001
         log.exception("成片合成失败 %s", cut_id)

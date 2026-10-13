@@ -74,6 +74,7 @@ def test_compose_real_clips(tmp_path, monkeypatch):
         assert (info["w"], info["h"]) == (720, 1280)
         assert abs(info["duration"] - 7.5) < 0.3
         assert d["captions"] is True and d["burned"] == bool(compose.font_file())
+        assert d["skipped_text"] == ([] if compose.font_file(cjk=True) else [3])  # 没有中文字体：只有中文贴片那一镜不烧
 
         # 片段没齐（有一镜还没出视频）：报出是哪一镜，不出半截成片
         with SessionLocal() as db:
@@ -96,3 +97,28 @@ def test_compose_endpoint_guards():
             vid = v.id
         assert c.post(f"/api/v1/nodes/{vid}/compose", json={}).status_code == 404
         assert json.loads(json.dumps(compose.secs("3–7s"))) == 4.0
+
+
+def test_backfill_old_projects():
+    """成片节点上线前就通过的视频：启动时补上成片节点；原来已经评测过的不再自动重跑评测。"""
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "老项目"}).json()["id"]
+        with SessionLocal() as db:
+            project = db.get(Project, pid)
+            v1 = canvas.create_node(db, project, "video", status="pass", data={"tasks": []})
+            v2 = canvas.create_node(db, project, "video", status="wait", data={"tasks": []})
+            ev = canvas.create_node(db, project, "eval", status="wait")
+            canvas.connect(db, pid, v1.id, ev.id)
+            project.flags = {**(project.flags or {}), "cuts_backfilled": False}
+            db.commit()
+            made = agent.backfill_cuts(db)
+            cuts = canvas.nodes_of(db, pid, "cut")
+            assert len(cuts) == 1 and cuts[0].id in made and cuts[0].data["video_id"] == v1.id and v2.id not in str(cuts[0].data)
+            assert any(n.type == "cut" for n in canvas.downstream(db, v1.id))
+            cuts[0].status = "pass"
+            assert agent.auto_advance(db, project, cuts[0]) == [] and len(canvas.nodes_of(db, pid, "eval")) == 1
+            assert agent.backfill_cuts(db) == []  # 每个项目只补一次
+        # 聊天说「合成成片」：已有成片的重新合成
+        P = f"/api/v1/projects/{pid}"
+        c.post(P + "/agent/chat", json={"text": "合成成片"})
+        assert "开始合成" in c.get(P + "/chat").json()[-1]["text"]
