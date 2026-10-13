@@ -438,19 +438,25 @@ def resume_waiting(asset_id: str) -> list[str]:
     return vids
 
 
-def confirm_cast(video_id: str) -> None:
-    """人确认选角后继续：画关键帧 → 质检 → 图生视频。"""
-    with SessionLocal() as db:
+def confirm_cast(video_id: str, db=None) -> None:
+    """人确认选角后继续：画关键帧 → 质检 → 图生视频。db 传入时在调用方的会话里改（调用方负责提交）。"""
+    own = db is None
+    db = db or SessionLocal()
+    try:
         v = db.get(Node, video_id)
-        cast = None
-        if v:
-            s = db.get(Node, (v.data or {}).get("script_id")) if (v.data or {}).get("script_id") else None
-            cast = (s.data or {}).get("cast") if s else None
+        s = db.get(Node, (v.data or {}).get("script_id")) if v and (v.data or {}).get("script_id") else None
+        cast = (s.data or {}).get("cast") if s else None
         prod = db.get(Asset, cast["product"]) if cast and cast.get("product") else None
         if prod and not prod.images and settings_store.llm_enabled():
             raise ValueError(f"还需要先上传「{prod.name}」的实拍图")
         v.data = {**(v.data or {}), "cast_confirmed": True}
-        db.commit()
+        if own:
+            db.commit()
+        else:
+            db.flush()
+    finally:
+        if own:
+            db.close()
 
 
 def set_cast(video_id: str, key: str, asset_id: str) -> dict:

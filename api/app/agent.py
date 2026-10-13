@@ -329,6 +329,31 @@ def summary(db: Session, project: Project) -> str:
     return f"当前画布：剧本 {c['script']}、视频 {c['video']}、评测 {c['eval']}、投放 {c['deliver']}。待审核 {len(w)} 条{tail}。"
 
 
+CONFIRM_WORDS = "确认选角|选角没问题|开始生成|继续生成|接着生成|确认.*继续|就这样生成"
+
+
+def confirm_videos(db: Session, waiting: list[Node], selection: list[str]) -> str:
+    """在对话里确认选角：选中了视频就只确认选中的，否则确认所有在等确认的视频。"""
+    from app import production  # production 依赖本模块，这里延迟导入
+    from app.events import spawn
+    picked = [n for n in waiting if n.id in selection] or waiting
+    ok, blocked = [], []
+    for n in picked:
+        try:
+            production.confirm_cast(n.id, db)
+        except ValueError as e:
+            blocked.append(f"{ref(n)}：{e}")
+            continue
+        canvas.audit(db, n.project_id, "agent", "confirm_cast", {"node_id": n.id})
+        ok.append(n)
+    db.commit()  # 先提交确认，后台任务才读得到
+    for n in ok:
+        spawn(production.run(n.id))
+    ok = [ref(n) for n in ok]
+    parts = ([f"选角已确认，{'、'.join(ok)} 开始画关键帧，每镜画完先质检再生成视频。"] if ok else []) + blocked
+    return "；".join(parts)
+
+
 async def handle(db: Session, project: Project, text: str, selection: list[str]) -> dict:
     """处理一条用户指令，返回 {effects}；消息与补丁写入数据库。"""
     say(db, project.id, text, role="user")
@@ -336,6 +361,11 @@ async def handle(db: Session, project: Project, text: str, selection: list[str])
     if old:
         old.status = "superseded"
         set_card_state(db, old, "superseded")
+    waiting = [n for n in canvas.nodes_of(db, project.id, "video") if n.status == "input" and (n.data or {}).get("stage") == "确认选角"]
+    if waiting and re.search(CONFIRM_WORDS, re.sub(r"\s", "", text)):
+        say(db, project.id, confirm_videos(db, waiting, selection))
+        db.commit()
+        return {"effects": [{"type": "highlight", "node_ids": [n.id for n in waiting]}]}
     intent = await parse_intent(db, project, text, selection)
     name, effects = intent.get("name"), []
     if name == "undo":

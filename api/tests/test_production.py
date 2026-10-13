@@ -113,7 +113,8 @@ def test_production(tmp_path, monkeypatch):
         n_img = len(images)
         r = c.post(f"/api/v1/library/{lib['TECNO Spark 40']['id']}/upload", json={"image": PNG}).json()
         assert r["resumed"] == []
-        assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").json()["ok"]
+        c.post(P + "/agent/chat", json={"text": "选角没问题，开始生成"})  # 在左侧对话里确认，和点按钮一样
+        assert "选角已确认" in c.get(P + "/chat").json()[-1]["text"]
         wait_until(lambda: of("video")[0]["status"] == "wait")
         v = of("video")[0]
         kf_calls = images[n_img:]
