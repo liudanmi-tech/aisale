@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Upload, Wand2 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
+import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
 import { api, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
 
@@ -42,12 +43,15 @@ function useLibrary() {
     return useQuery({ queryKey: ["library"], queryFn: () => api.library(), refetchInterval: (q) => (q.state.data?.some((a) => a.status === "generating") ? 3000 : false) });
 }
 
+const KF_SRC_SHORT: Record<string, string> = { auto: "自动", photo: "实拍合成", product: "实拍合成", placement: "换真机", ai: "AI 画" };
+
 /** 每镜拍法标签：景别 · 运镜 · 出场演员 · 场景 · 商品；剧本里可点开修改 */
 function SpecChips({ spec, cast, onChange }: { spec: ShotSpec; cast: Cast; onChange?: (s: ShotSpec) => void }) {
     const [open, setOpen] = useState(false);
     const roleNames = spec.roles.map((r) => cast.names?.[r] || r);
     const chips = [SIZE_ZH[spec.size] || spec.size, spec.move, roleNames.length ? roleNames.join("、") : "无人物", spec.scene ? cast.names?.[spec.scene] || spec.scene : "",
-        spec.product ? (spec.kf_source === "ai" ? "商品 · AI 画" : "商品 · 实拍图") : ""].filter(Boolean);
+        spec.product ? `商品 · ${spec.product_tier === "hand" ? "手持" : "特写"} · ${KF_SRC_SHORT[spec.kf_source ?? "auto"] ?? "自动"}` : "",
+        spec.overlay ? `贴片：${spec.overlay}` : ""].filter(Boolean);
     const body = (
         <div className="flex w-[240px] flex-col gap-2 text-xs" data-ui>
             <label>景别<Select size="small" className="mt-0.5 w-full" value={spec.size} onChange={(size) => onChange?.({ ...spec, size })}
@@ -59,9 +63,15 @@ function SpecChips({ spec, cast, onChange }: { spec: ShotSpec; cast: Cast; onCha
                 options={Object.keys(cast.scenes).map((k) => ({ value: k, label: cast.names?.[k] || k }))} /></label>
             <label className="flex items-center justify-between">出现商品<Switch size="small" checked={spec.product} onChange={(product) => onChange?.({ ...spec, product })} /></label>
             {spec.product && (
-                <label>关键帧来源<Select size="small" className="mt-0.5 w-full" value={spec.kf_source ?? "product"} onChange={(kf_source) => onChange?.({ ...spec, kf_source })}
-                    options={[{ value: "product", label: "商品实拍图（外观 100% 一致，推荐）" }, { value: "ai", label: "AI 生成（可以有手和场景，外观可能走样）" }]} /></label>
+                <>
+                    <label>商品镜头<Select size="small" className="mt-0.5 w-full" value={spec.product_tier ?? (spec.roles.length ? "hand" : "hero")} onChange={(product_tier) => onChange?.({ ...spec, product_tier })}
+                        options={[{ value: "hero", label: "纯商品特写（没有人）" }, { value: "hand", label: "人物拿着 / 使用手机" }]} /></label>
+                    <label>关键帧来源<Select size="small" className="mt-0.5 w-full" value={spec.kf_source === "product" ? "photo" : spec.kf_source ?? "auto"} onChange={(kf_source) => onChange?.({ ...spec, kf_source })}
+                        options={[{ value: "auto", label: "自动：特写用实拍合成，手持用「占位换真机」" }, { value: "photo", label: "商品实拍图合成（外观 100% 一致）" },
+                            { value: "placement", label: "AI 画场景 + 换入真实商品" }, { value: "ai", label: "AI 直接画（外观可能走样）" }]} /></label>
+                </>
             )}
+            <label>后期贴片文字<Input size="small" className="mt-0.5" value={spec.overlay ?? ""} placeholder="如：6000mAh 大电池（不会画进画面）" onChange={(e) => onChange?.({ ...spec, overlay: e.target.value })} /></label>
             <div className="text-[11px] text-ink2">改完后视频里这一镜会标「已修改」，点「重新生成改过的镜头」生效</div>
         </div>
     );
@@ -143,10 +153,10 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
 type QcState = "pass" | "warn" | "fail" | "skip";
 type QcCheck = { status: QcState; reason?: string; scores?: any; items?: any };
 type ShotQc = { status: QcState; checks?: Record<string, QcCheck>; issues?: string[]; manual_confirm?: boolean; attempts?: { keyframe?: number; clip?: number } };
-const QC_GROUPS: [string, string[]][] = [["商品", ["product"]], ["人物", ["face", "people"]], ["画质", ["artifacts", "text", "tech"]], ["剧本", ["script"]]];
+const QC_GROUPS: [string, string[]][] = [["商品", ["similarity", "product"]], ["人物", ["face", "people"]], ["画质", ["artifacts", "text", "tech"]], ["剧本", ["script"]]];
 const QC_RANK: Record<QcState, number> = { skip: 0, pass: 1, warn: 2, fail: 3 };
 const QC_MARK: Record<QcState, [string, string]> = { pass: ["✓", "text-good"], warn: ["⚠", "text-warn"], fail: ["✗", "text-bad"], skip: ["–", "text-ink2"] };
-const QC_ITEM: Record<string, string> = { product: "商品外观", face: "人脸相似度", people: "服装与人数", artifacts: "畸形与穿模", text: "乱码文字", tech: "规格与画质", script: "符合剧本" };
+const QC_ITEM: Record<string, string> = { similarity: "商品特写比对", product: "商品外观", face: "人脸相似度", people: "服装与人数", artifacts: "畸形与穿模", text: "乱码文字", tech: "规格与画质", script: "符合剧本" };
 
 function ShotQcChips({ q, keyframe, shot }: { q?: ShotQc; keyframe?: string; shot: number }) {
     if (!q?.checks) return null;
@@ -210,6 +220,7 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
     const { data: lib = [] } = useLibrary();
     const file = useRef<HTMLInputElement>(null);
     const [picking, setPicking] = useState(false);
+    const [detail, setDetail] = useState(false);
     const after = () => { qc.invalidateQueries({ queryKey: ["library"] }); refresh(); };
     const swap = useMutation({ mutationFn: (id: string) => api.setCast(n.id, k, id), onSuccess: () => { setPicking(false); message.success("已替换，用到它的镜头会标「已修改」"); after(); }, onError: (e) => message.error(errMsg(e)) });
     const gen = useMutation({ mutationFn: () => api.generateAsset(a!.id), onSuccess: after, onError: (e) => message.error(errMsg(e)) });
@@ -227,6 +238,7 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
     );
     return (
         <div className={clsx("w-[112px] shrink-0 overflow-hidden rounded-lg border bg-elev text-[11px]", missing ? "border-warn" : "border-line")}>
+            {slot === "product" && a && <ProductEditor assetId={a.id} open={detail} onClose={() => setDetail(false)} />}
             <div className="relative h-[120px]" style={{ background: img ? "#111" : COVER_GRADIENTS[k.length % COVER_GRADIENTS.length] }}>
                 {img && <Image src={img} alt={a?.name} preview={{ mask: false }} rootClassName="!block h-full" className={clsx("!h-[120px] !w-[112px]", slot === "product" ? "object-contain" : "object-cover object-top")} />}
                 {!img && <span className="absolute inset-0 flex items-center justify-center px-2 text-center text-white/90">{busy ? "定妆照生成中…" : missing ? "请上传商品实拍图" : "还没有图"}</span>}
@@ -242,6 +254,7 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
             <div className="p-1">
                 <div className="truncate font-medium text-ink" title={a?.description}>{a?.name || k}</div>
                 <div className="truncate text-[10px] text-ink2">{uses.length ? `镜 ${uses.join("、")}` : "未出场"}</div>
+                {slot === "product" && <ProductHint a={a} />}
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 {editable && a && (
                     <div className="mt-0.5 flex gap-0.5" data-ui>
@@ -249,6 +262,7 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
                             <button data-ui className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand">换</button>
                         </Popover>
                         {slot !== "product" && <button data-ui disabled={busy || gen.isPending} onClick={() => gen.mutate()} className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand disabled:opacity-50">重画</button>}
+                        {slot === "product" && <button data-ui onClick={() => setDetail(true)} className="cursor-pointer rounded border border-brand/60 bg-transparent px-1 text-[10px] text-ink hover:border-brand">详情</button>}
                         <button data-ui disabled={upload.isPending} onClick={() => (slot === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}
                             className={clsx("cursor-pointer rounded border bg-transparent px-1 text-[10px] hover:border-brand disabled:opacity-50", missing ? "border-warn text-warn" : "border-line text-ink")}>上传</button>
                     </div>
@@ -285,7 +299,8 @@ function ShotEditor({ shot, onSave, disabled }: { shot: string[]; onSave: (visua
 }
 
 type KfRef = { kind: string; label: string; url: string; note: string };
-type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string; custom_prompt?: boolean; composite?: boolean; dropped?: string[] };
+type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string; custom_prompt?: boolean; composite?: boolean; dropped?: string[];
+    mode?: "photo" | "placement" | "ai"; placeholder?: string; place_refs?: KfRef[] };
 type KfRedo = { comment: string; prompt?: string; drop_refs: string[] };
 
 /** 回到关键帧：看上一版用了哪些参考图、什么提示词，去掉有问题的参考图 / 改提示词 / 写修改意见，重画后停下等确认 */
@@ -317,6 +332,16 @@ function KeyframeRedo({ meta, onRedo, disabled, primary }: { meta?: KfMeta; onRe
                             );
                         })}
                     </div>
+                </div>
+            )}
+            {meta?.mode === "placement" && (
+                <div>
+                    <div className="mb-1 font-medium text-ink">上一版是两步走 <span className="font-normal text-ink2">（第一步画占位手机，第二步换成真实商品；看是哪一步出的问题）</span></div>
+                    <div className="flex items-start gap-1.5">
+                        {meta.placeholder && <div className="w-[76px] text-[10px]"><Image src={meta.placeholder} alt="占位" width={70} height={124} className="rounded object-cover" />第一步：占位图</div>}
+                        {(meta.place_refs || []).map((r) => <div key={r.url} className="w-[76px] text-[10px]"><Image src={r.url} alt={r.label} width={70} height={70} className="rounded object-contain" />换入：{r.label}</div>)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-ink2">换入的商品图在「商品详情」里管理；上面的参考图只用于第一步。</div>
                 </div>
             )}
             {meta && !meta.composite && (
@@ -458,7 +483,11 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                         </span>
                                     )}
                                 </div>
-                                <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span></div>
+                                <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span>
+                                    {t.video_mode === "reference" && <span className="ml-1 rounded bg-brand/20 px-1 text-[10px] text-ink" title={`全能参考：${(t.video_refs || []).join(" + ")}`}>全能参考</span>}
+                                    {t.kf_meta?.mode === "placement" && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2" title="先画占位手机，再换成真实商品">换真机</span>}
+                                    {t.kf_meta?.composite && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2">实拍合成</span>}
+                                </div>
                                 {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有返回原因），可以点「重做视频」"}</div>}
                                 {t.retry_error && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.retry_error}>{t.retry_error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}

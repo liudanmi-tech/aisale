@@ -4,6 +4,7 @@ import { ImagePlus, Pencil, Plus, Search, Trash2, Upload, Wand2 } from "lucide-r
 import { useRef, useState } from "react";
 
 import { PageTitle } from "@/components/common";
+import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { CONSENT_TEXT, consentDialog, COVER_GRADIENTS } from "@/lib/constants";
 import { Assets } from "@/pages/ops-pages";
 import { api, type AssetKind, type LibraryAsset } from "@/services/api";
@@ -27,6 +28,7 @@ function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () =>
     const qc = useQueryClient();
     const file = useRef<HTMLInputElement>(null);
     const done = () => qc.invalidateQueries({ queryKey: ["library"] });
+    const [editing, setEditing] = useState(false);
     const upload = useMutation({ mutationFn: async (f: File) => api.uploadAsset(a.id, await readFile(f), a.kind === "actor"), onSuccess: () => { message.success("已上传"); done(); }, onError: (e) => message.error(errMsg(e)) });
     const gen = useMutation({ mutationFn: () => api.generateAsset(a.id), onSuccess: done, onError: (e) => message.error(errMsg(e)) });
     const del = useMutation({ mutationFn: () => api.deleteAsset(a.id), onSuccess: () => { message.success("已删除"); done(); }, onError: (e) => message.error(errMsg(e)) });
@@ -47,11 +49,14 @@ function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () =>
                 <div className="truncate text-sm font-medium text-ink">{a.name}</div>
                 <div className="line-clamp-2 min-h-10 text-ink2" title={a.description}>{a.description || "—"}</div>
                 {a.kind === "product" && (a.data.brand || a.data.model_sku) && <div className="text-ink2">{a.data.brand} {a.data.model_sku}</div>}
+                {a.kind === "product" && <ProductHint a={a} />}
+                {a.kind === "product" && <ProductEditor assetId={a.id} open={editing} onClose={() => setEditing(false)} />}
                 {a.data?.error && <div className="truncate text-bad" title={a.data.error}>生成失败：{a.data.error}</div>}
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 <div className="mt-2 flex flex-wrap gap-1">
                     <Button size="small" icon={a.kind === "product" ? <Upload size={12} /> : <ImagePlus size={12} />} loading={upload.isPending}
                         onClick={() => (a.kind === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}>上传</Button>
+                    {a.kind === "product" && <Button size="small" type="primary" onClick={() => setEditing(true)}>多视角与说明卡</Button>}
                     {a.kind !== "product" && <Button size="small" icon={<Wand2 size={12} />} loading={gen.isPending || a.status === "generating"} onClick={() => gen.mutate()}>AI 生成</Button>}
                     <Button size="small" type="text" icon={<Pencil size={12} />} onClick={onEdit} aria-label="编辑" />
                     <Popconfirm title="删除这个素材？" okText="删除" cancelText="取消" onConfirm={() => del.mutate()}>

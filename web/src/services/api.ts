@@ -26,11 +26,15 @@ export interface LibraryAsset {
     data: Record<string, any>;
     source: "ai" | "upload";
     status: "ready" | "generating" | "error";
+    product?: { missing: string[]; bad: number; checking: boolean };
     created_at: string;
     uses?: number;
 }
 /** 剧本拆解出的每镜拍法 */
-export interface ShotSpec { shot: number; size: string; move: string; roles: string[]; scene: string | null; product: boolean; line: string; kf_source?: "ai" | "product" }
+export interface ShotSpec {
+    shot: number; size: string; move: string; roles: string[]; scene: string | null; product: boolean; line: string;
+    product_tier?: "hero" | "hand" | null; kf_source?: "auto" | "photo" | "placement" | "ai" | "product"; overlay?: string;
+}
 export interface Cast { genre: string; roles: Record<string, string>; scenes: Record<string, string>; product: string | null; specs: ShotSpec[]; names: Record<string, string> }
 
 export interface CanvasNode {
@@ -162,8 +166,8 @@ export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
     retries: { keyframe: number; clip: number };
-    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard" | "keyframe" | "video_i2v" | "qc", string>;
-    catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; resolutions: string[] };
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard" | "keyframe" | "video_i2v" | "video_ref" | "qc", string>;
+    catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; video_i2v: ModelOption[]; video_ref: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
 }
 
@@ -288,7 +292,9 @@ export const api = {
     library: (kind?: AssetKind) => get<LibraryAsset[]>("/library", kind ? { kind } : {}),
     createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean; consent?: boolean }) => post<LibraryAsset>("/library", body),
     patchAsset: (id: string, body: Partial<Pick<LibraryAsset, "name" | "description" | "data" | "tags">>) => http.patch(`/library/${id}`, body).then((r) => r.data),
-    uploadAsset: (id: string, image: string, consent = false) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent }),
+    uploadAsset: (id: string, image: string, consent = false, view?: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent, view }),
+    setAssetView: (id: string, url: string, view: string) => post<LibraryAsset>(`/library/${id}/view`, { url, view }),
+    removeAssetImage: (id: string, url: string) => post<LibraryAsset>(`/library/${id}/remove-image`, { url }),
     generateAsset: (id: string) => post(`/library/${id}/generate`),
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),

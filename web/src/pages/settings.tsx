@@ -86,7 +86,9 @@ export default function Settings() {
         ["storyboard", "分镜图", "按剧本画电影学院风格的简笔分镜，每镜一张", data.catalog.image],
         ["keyframe", "定妆照与关键帧", "演员定妆照、场景图、每镜关键帧；要真实质感、能同时参考多张图", data.catalog.image],
         ["qc", "视频质检", "看关键帧和成片抽帧，对照定妆照和商品实拍图逐项检查；必须能看图", data.catalog.llm],
-        ["video", "视频生成（fal.ai）", "每个镜头生成 5 秒 9:16 视频，产品镜头用官方素材", data.catalog.video],
+        ["video_i2v", "图生视频（没有商品的镜头）", "关键帧 → 5 秒视频；Seedance 2.5 画幅跟随关键帧", data.catalog.video_i2v],
+        ["video_ref", "商品镜头视频（全能参考）", "关键帧 + 商品多视角图一起作参考，生成全程保持商品外观", data.catalog.video_ref],
+        ["video", "文生视频（没有关键帧时）", "只在没画关键帧（演示模式）时用", data.catalog.video],
     ];
     return (
         <div className="mx-auto max-w-[1280px] px-8 py-6 pb-12 max-[900px]:px-4">
@@ -115,7 +117,7 @@ export default function Settings() {
                         <div>
                             <div className="mb-1 text-sm"><b>视频分辨率</b></div>
                             <Select className="w-40" value={models.video_resolution} onChange={(v) => setModels({ ...models, video_resolution: v })} options={data.catalog.resolutions.map((r) => ({ value: r }))} />
-                            <span className="ml-2 text-xs text-ink2">Seedance 2.5 最高 720p；1080p 需选 Seedance 1.0 Pro</span>
+                            <span className="ml-2 text-xs text-ink2">Seedance 2.5 支持 480p / 720p / 1080p，分辨率越高越贵</span>
                         </div>
                     </div>
                 </Card>
