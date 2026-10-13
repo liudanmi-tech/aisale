@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Popover, Select, Tooltip } from "antd";
 import clsx from "clsx";
 import {
-    BarChart3, CheckCircle2, ClipboardCheck, Flame, FolderKanban, House, Layers, LayoutDashboard, PanelLeftClose, PanelLeftOpen,
+    BarChart3, CheckCircle2, ClipboardCheck, Flame, FolderKanban, Globe2, House, Layers, LayoutDashboard, PanelLeftClose, PanelLeftOpen,
     Radar, Rocket, Settings, Sparkles, Workflow,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -38,6 +38,7 @@ export function AppLayout() {
     const groups: { title?: string; items: Item[] }[] = [
         { items: [
             { to: "/", label: "首页", icon: <House size={17} />, match: (p) => p === "/" },
+            { to: "/sandbox", label: "营销沙盘", icon: <Globe2 size={17} /> },
             { to: "/projects", label: "项目", icon: <FolderKanban size={17} /> },
             { to: "/ads", label: "爆款库", icon: <Flame size={17} /> },
             { to: "/watch", label: "账号监控", icon: <Radar size={17} /> },

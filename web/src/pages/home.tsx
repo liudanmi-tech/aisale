@@ -7,6 +7,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { StatusBadge } from "@/components/common";
+import { MarketSandbox } from "@/components/sandbox/market-sandbox";
 import { COVER_GRADIENTS } from "@/lib/constants";
 import { TOOLS } from "@/lib/skills";
 import { api } from "@/services/api";
@@ -60,6 +61,8 @@ export default function Home() {
                     </button>
                 ))}
             </section>
+
+            <section className="mt-8"><MarketSandbox /></section>
 
             <h2 className="mb-3 mt-8 text-[17px] font-semibold">特色功能</h2>
             <section className="grid grid-cols-5 gap-3 max-[1100px]:grid-cols-2">
