@@ -358,7 +358,11 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         spec = specs[i] if i < len(specs) else {"size": "MS", "move": "固定", "roles": [], "scene": None, "product": i == PRODUCT_SHOT}
         kf, err, kf_qc, fix, tries = None, "", None, "", 0
         frame = (frames[i] or {}).get("url") if i < len(frames) and frames[i] else None
-        if use_kf:
+        last = old[i] if i < len(old) else {}
+        if use_kf and last.get("keyframe") and last.get("status") == "failed" and last.get("inputs") == inputs(sh, spec, cast):
+            # 上次关键帧画好了、只是视频没生成出来，输入也没改：沿用关键帧，只重做视频，不重复花钱
+            kf, kf_qc = last["keyframe"], last.get("qc")
+        elif use_kf:
             async with sem:
                 # 关键帧质检：不合格带着问题重画，最多重画 KF_RETRIES 次；仍不合格就用最后一张并标红
                 for tries in range(1, KF_RETRIES + 2):
@@ -382,7 +386,7 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         # 成片质检：不合格重生成 CLIP_RETRIES 次
         for clip_tries in range(1, CLIP_RETRIES + 2):
             _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
-            res = await clip(prompt, assets.media_data_url(kf) if kf else None)
+            res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
             if res.get("status") == "failed":
                 clip_qc = None
                 break
@@ -410,7 +414,7 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
                   "qc": report}
         if failed:
             v.status, v.sub = "failed", f"{len(failed)} 个镜头生成失败，可重试"
-            agent.say(db, v.project_id, f"{agent.ref(v)} 有 {len(failed)} 个镜头生成失败：{failed[0].get('error', '')[:120]}。可以在节点里单镜重新生成。")
+            agent.say(db, v.project_id, f"{agent.ref(v)} 有 {len(failed)} 个镜头的视频生成失败（关键帧已画好；点「重新生成」会沿用关键帧，只重做视频）：{failed[0].get('error', '')[:300]}")
             db.commit()
             emit(v.project_id, "canvas")
             emit(v.project_id, "chat")

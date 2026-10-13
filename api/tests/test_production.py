@@ -51,7 +51,12 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]})
 
 
+FAL_DOWN = {"on": False}
+
+
 def fal_handler(req: httpx.Request) -> httpx.Response:
+    if req.method == "POST" and FAL_DOWN["on"]:
+        return httpx.Response(403, json={"detail": "User is locked. Reason: Exhausted balance."})
     if req.method == "POST":
         body = json.loads(req.content)
         i2v.append({"path": req.url.path, **body})
@@ -160,6 +165,18 @@ def test_production(tmp_path, monkeypatch):
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/regenerate", json={"indices": [0, 3, 9]}).json()["indices"] == [0, 3]
         wait_until(lambda: len(i2v) == n_i2v + 2 and of("video")[0]["status"] == "wait")
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/regenerate", json={"indices": []}).status_code == 400
+
+        # fal 拒绝（余额不足）：镜头标失败并带上 fal 的原因；恢复后重做只重做视频，沿用已画好的关键帧
+        FAL_DOWN["on"] = True
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/1/regenerate").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "failed")
+        t1 = of("video")[0]["data"]["tasks"][1]
+        assert t1["status"] == "failed" and "余额" in t1["error"] and "Exhausted balance" in t1["error"] and t1["keyframe"]
+        FAL_DOWN["on"] = False
+        n_img, n_i2v = len(images), len(i2v)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/1/regenerate").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "wait")
+        assert len(images) == n_img and len(i2v) == n_i2v + 1 and of("video")[0]["data"]["tasks"][1]["keyframe"] == t1["keyframe"]
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")

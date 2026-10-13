@@ -374,10 +374,11 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     {dirty[i] && !live && <span className="absolute right-1 top-1 rounded bg-warn px-1 text-[10px] text-black">已修改</span>}
                                 </div>
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span></div>
+                                {t.status === "failed" && t.error && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5"><ShotEditor shot={s} disabled={!editable} onSave={(v, l) => saveShot(i, v, l)} /></div>
-                                {!confirming && <div className="mt-1"><Btn icon={<RefreshCw size={10} />} disabled={running || n.status === "input" || regen.isPending} onClick={() => regen.mutate(i)}>重新生成</Btn></div>}
+                                {!confirming && <div className="mt-1"><Btn icon={<RefreshCw size={10} />} disabled={running || n.status === "input" || regen.isPending} onClick={() => regen.mutate(i)}>{t.status === "failed" && t.keyframe ? "重做视频" : "重新生成"}</Btn></div>}
                             </div>
                         );
                     })}

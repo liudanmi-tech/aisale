@@ -60,20 +60,7 @@ def _score(v) -> int:
 
 def _small(url: str | None) -> str | None:
     """关键帧缩到 384px 宽的 JPEG 再发给 40 个 Agent，省流量和 token。"""
-    data = assets.media_data_url(url) if url else None
-    if not data:
-        return None
-    try:
-        import cv2
-        import numpy as np
-        img = cv2.imdecode(np.frombuffer(base64.b64decode(data.split(",", 1)[1]), np.uint8), cv2.IMREAD_COLOR)
-        h, w = img.shape[:2]
-        if w > 384:
-            img = cv2.resize(img, (384, int(h * 384 / w)), interpolation=cv2.INTER_AREA)
-        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        return f"data:image/jpeg;base64,{base64.b64encode(buf.tobytes()).decode()}" if ok else data
-    except Exception:  # noqa: BLE001  没装 OpenCV 就发原图
-        return data
+    return assets.jpeg_data_url(url, max_w=384, quality=80)
 
 
 def _secs(x) -> int:

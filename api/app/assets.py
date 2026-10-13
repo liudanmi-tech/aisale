@@ -52,6 +52,24 @@ def decode_data_url(data_url: str) -> tuple[bytes, str]:
     return raw, head[5:].split(";")[0]
 
 
+def jpeg_data_url(url: str | None, max_w: int = 1080, quality: int = 88) -> str | None:
+    """本地图片缩到 max_w 宽、转 JPEG 后的 data URI。发给外部模型时用：2MB 的 PNG 关键帧会变成 200–400KB。没装 OpenCV 就发原图。"""
+    data = media_data_url(url) if url else None
+    if not data:
+        return None
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(base64.b64decode(data.split(",", 1)[1]), np.uint8), cv2.IMREAD_COLOR)
+        h, w = img.shape[:2]
+        if w > max_w:
+            img = cv2.resize(img, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return f"data:image/jpeg;base64,{base64.b64encode(buf.tobytes()).decode()}" if ok else data
+    except Exception:  # noqa: BLE001
+        return data
+
+
 def media_data_url(url: str) -> str | None:
     """本地媒体地址 → data URI（传给模型做参考图）。"""
     if not url or "/api/v1/media/" not in url:
