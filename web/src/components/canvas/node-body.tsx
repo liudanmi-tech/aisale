@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Upload, Wand2 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
+import { EvalPanel } from "@/components/canvas/eval-panel";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
 import { api, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
@@ -630,7 +631,7 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
     );
 }
 
-function EvalBody({ n }: { n: CanvasNode }) {
+export function EvalBody({ n }: { n: CanvasNode }) {
     const results: any[] = n.data.results || [];
     if (!results.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "40 个独立 Agent 正在逐镜观看…" : "还没有评测结果"}</div>;
     const best = [...results].sort((a, b) => b.score - a.score)[0];
@@ -739,7 +740,7 @@ export function NodeBody({ n, pid, actions }: { n: CanvasNode; pid: string; acti
         case "actor": case "scene": case "product": return <AssetBody n={n} />;
         case "video": return <VideoBody n={n} pid={pid} />;
         case "cut": return <CutBody n={n} pid={pid} />;
-        case "eval": return <EvalBody n={n} />;
+        case "eval": return <EvalPanel n={n} pid={pid} />;
         case "deliver": return <DeliverBody n={n} />;
         case "data": return <DataBody n={n} pid={pid} />;
         case "opt": return <OptBody n={n} />;

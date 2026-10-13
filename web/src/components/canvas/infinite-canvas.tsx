@@ -6,6 +6,7 @@ import { Popover } from "antd";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { useEvalHeadline } from "@/components/canvas/eval-panel";
 import { NodeBody } from "@/components/canvas/node-body";
 import { StatusBadge } from "@/components/common";
 import { COVER_GRADIENTS, EXPANDED_W, NODE_H, NODE_META, NODE_W } from "@/lib/constants";
@@ -278,6 +279,7 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
         return () => ro.disconnect();
     }, [n.id, onSize]);
     const meta = NODE_META[n.type];
+    const evalHead = useEvalHeadline(n, pid);
     const frame: string | undefined = n.type === "script" ? n.data?.frames?.[0]?.url : undefined;
     const cover = n.type === "ad" || n.type === "video" || n.type === "cut" || !!frame;
     const preview =
@@ -310,11 +312,11 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
                     {(n.type === "video" || n.type === "cut") && <Clapperboard size={14} className="absolute bottom-1 right-1 text-white/80" />}
                 </span>
             )}
-            {n.type === "eval" && n.data?.score ? (
+            {n.type === "eval" && (evalHead?.score ?? n.data?.score) ? (
                 <span className="relative flex h-[46px] w-[46px] shrink-0 items-center justify-center">
                     <svg viewBox="0 0 36 36" className="absolute inset-0 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="#2a2a2f" strokeWidth="4" />
-                        <circle cx="18" cy="18" r="15" fill="none" stroke="#f5a524" strokeWidth="4" strokeDasharray={`${(n.data.score / 100) * 94.2} 94.2`} /></svg>
-                    <span className="text-[13px] font-bold">{n.data.score}</span>
+                        <circle cx="18" cy="18" r="15" fill="none" stroke="#f5a524" strokeWidth="4" strokeDasharray={`${((evalHead?.score ?? n.data.score) / 100) * 94.2} 94.2`} /></svg>
+                    <span className="text-[13px] font-bold">{evalHead?.score ?? n.data.score}</span>
                 </span>
             ) : null}
             <div className="min-w-0 flex-1">
@@ -328,7 +330,7 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
                         </button>
                     )}
                 </div>
-                <div className="mt-1 truncate text-[11px] text-ink2">{n.sub}</div>
+                <div className="mt-1 truncate text-[11px] text-ink2">{evalHead?.sub ?? n.sub}</div>
                 {preview && !open && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap">
                     <StatusBadge status={n.ghost ? "preview" : n.status} />

@@ -26,7 +26,7 @@ X0, Y0, GAP_X, GAP_Y = 40, 40, 80, 40
 # 节点在画布上默认展开显示内容，布局按展开后的大致尺寸排（宽度和前端 NODE_WIDTH 一致，高度是估计值）
 NODE_SIZE = {"ad": (220, 84), "sp": (220, 84), "aud": (220, 84), "script": (660, 620), "video": (660, 560),
              "actor": (260, 470), "scene": (260, 470), "product": (260, 470),
-             "cut": (380, 820), "eval": (480, 400), "deliver": (400, 300), "data": (400, 260), "opt": (400, 300)}
+             "cut": (380, 820), "eval": (760, 900), "deliver": (400, 300), "data": (400, 260), "opt": (400, 300)}
 COL_X: dict[int, float] = {}
 _x = X0
 for _col in range(max(t["col"] for t in TYPES.values()) + 1):
@@ -161,7 +161,7 @@ def apply_patch(db: Session, project: Project, patch: Patch) -> list[tuple[str, 
     return runs
 
 
-LAYOUT_VERSION = 4  # v2：节点默认展开；v3：剧本与视频之间加了演员 / 场景 / 商品一列；v4：视频和评测之间加了成片一列。老项目启动时整理一次
+LAYOUT_VERSION = 5  # v5：评测节点放大成三个子节点； v2：节点默认展开；v3：剧本与视频之间加了演员 / 场景 / 商品一列；v4：视频和评测之间加了成片一列。老项目启动时整理一次
 
 
 def migrate_layouts(db: Session) -> int:
