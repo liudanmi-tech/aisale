@@ -216,6 +216,19 @@ def test_production(tmp_path, monkeypatch):
         assert len(images) == n_img + 1 and len(i2v) == n_i2v and "摊主要拿着手机照亮摊位" in images[-1]["messages"][0]["content"][0]["text"]
         assert not [r for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["node_id"] == v["id"]]  # 旧审核单作废
         assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").status_code == 409
+        # 每张关键帧都记下用了什么提示词和哪些参考图；重画时可以去掉某张参考图、直接改提示词
+        meta = t0["kf_meta"]
+        labels = [r["label"] for r in meta["refs"]]
+        assert labels[0] == "分镜草图" and "年轻男摊主 定妆照" in labels and "年轻男摊主 三视图" in labels and any(x.startswith("场景：") for x in labels)
+        assert "停电的夜市" in meta["prompt"] and meta["comment"] == "摊主要拿着手机照亮摊位"
+        drop = next(r["url"] for r in meta["refs"] if r["kind"] == "storyboard")
+        n_img = len(images)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/0/keyframe", json={"prompt": "夜市摊位，摊主举着手机当手电筒，竖屏真实照片", "drop_refs": [drop]}).json()["ok"]
+        wait_until(lambda: len(images) == n_img + 1 and of("video")[0]["status"] == "input")
+        body = images[-1]["messages"][0]["content"]
+        assert body[0]["text"].startswith("夜市摊位，摊主举着手机当手电筒") and "分镜草图" not in body[0]["text"] and len(body) - 1 == len(meta["refs"]) - 1
+        m2 = of("video")[0]["data"]["tasks"][0]["kf_meta"]
+        assert m2["custom_prompt"] and m2["dropped"] == [drop] and len(m2["refs"]) == len(meta["refs"]) - 1
         # 确认这张 → 生成视频 → 重新提交审核
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/0/clip").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] == "wait")

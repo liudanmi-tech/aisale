@@ -148,23 +148,6 @@ def place_asset_nodes(video_id: str, cast: dict) -> None:
         emit(project.id, "canvas")
 
 
-def _img(asset_id: str | None) -> str | None:
-    if not asset_id:
-        return None
-    with SessionLocal() as db:
-        a = db.get(Asset, asset_id)
-        return assets.media_data_url((a.images or [None])[0]) if a and a.images else None
-
-
-def _turnaround(asset_id: str | None) -> str | None:
-    if not asset_id:
-        return None
-    with SessionLocal() as db:
-        a = db.get(Asset, asset_id)
-        url = (a.data or {}).get("turnaround") if a else None
-    return assets.media_data_url(url) if url else None
-
-
 def inputs(sh: list, spec: dict, cast: dict) -> dict:
     """一镜用到的输入（画面、拍法、演员 / 场景 / 商品及其图片）。改了任何一项，这一镜就需要重新生成。"""
     keys = [("role", k, cast["roles"].get(k)) for k in spec.get("roles") or []] + [("scene", spec.get("scene"), cast["scenes"].get(spec.get("scene")))]
@@ -202,45 +185,73 @@ def _save_keyframe(video_id: str, i: int, raw: bytes, mime: str) -> str:
     return f"/api/v1/media/keyframes/{name}"
 
 
-async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, frame_url: str | None, market: str, comment: str) -> str | None:
-    """一镜的关键帧。参考图：分镜草图（构图）→ 演员定妆照（长相服装）→ 场景图 → 商品图。"""
-    refs, notes = [], []
-    sb = assets.media_data_url(frame_url) if frame_url else None
-    if sb:
-        refs.append(sb)
-        notes.append(f"第 {len(refs)} 张参考图是这一镜的分镜草图：只参考构图、机位和人物位置，不要沿用它的铅笔线稿画风")
+def _first_image(asset_id: str | None) -> str | None:
+    if not asset_id:
+        return None
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        return (a.images or [None])[0] if a else None
+
+
+def _turnaround_url(asset_id: str | None) -> str | None:
+    if not asset_id:
+        return None
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        return (a.data or {}).get("turnaround") if a else None
+
+
+def keyframe_refs(spec: dict, cast: dict, frame_url: str | None) -> list[dict]:
+    """这一镜关键帧用的参考图（本地地址 + 用途说明），顺序：分镜草图 → 演员定妆照 / 三视图 → 场景 → 商品。"""
+    refs = []
+    if frame_url:
+        refs.append({"kind": "storyboard", "label": "分镜草图", "url": frame_url,
+                     "note": "这一镜的分镜草图：只参考构图、机位和人物位置，不要沿用它的铅笔线稿画风"})
     for key in spec.get("roles", []):
-        img = _img(cast["roles"].get(key))
-        if img:
-            refs.append(img)
-            notes.append(f"第 {len(refs)} 张参考图是角色「{cast['names'].get(key, key)}」：长相、发型、服装必须和它一致")
-        turn = _turnaround(cast["roles"].get(key))
-        if turn:
-            refs.append(turn)
-            notes.append(f"第 {len(refs)} 张参考图是「{cast['names'].get(key, key)}」的三视图：不同角度下都必须是这同一个人")
-    sc = _img(cast["scenes"].get(spec.get("scene")))
-    if sc:
-        refs.append(sc)
-        notes.append(f"第 {len(refs)} 张参考图是场景「{cast['names'].get(spec.get('scene'), '')}」：环境与光线和它一致")
-    if spec.get("product"):
-        pimg = _img(cast.get("product"))
-        if pimg:
-            refs.append(pimg)
-            notes.append(f"第 {len(refs)} 张参考图是商品实拍：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型")
-    text = (f"ONE photorealistic photograph of a single moment (never a collage, grid, split screen or before/after panels) — "
+        name = cast["names"].get(key, key)
+        aid = cast["roles"].get(key)
+        if _first_image(aid):
+            refs.append({"kind": "actor", "label": f"{name} 定妆照", "url": _first_image(aid), "note": f"角色「{name}」：长相、发型、服装必须和它一致"})
+        if _turnaround_url(aid):
+            refs.append({"kind": "turnaround", "label": f"{name} 三视图", "url": _turnaround_url(aid), "note": f"「{name}」的三视图：不同角度下都必须是这同一个人"})
+    sid = cast["scenes"].get(spec.get("scene"))
+    if _first_image(sid):
+        name = cast["names"].get(spec.get("scene"), "")
+        refs.append({"kind": "scene", "label": f"场景：{name}", "url": _first_image(sid), "note": f"场景「{name}」：环境与光线和它一致"})
+    if spec.get("product") and _first_image(cast.get("product")):
+        refs.append({"kind": "product", "label": "商品实拍图", "url": _first_image(cast.get("product")),
+                     "note": "商品实拍：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型"})
+    return refs
+
+
+def keyframe_prompt(shot: list, spec: dict, market: str) -> str:
+    """关键帧提示词的主体（不含参考图说明和修改意见），重画时可以在画布上直接改。"""
+    return (f"ONE photorealistic photograph of a single moment (never a collage, grid, split screen or before/after panels) — "
             f"a keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
             "如果画面描述里包含一段时间（如「从早到晚」「一边…一边…」），只挑其中最有代表性的一个瞬间来拍。\n"
             f"镜头：{SIZE_ZH.get(spec.get('size'), '中景')}，运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n"
-            + ("\n".join(notes) + "\n" if notes else "") + (f"修改意见：{comment}\n" if comment else "")
-            + "画面中不要出现任何文字、字幕、品牌标志。\n"
+            "画面中不要出现任何文字、字幕、品牌标志。\n"
             f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
             "The whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
             "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters."
             + (" The phone must copy the product photo exactly: same color, same camera module shape, same number and layout of lenses."
                if spec.get("product") else ""))
-    content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": r}} for r in refs)] if refs else text
+
+
+async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, frame_url: str | None, market: str, comment: str,
+                   prompt: str | None = None, drop: set[str] | None = None) -> tuple[str, dict]:
+    """画一镜的关键帧。prompt 传入时代替自动生成的提示词主体；drop 里的参考图不用。返回 (关键帧地址, 本次用的提示词和参考图)。"""
+    refs = [r for r in keyframe_refs(spec, cast, frame_url) if r["url"] not in (drop or set())]
+    sent = [(r, assets.media_data_url(r["url"])) for r in refs]
+    sent = [(r, d) for r, d in sent if d]
+    core = (prompt or "").strip() or keyframe_prompt(shot, spec, market)
+    notes = "\n".join(f"第 {k + 1} 张参考图是{r['note']}" for k, (r, _) in enumerate(sent))
+    text = core + ("\n" + notes if notes else "") + (f"\n修改意见：{comment}" if comment else "")
+    content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": d}} for _, d in sent)] if sent else text
     raw, mime = await llm.image(content, task="keyframe", aspect_ratio="9:16")
-    return _save_keyframe(video_id, i, raw, mime)
+    meta = {"prompt": core, "custom_prompt": bool((prompt or "").strip()), "refs": [r for r, _ in sent], "dropped": sorted(drop or []),
+            "comment": comment, "model": settings_store.get_models()["keyframe"]}
+    return _save_keyframe(video_id, i, raw, mime), meta
 
 
 async def clip(prompt: str, image: str | None) -> dict:
@@ -414,7 +425,7 @@ def product_keyframe(video_id: str, i: int, cast: dict) -> str:
 
 
 async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict, frame: str | None, market: str,
-                        comment: str, retries: int) -> tuple[str | None, dict | None, int, str]:
+                        comment: str, retries: int, prompt: str | None = None, drop: set[str] | None = None) -> tuple[str | None, dict | None, int, str]:
     """画一镜的关键帧并质检；不合格带着问题重画，最多重画 retries 次。返回 (关键帧, 质检, 画了几次, 错误)。"""
     if kf_source(spec, cast) == "product":
         _shot(video_id, i, phase="用商品实拍图合成关键帧")
@@ -423,18 +434,20 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
         except Exception as e:  # noqa: BLE001  合成失败就退回 AI 画
             log.warning("实拍图合成关键帧失败 %s #%d：%s", video_id, i, e)
         else:
+            _shot(video_id, i, kf_meta={"prompt": "", "refs": [{"kind": "product", "label": "商品实拍图", "url": _first_image(cast.get("product")),
+                                                               "note": "直接用实拍图合成关键帧（没有调用生图模型）"}], "composite": True})
             res = qc.summarize({"product": {"status": "pass", "reason": "关键帧直接用商品实拍图，外观与实拍一致"}}, spec)
             return kf, {**res, "manual_confirm": False, "source": "product"}, 1, ""
     kf, kf_qc, err, fix, tries = None, None, "", "", 0
     for tries in range(1, retries + 2):
         _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
         try:
-            kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
+            kf, meta = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x), prompt, drop)
         except Exception as e:  # noqa: BLE001
             err = str(e)[:200]
             log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
             break
-        _shot(video_id, i, keyframe=kf, phase="关键帧质检")
+        _shot(video_id, i, keyframe=kf, kf_meta=meta, phase="关键帧质检")
         kf_qc = await qc.check_keyframe(kf, sh, spec, cast)
         if kf_qc["status"] != "fail":
             break
@@ -553,7 +566,7 @@ def _settle(video_id: str) -> None:
     _finalize(video_id, ctx["cast"], ctx["shots"], tasks)
 
 
-async def redo_keyframe(video_id: str, i: int, comment: str = "") -> None:
+async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
     """只重画第 i 镜的关键帧（可带修改意见），画完停下等人看；满意了再 redo_clip 生成视频。"""
     _begin_shot(video_id, i, "重画关键帧")
     try:
@@ -561,7 +574,7 @@ async def redo_keyframe(video_id: str, i: int, comment: str = "") -> None:
         sh, spec, cast = ctx["shots"][i], _spec(ctx["cast"].get("specs") or [], i), ctx["cast"]
         frame = (ctx["frames"][i] or {}).get("url") if i < len(ctx["frames"]) and ctx["frames"][i] else None
         kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, ctx["market"], comment,
-                                                    settings_store.get_retries()["keyframe"])
+                                                    settings_store.get_retries()["keyframe"], prompt, set(drop or []))
         if kf:
             kq = qc.merge(kf_qc, None, spec, {"keyframe": tries})
             if (kf_qc or {}).get("source") == "product":

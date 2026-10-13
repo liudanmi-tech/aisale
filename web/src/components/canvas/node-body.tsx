@@ -284,23 +284,66 @@ function ShotEditor({ shot, onSave, disabled }: { shot: string[]; onSave: (visua
     );
 }
 
-/** 回到关键帧：写修改意见重画这一镜的关键帧，画完停下等确认 */
-function KeyframeRedo({ onRedo, disabled, primary }: { onRedo: (comment: string) => void; disabled: boolean; primary?: boolean }) {
+type KfRef = { kind: string; label: string; url: string; note: string };
+type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string; custom_prompt?: boolean; composite?: boolean; dropped?: string[] };
+type KfRedo = { comment: string; prompt?: string; drop_refs: string[] };
+
+/** 回到关键帧：看上一版用了哪些参考图、什么提示词，去掉有问题的参考图 / 改提示词 / 写修改意见，重画后停下等确认 */
+function KeyframeRedo({ meta, onRedo, disabled, primary }: { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean }) {
     const [open, setOpen] = useState(false);
     const [comment, setComment] = useState("");
+    const [prompt, setPrompt] = useState("");
+    const [drop, setDrop] = useState<string[]>([]);
+    const reset = () => { setComment(""); setPrompt(meta?.prompt || ""); setDrop([]); };
+    const refs = meta?.refs || [];
     const body = (
-        <div data-ui className="flex w-[260px] flex-col gap-2 text-xs" onPointerDown={(e) => e.stopPropagation()}>
-            <Input.TextArea autoFocus rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="哪里不对？如：手机要竖排三摄、灰色机身；摊主站在左边" />
+        <div data-ui className="flex max-h-[70vh] w-[440px] flex-col gap-2 overflow-y-auto text-xs" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+            {!meta && <div className="rounded bg-elev px-2 py-1 text-ink2">这一版是旧版本生成的，没有记录提示词和参考图；重画后就能看到。</div>}
+            {meta?.composite && <div className="rounded bg-elev px-2 py-1 text-ink2">上一版直接用商品实拍图合成（没有调用生图模型）。想让 AI 画，在拍法里把「关键帧来源」改成「AI 生成」。</div>}
+            {refs.length > 0 && (
+                <div>
+                    <div className="mb-1 font-medium text-ink">上一版用的参考图 <span className="font-normal text-ink2">（取消勾选 = 重画时不用这张；常见问题：分镜草图构图不对、三视图服装不一致、商品图是拼图）</span></div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {refs.map((r) => {
+                            const off = drop.includes(r.url);
+                            return (
+                                <div key={r.url} className={clsx("w-[76px] rounded border p-0.5", off ? "border-line opacity-40" : "border-brand/60")} title={r.note}>
+                                    <Image src={r.url} alt={r.label} width={70} height={70} className="rounded object-cover" preview={{ mask: false }} />
+                                    <label className="mt-0.5 flex cursor-pointer items-start gap-0.5 text-[10px] leading-3">
+                                        <input type="checkbox" checked={!off} onChange={() => setDrop(off ? drop.filter((u) => u !== r.url) : [...drop, r.url])} />
+                                        <span className={off ? "line-through" : ""}>{r.label}</span>
+                                    </label>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+            {meta && !meta.composite && (
+                <div>
+                    <div className="mb-1 font-medium text-ink">上一版提示词 <span className="font-normal text-ink2">（可以直接改；参考图说明和修改意见会自动附在后面）{meta.model ? ` · ${meta.model}` : ""}</span></div>
+                    <Input.TextArea rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="!font-mono !text-[11px]" />
+                    {meta.comment && <div className="mt-0.5 text-[10px] text-ink2">上一版的修改意见：{meta.comment}</div>}
+                </div>
+            )}
+            <div>
+                <div className="mb-1 font-medium text-ink">修改意见</div>
+                <Input.TextArea autoFocus rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="哪里不对？如：手机要竖排三摄、灰色机身；摊主站在左边" />
+            </div>
             <div className="text-[11px] text-ink2">只重画关键帧，画完先给你看，满意了再点「用这张生成视频」</div>
             <div className="flex justify-end gap-1">
                 <Btn onClick={() => setOpen(false)}>取消</Btn>
-                <Btn primary onClick={() => { onRedo(comment.trim()); setOpen(false); setComment(""); }}>重画关键帧</Btn>
+                <Btn primary onClick={() => {
+                    const p = prompt.trim();
+                    onRedo({ comment: comment.trim(), prompt: meta && p && p !== meta.prompt ? p : undefined, drop_refs: drop });
+                    setOpen(false);
+                }}>重画关键帧</Btn>
             </div>
         </div>
     );
     return (
-        <Popover open={open} onOpenChange={setOpen} trigger="click" title="重画这一镜的关键帧" content={body}>
-            <span><Btn primary={primary} icon={<Pencil size={10} />} disabled={disabled} onClick={() => setOpen(true)}>重画关键帧</Btn></span>
+        <Popover open={open} onOpenChange={(v) => { if (v) reset(); setOpen(v); }} trigger="click" title="重画这一镜的关键帧" content={body}>
+            <span><Btn primary={primary} icon={<Pencil size={10} />} disabled={disabled} onClick={() => { reset(); setOpen(true); }}>重画关键帧</Btn></span>
         </Popover>
     );
 }
@@ -330,7 +373,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const confirm = useMutation({ mutationFn: () => api.confirmCast(n.id), onSuccess: () => { message.success("已确认，开始画关键帧"); refresh(); }, onError: onErr });
     const regen = useMutation({ mutationFn: (i: number) => api.regenerateShot(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 重新生成中`); refresh(); }, onError: onErr });
     const regenSome = useMutation({ mutationFn: (idx: number[]) => api.regenerateShots(n.id, idx), onSuccess: (r) => { message.success(`重新生成 ${r.indices.length} 镜`); refresh(); }, onError: onErr });
-    const redoKf = useMutation({ mutationFn: ({ i, c }: { i: number; c: string }) => api.redoKeyframe(n.id, i, c), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
+    const redoKf = useMutation({ mutationFn: ({ i, r }: { i: number; r: KfRedo }) => api.redoKeyframe(n.id, i, r), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
     const redoClip = useMutation({ mutationFn: (i: number) => api.redoClip(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 用当前关键帧生成视频中`); refresh(); }, onError: onErr });
     const regenAll = useMutation({ mutationFn: () => api.regenerateVideo(n.id), onSuccess: () => { message.success("整条视频重新生成中（使用当前的演员 / 场景 / 商品）"); refresh(); }, onError: onErr });
     const dirty = shots.map((s, i) => libReady && shotDirty(tasks[i], s[1], cast?.specs?.[i], cast, lib));
@@ -430,7 +473,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     <div className="mt-1 flex flex-wrap gap-1">
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
                                         {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || redoClip.isPending} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
-                                        {t.keyframe && <KeyframeRedo primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(c) => redoKf.mutate({ i, c })} />}
+                                        {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })} />}
                                         <Btn icon={<RefreshCw size={10} />} disabled={locked || regen.isPending} onClick={() => regen.mutate(i)}>{t.keyframe ? "全部重做" : "重新生成"}</Btn>
                                     </div>
                                 )}

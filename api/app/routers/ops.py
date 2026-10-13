@@ -204,6 +204,8 @@ def _shot_guard(db: Session, nid: str, i: int) -> Node:
 
 class KeyframeIn(BaseModel):
     comment: str = ""
+    prompt: str | None = None  # 改过的提示词主体；不传就按画面描述自动生成
+    drop_refs: list[str] = []  # 这次不用的参考图（上一版 kf_meta.refs 里的 url）
 
 
 @router.post("/nodes/{nid}/shots/{i}/keyframe")
@@ -212,7 +214,7 @@ def redo_keyframe(nid: str, i: int, body: KeyframeIn, db: Session = Depends(get_
     n = _shot_guard(db, nid, i)
     canvas.audit(db, n.project_id, "user", "redo_keyframe", {"node_id": nid, "shot": i, "comment": body.comment})
     db.commit()
-    spawn(production.redo_keyframe(nid, i, body.comment.strip()))
+    spawn(production.redo_keyframe(nid, i, body.comment.strip(), body.prompt, body.drop_refs))
     return {"ok": True}
 
 

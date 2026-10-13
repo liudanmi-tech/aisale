@@ -293,7 +293,7 @@ export const api = {
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
     buildStatus: () => get<{ stale: boolean }>("/build-status"),
-    redoKeyframe: (nid: string, i: number, comment = "") => post(`/nodes/${nid}/shots/${i}/keyframe`, { comment }),
+    redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     redoClip: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/clip`),
     confirmCast: (nid: string) => post(`/nodes/${nid}/confirm-cast`),
     setCast: (nid: string, key: string, asset_id: string) => post<{ cast: Cast }>(`/nodes/${nid}/cast`, { key, asset_id }),
