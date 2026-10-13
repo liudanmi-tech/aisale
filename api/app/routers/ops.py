@@ -231,6 +231,28 @@ def redo_clip(nid: str, i: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+class ComposeIn(BaseModel):
+    captions: bool | None = None  # 不传就沿用节点上的设置
+
+
+@router.post("/nodes/{nid}/compose")
+def compose(nid: str, body: ComposeIn, db: Session = Depends(get_db)):
+    """成片重新合成（视频改过镜头后，或切换字幕开关）。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "cut":
+        raise HTTPException(404, "cut not found")
+    if n.status == "run":
+        raise HTTPException(409, "正在合成，稍后再试")
+    if body.captions is not None:
+        n.data = {**(n.data or {}), "captions": body.captions}
+    n.status, n.sub = "run", "合成中…"
+    canvas.audit(db, n.project_id, "user", "compose", {"node_id": nid, **body.model_dump()})
+    db.commit()
+    emit(n.project_id, "canvas")
+    spawn(workflows.compose_cut(nid))
+    return {"ok": True}
+
+
 class ShotsIn(BaseModel):
     indices: list[int]
 

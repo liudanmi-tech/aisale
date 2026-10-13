@@ -274,7 +274,7 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
     }, [n.id, onSize]);
     const meta = NODE_META[n.type];
     const frame: string | undefined = n.type === "script" ? n.data?.frames?.[0]?.url : undefined;
-    const cover = n.type === "ad" || n.type === "video" || !!frame;
+    const cover = n.type === "ad" || n.type === "video" || n.type === "cut" || !!frame;
     const preview =
         n.type === "script" ? (n.data?.shots?.[0]?.[2] as string | undefined)
         : n.type === "deliver" && n.data?.plan ? `$${n.data.plan.daily_budget}/天 · ${n.data.plan.adgroups.length} 个广告组`
@@ -302,7 +302,7 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
             {cover && !n.ghost && !open && (
                 <span className="relative h-[62px] w-[44px] shrink-0 overflow-hidden rounded-md" style={{ background: frame ? "#fff" : COVER_GRADIENTS[n.no % COVER_GRADIENTS.length] }}>
                     {frame && <img src={frame} alt="" draggable={false} className="h-full w-full object-cover" />}
-                    {n.type === "video" && <Clapperboard size={14} className="absolute bottom-1 right-1 text-white/80" />}
+                    {(n.type === "video" || n.type === "cut") && <Clapperboard size={14} className="absolute bottom-1 right-1 text-white/80" />}
                 </span>
             )}
             {n.type === "eval" && n.data?.score ? (
@@ -353,7 +353,7 @@ function SelectionActions({ nodes, actions }: { nodes: ViewNode[]; actions: Canv
     const waiting = nodes.filter((n) => n.status === "wait");
     if (waiting.length > 1) items.push([<CheckCheck size={14} />, `全部通过（${waiting.length}）`, () => actions.onPass(waiting.map((n) => n.id))]);
     if (only("script")) items.push([<Clapperboard size={14} />, nodes.length > 1 ? `批量生成视频（${nodes.length}）` : "生成视频", () => actions.onCommand("生成视频", ids)]);
-    if (only("video")) items.push([<Users size={14} />, nodes.length > 1 ? `批量评测（${nodes.length}）` : "跑评测", () => actions.onCommand("跑评测", ids)]);
+    if (only("video") || only("cut")) items.push([<Users size={14} />, nodes.length > 1 ? `批量评测（${nodes.length}）` : "跑评测", () => actions.onCommand("跑评测", ids)]);
     if (one?.type === "eval") items.push([<Rocket size={14} />, "生成投放方案", () => actions.onCommand("生成投放方案", ids)]);
     if (one?.type === "script") items.push([<Wand2 size={14} />, "优化剧本", () => actions.onRevise(one)]);
     if (one?.type === "ad") items.push([<ExternalLink size={14} />, "在爆款库查看", () => actions.onOpen(one)]);

@@ -236,18 +236,40 @@ def compile_videos(db: Session, project: Project, intent: dict, selection: list[
                     f"约 {seconds} 秒 Seedance 生成（按实际单价计费，确认后才会调用）", ops)
 
 
+def compile_compose(db: Session, project: Project, videos: list[Node]) -> Patch | str:
+    """视频通过后：每条视频接一个成片节点，把片段拼成完整成片。"""
+    ok = [v for v in videos if v.status == "pass" and not _has_child(db, v.id, "cut")]
+    if not ok:
+        return "这些视频已经有成片了。"
+    ops = []
+    for k, v in enumerate(ok):
+        tid = f"c{k}"
+        ops += [_ghost_create(db, project.id, tid, "cut", k, "成片 · 拼接中", {"video_id": v.id, "captions": True}),
+                {"op": "connect", "from": v.id, "to": tid}, {"op": "run_node", "node_id": tid, "action": "compose"}]
+    steps = [f"为 {len(ok)} 条视频各新增 1 个成片节点", "按剧本时长剪好每镜片段，顺序拼成 9:16 成片", "烧上口播字幕和卖点贴片", "合成完自动进入 40 人评测"]
+    return _propose(db, project, {"name": "compose", "video_node_ids": [v.id for v in ok]}, "合成成片", steps, "不额外收费（本地 ffmpeg）", ops)
+
+
+def _eval_sources(db: Session, project: Project) -> list[Node]:
+    """评测的对象：成片节点（没有成片的老项目直接用视频节点）。"""
+    cuts = canvas.nodes_of(db, project.id, "cut")
+    if cuts:
+        return cuts
+    return canvas.nodes_of(db, project.id, "video")
+
+
 def compile_eval(db: Session, project: Project, intent: dict, selection: list[str]) -> Patch | str:
-    videos = canvas.nodes_of(db, project.id, "video")
+    videos = _eval_sources(db, project)
     ids = intent.get("video_node_ids") or [i for i in selection if any(v.id == i for v in videos)]
     pool = [v for v in videos if not ids or v.id in ids]
     ok = [v for v in pool if v.status == "pass" and not _has_child(db, v.id, "eval")]
     if not ok:
         if pool:
-            return "评测需要已通过审核的视频。当前：" + "，".join(f"{ref(v)} {canvas.STATUS_ZH.get(v.status, v.status)}" for v in pool)
+            return "评测需要已合成好的成片（或已通过审核的视频）。当前：" + "，".join(f"{ref(v)} {canvas.STATUS_ZH.get(v.status, v.status)}" for v in pool)
         return "还没有视频，先说「生成视频」。"
-    ops = [_ghost_create(db, project.id, "e0", "eval", 0, f"40 Agent · {len(ok)} 个视频", {"video_ids": [v.id for v in ok]})]
+    ops = [_ghost_create(db, project.id, "e0", "eval", 0, f"40 Agent · {len(ok)} 条成片", {"video_ids": [v.id for v in ok]})]
     ops += [{"op": "connect", "from": v.id, "to": "e0"} for v in ok] + [{"op": "run_node", "node_id": "e0", "action": "evaluate"}]
-    steps = [f"新增 1 个评测节点，覆盖 {len(ok)} 个视频", f"按「{project.market}」目标人群抽取 40 个虚拟用户画像",
+    steps = [f"新增 1 个评测节点，覆盖 {len(ok)} 条成片", f"按「{project.market}」目标人群抽取 40 个虚拟用户画像",
              "40 个独立 Agent 逐镜看关键帧、对比平时的广告打分，按基准流失率换算留存、完播和点击意向（CTR 未校准）", "输出入选名单与建议人群，提交审核"]
     return _propose(db, project, {"name": "run_evaluation", "video_node_ids": [v.id for v in ok]}, "40 Agent 评测", steps,
                     "约 1.5 积分（多模态模型）", ops)
@@ -270,18 +292,33 @@ def compile_delivery(db: Session, project: Project, intent: dict, selection: lis
 
 
 def auto_advance(db: Session, project: Project, node: Node) -> list[tuple[str, str]]:
-    """审核通过后自动走下一步（审核即同意）：剧本 → 视频；视频全部通过 → 一起评测；评测 → 投放方案。
+    """审核通过后自动走下一步（审核即同意）：剧本 → 视频；视频通过 → 合成成片；成片都好了 → 一起评测；评测 → 投放方案。
     下发投放要真花钱，仍由人点击。返回要启动的 (节点, 动作)。"""
     if node.type == "script":
         res = compile_videos(db, project, {"script_node_ids": [node.id]}, [])
         label = f"{ref(node)} 已通过，自动开始生成视频（Seedance 按镜生成，产品镜头用官方素材）"
     elif node.type == "video":
-        pending = [v for v in canvas.nodes_of(db, project.id, "video") if v.id != node.id and v.status in ("none", "run", "wait")]
+        res = compile_compose(db, project, [node])
+        if isinstance(res, str):
+            # 已经有成片（例如重生成了几镜又通过）：成片跟着重新合成
+            cuts = [c for c in canvas.nodes_of(db, project.id, "cut") if (c.data or {}).get("video_id") == node.id and c.status != "run"]
+            for c in cuts:
+                c.status, c.sub = "run", "视频已更新，重新合成中…"
+            if cuts:
+                say(db, project.id, f"{ref(node)} 已更新，自动重新合成 " + " ".join(ref(c) for c in cuts) + "。")
+            return [(c.id, "compose") for c in cuts]
+        label = f"{ref(node)} 已通过，自动把片段拼成成片（剪到剧本时长、加字幕和贴片）"
+    elif node.type == "cut":
+        if _has_child(db, node.id, "eval"):
+            say(db, project.id, f"{ref(node)} 已重新合成。评测是按旧成片跑的，需要的话在评测节点上点「重新评测」。")
+            return []
+        pending = [v for v in canvas.nodes_of(db, project.id, "video") if v.status in ("none", "run", "wait", "input")]
+        pending += [c for c in canvas.nodes_of(db, project.id, "cut") if c.id != node.id and c.status in ("none", "run")]
         if pending:
-            say(db, project.id, f"{ref(node)} 已通过。还有 {' '.join(ref(v) for v in pending)} 没通过，全部通过后自动一起跑 40 人评测。")
+            say(db, project.id, f"{ref(node)} 合成好了。还有 {' '.join(ref(v) for v in pending)} 没完成，全部好了自动一起跑 40 人评测。")
             return []
         res = compile_eval(db, project, {}, [])
-        label = f"{ref(node)} 已通过，视频都齐了，自动开始 40 人评测"
+        label = f"{ref(node)} 合成好了，成片都齐了，自动开始 40 人评测"
     elif node.type == "eval":
         res = compile_delivery(db, project, {}, [])
         label = f"{ref(node)} 已通过，自动生成 TikTok 投放方案（下发前还会请你确认）"

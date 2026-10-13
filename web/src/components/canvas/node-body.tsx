@@ -567,6 +567,68 @@ function AssetBody({ n }: { n: CanvasNode }) {
 
 const DIMS: [string, string][] = [["hook", "钩子"], ["clarity", "卖点"], ["trust", "可信"], ["local", "本地感"], ["intent", "意向"]];
 
+/** 成片：播放拼接好的完整视频，下面是每镜的时间线；视频改过镜头后提示重新合成。 */
+function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
+    const { message } = App.useApp();
+    const refresh = useRefresh(n);
+    const { data: snap } = useQuery({ queryKey: ["canvas", pid], queryFn: () => api.canvas(pid) });
+    const video = snap?.nodes.find((x) => x.id === n.data.video_id);
+    const parts: { shot: number; src: string; dur: number; line: string; overlay: string; keyframe?: string }[] = n.data.parts || [];
+    const captions = n.data.captions !== false;
+    const running = n.status === "run";
+    const stale = !running && parts.length > 0 && !!video && (video.data.tasks || []).some((t: any, i: number) => (t?.url || "") !== (parts[i]?.src || ""));
+    const recompose = useMutation({
+        mutationFn: (caps?: boolean) => api.composeCut(n.id, caps === undefined ? {} : { captions: caps }),
+        onSuccess: () => { message.success("重新合成中"); refresh(); }, onError: (e) => message.error(errMsg(e)),
+    });
+    const total = parts.reduce((a, p) => a + p.dur, 0);
+    return (
+        <div className="text-[12px]">
+            <div className="relative mx-auto aspect-[9/16] w-full overflow-hidden rounded-lg bg-black">
+                {n.data.video_url
+                    ? <video data-ui key={n.data.video_url} src={`${n.data.video_url}#t=0.1`} poster={parts[0]?.keyframe} controls playsInline preload="metadata" className="h-full w-full object-contain" />
+                    : <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-xs text-ink2">
+                        {running ? <><RefreshCw size={16} className="animate-spin" />{n.data.stage || "合成中"}…</>
+                            : n.status === "failed" ? <span className="text-bad">合成失败</span>
+                            : n.data.mock ? <>演示模式：没有真实视频片段，只生成了拼接方案<br />（{parts.length} 镜 · {total.toFixed(1).replace(/\.0$/, "")} 秒）</>
+                            : "还没有合成"}
+                    </div>}
+            </div>
+            {n.data.error && <div className="mt-1 text-[11px] leading-4 text-bad">原因：{n.data.error}</div>}
+            {stale && <div className="mt-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn">视频里有镜头重新生成过，成片还是旧的，点「重新合成」更新</div>}
+            {parts.length > 0 && (
+                <div className="mt-2">
+                    <div className="flex h-2 overflow-hidden rounded-full bg-elev">
+                        {parts.map((p, k) => <div key={k} className="border-r border-surface bg-brand2/70 last:border-0" style={{ width: `${(p.dur / total) * 100}%` }} title={`镜 ${p.shot} · ${p.dur}s`} />)}
+                    </div>
+                    <div className="mt-1.5 flex flex-col gap-1">
+                        {parts.map((p) => (
+                            <div key={p.shot} className="flex items-start gap-1.5 text-[11px] leading-4">
+                                {p.keyframe ? <img src={p.keyframe} alt="" className="h-9 w-5 shrink-0 rounded-sm object-cover" /> : <div className="h-9 w-5 shrink-0 rounded-sm bg-elev" />}
+                                <div className="min-w-0 flex-1">
+                                    <span className="text-ink">镜 {p.shot}</span><span className="text-ink2"> · {p.dur}s</span>
+                                    {!p.src && <span className="text-bad"> · 没有片段</span>}
+                                    {p.line && <div className="truncate text-ink2" title={p.line}>字幕：{p.line}</div>}
+                                    {p.overlay && <div className="truncate text-[#b5a3ff]" title={p.overlay}>贴片：{p.overlay}</div>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <Btn icon={<RefreshCw size={11} />} primary={stale} disabled={running || recompose.isPending} onClick={() => recompose.mutate(undefined)}>重新合成</Btn>
+                <label data-ui className="flex cursor-pointer items-center gap-1 text-[11px] text-ink2">
+                    <Switch size="small" checked={captions} disabled={running || recompose.isPending} onChange={(v) => recompose.mutate(v)} />字幕和贴片
+                </label>
+                <span className="flex-1" />
+                {n.data.video_url && <a data-ui href={n.data.video_url} download className="text-[11px] text-brand2">下载</a>}
+            </div>
+            {n.data.video_url && captions && n.data.burned === false && <div className="mt-1 text-[10px] text-ink2">没找到可用字体，这版没烧字幕</div>}
+        </div>
+    );
+}
+
 function EvalBody({ n }: { n: CanvasNode }) {
     const results: any[] = n.data.results || [];
     if (!results.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "40 个独立 Agent 正在逐镜观看…" : "还没有评测结果"}</div>;
@@ -675,6 +737,7 @@ export function NodeBody({ n, pid, actions }: { n: CanvasNode; pid: string; acti
         case "script": return <ScriptBody n={n} pid={pid} actions={actions} />;
         case "actor": case "scene": case "product": return <AssetBody n={n} />;
         case "video": return <VideoBody n={n} pid={pid} />;
+        case "cut": return <CutBody n={n} pid={pid} />;
         case "eval": return <EvalBody n={n} />;
         case "deliver": return <DeliverBody n={n} />;
         case "data": return <DataBody n={n} pid={pid} />;

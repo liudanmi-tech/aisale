@@ -15,17 +15,18 @@ TYPES = {
     "scene": {"label": "场景", "col": 2, "module": "选角置景"},
     "product": {"label": "商品", "col": 2, "module": "选角置景"},
     "video": {"label": "视频", "col": 3, "module": "视频生成"},
-    "eval": {"label": "评测", "col": 4, "module": "Agent 评测"},
-    "deliver": {"label": "投放", "col": 5, "module": "自动投放"},
-    "data": {"label": "数据", "col": 6, "module": "数据回收"},
-    "opt": {"label": "优化", "col": 7, "module": "自动优化"},
+    "cut": {"label": "成片", "col": 4, "module": "成片合成"},
+    "eval": {"label": "评测", "col": 5, "module": "Agent 评测"},
+    "deliver": {"label": "投放", "col": 6, "module": "自动投放"},
+    "data": {"label": "数据", "col": 7, "module": "数据回收"},
+    "opt": {"label": "优化", "col": 8, "module": "自动优化"},
 }
 STATUS_ZH = {"none": "未开始", "run": "生成中", "input": "待上传", "wait": "待审核", "pass": "已通过", "reject": "已驳回", "live": "投放中", "failed": "失败"}
 X0, Y0, GAP_X, GAP_Y = 40, 40, 80, 40
 # 节点在画布上默认展开显示内容，布局按展开后的大致尺寸排（宽度和前端 NODE_WIDTH 一致，高度是估计值）
 NODE_SIZE = {"ad": (220, 84), "sp": (220, 84), "aud": (220, 84), "script": (660, 620), "video": (660, 560),
              "actor": (260, 470), "scene": (260, 470), "product": (260, 470),
-             "eval": (480, 400), "deliver": (400, 300), "data": (400, 260), "opt": (400, 300)}
+             "cut": (380, 820), "eval": (480, 400), "deliver": (400, 300), "data": (400, 260), "opt": (400, 300)}
 COL_X: dict[int, float] = {}
 _x = X0
 for _col in range(max(t["col"] for t in TYPES.values()) + 1):
@@ -160,7 +161,7 @@ def apply_patch(db: Session, project: Project, patch: Patch) -> list[tuple[str, 
     return runs
 
 
-LAYOUT_VERSION = 3  # v2：节点默认展开；v3：剧本与视频之间加了演员 / 场景 / 商品一列。老项目启动时整理一次
+LAYOUT_VERSION = 4  # v2：节点默认展开；v3：剧本与视频之间加了演员 / 场景 / 商品一列；v4：视频和评测之间加了成片一列。老项目启动时整理一次
 
 
 def migrate_layouts(db: Session) -> int:

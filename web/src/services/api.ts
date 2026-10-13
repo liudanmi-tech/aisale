@@ -13,7 +13,7 @@ http.interceptors.request.use((cfg) => {
     return cfg;
 });
 
-export type NodeType = "ad" | "sp" | "aud" | "script" | "actor" | "scene" | "product" | "video" | "eval" | "deliver" | "data" | "opt";
+export type NodeType = "ad" | "sp" | "aud" | "script" | "actor" | "scene" | "product" | "video" | "cut" | "eval" | "deliver" | "data" | "opt";
 export type NodeStatus = "none" | "run" | "input" | "wait" | "pass" | "reject" | "live" | "failed";
 export type AssetKind = "actor" | "scene" | "product";
 export interface LibraryAsset {
@@ -308,6 +308,7 @@ export const api = {
     buildStatus: () => get<{ stale: boolean }>("/build-status"),
     redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     redoClip: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/clip`),
+    composeCut: (nid: string, body: { captions?: boolean } = {}) => post(`/nodes/${nid}/compose`, body),
     confirmCast: (nid: string) => post(`/nodes/${nid}/confirm-cast`),
     setCast: (nid: string, key: string, asset_id: string) => post<{ cast: Cast }>(`/nodes/${nid}/cast`, { key, asset_id }),
     regenerateShots: (nid: string, indices: number[]) => post<{ ok: boolean; indices: number[] }>(`/nodes/${nid}/shots/regenerate`, { indices }),

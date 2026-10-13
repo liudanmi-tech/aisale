@@ -93,10 +93,13 @@ def test_full_flow():
         c.post(f"{P}/patches/{patch['id']}/apply")
         wait_until(c, lambda: nodes(c, "video") and all(n["status"] == "wait" for n in nodes(c, "video")))
 
-        # 5 视频全部通过 → 自动一起评测（只建 1 个评测节点）
+        # 5 视频全部通过 → 每条视频接一个成片节点（演示模式只出拼接方案）→ 成片都好了自动一起评测（只建 1 个评测节点）
         approve_all(c)
         wait_until(c, lambda: nodes(c, "eval") and nodes(c, "eval")[0]["status"] == "wait")
-        assert len(nodes(c, "eval")) == 1 and len(nodes(c, "eval")[0]["data"]["video_ids"]) == len(nodes(c, "video"))
+        cuts = nodes(c, "cut")
+        assert len(cuts) == len(nodes(c, "video")) and all(x["status"] == "pass" and x["data"]["mock"] for x in cuts)
+        assert cuts[0]["data"]["parts"] and cuts[0]["sub"].startswith("模拟成片")
+        assert len(nodes(c, "eval")) == 1 and sorted(nodes(c, "eval")[0]["data"]["video_ids"]) == sorted(x["id"] for x in cuts)
 
         # 6 评测通过 → 自动生成投放方案；查询最高 CTR
         approve_all(c)

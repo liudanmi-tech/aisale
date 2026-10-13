@@ -37,7 +37,7 @@ CAST_PROMPT = f"""你是短视频广告的制片和选角导演。根据剧本�
   "scenes": [{{"key": "s1", "name": "场景名，如 雨夜的街头市场", "description": "环境、时间、天气、光线、道具", "reuse": "可复用的已有场景 id，没有写 null"}}],
   "specs": [{{"shot": 0, "size": "WS/MS/CU/ECU 之一", "move": "{'/'.join(MOVES)} 之一", "roles": ["r1"], "scene": "s1", "product": false,
              "product_tier": "商品镜头填 hero（纯商品特写，没有人）或 hand（人物拿着 / 使用这台手机）；不是商品镜头填 null",
-             "line": "这一镜的话术（口播原文）", "overlay": "后期叠在画面上的卖点文字（如 6000mAh 大电池），没有写空字符串"}}]
+             "line": "这一镜的话术（口播原文）", "overlay": "后期叠在画面上的卖点文字，用和口播相同的语言、越短越好（如 6000mAh Big Battery），没有写空字符串"}}]
 }}
 规则：specs 每镜一条、顺序与分镜一致；人物都是目标市场的当地人；第 {PRODUCT_SHOT + 1} 镜是产品特写，product 为 true；
 同一个人物在不同镜头用同一个 key；已有素材合适就复用（reuse 填它的 id），不要重复造人。

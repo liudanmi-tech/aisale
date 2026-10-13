@@ -12,7 +12,7 @@ os.environ["LLM_ENABLED"] = "false"
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import product, settings_store  # noqa: E402
+from app import compose, product, settings_store  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
@@ -73,8 +73,20 @@ def wait_until(cond, timeout=10):
     raise AssertionError("timeout")
 
 
+def _tiny_clip() -> bytes:
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, "c.mp4")
+        subprocess.run([compose.ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi", "-i", "color=c=gray:s=360x640:d=5:r=24",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", out], check=True)
+        return open(out, "rb").read()
+
+
 def test_settings_and_real_call_paths():
     fal.transport, llm.transport, fal.POLL_SECONDS = httpx.MockTransport(fal_handler), httpx.MockTransport(llm_handler), 0.01
+    clip = _tiny_clip()
+    compose.transport = httpx.MockTransport(lambda r: httpx.Response(200, content=clip))  # 成片合成下载片段
     product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=b"\x89PNG\r\n\x1a\n cut"))
     try:
         with TestClient(app) as c:
@@ -126,7 +138,9 @@ def test_settings_and_real_call_paths():
             assert v["data"]["video_url"].startswith("https://v3.fal.media/") and len(v["data"]["shot_urls"]) == 4  # 上传了商品图，产品镜头也生成
             path, body = next(x for x in calls["fal_submit"] if "birefnet" not in x[0])
             assert path == "/fal-ai/bytedance/seedance/v1/pro/text-to-video" and body["aspect_ratio"] == "9:16" and body["duration"] == "5"
-            approve()  # 视频通过后自动评测
+            approve()  # 视频通过后自动合成成片，成片好了自动评测
+            wait_until(lambda: nodes("cut") and nodes("cut")[0]["status"] == "pass", timeout=30)
+            assert nodes("cut")[0]["data"]["video_url"].startswith("/api/v1/media/cuts/")
 
             wait_until(lambda: nodes("eval") and nodes("eval")[0]["status"] == "wait")
             ev = nodes("eval")[0]["data"]
@@ -148,4 +162,4 @@ def test_settings_and_real_call_paths():
             c.put("/api/v1/settings/models", json=settings_store.DEFAULT_MODELS)
             assert c.get("/api/v1/settings").json()["secrets"]["fal"]["configured"] is False
     finally:
-        fal.transport = llm.transport = product.media_transport = None
+        fal.transport = llm.transport = product.media_transport = compose.transport = None

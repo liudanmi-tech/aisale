@@ -139,7 +139,9 @@ async def evaluate(node_id: str, comment: str = "") -> None:
             return
         project = db.get(Project, n.project_id)
         videos = canvas.upstream(db, n.id)
-        scripts = {v.id: db.get(Node, (v.data or {}).get("script_id")) for v in videos}
+        # 评测对象是成片节点（旧项目直接接视频）：剧本和每镜片段从对应的视频节点取
+        src = {v.id: (db.get(Node, (v.data or {}).get("video_id")) if v.type == "cut" else v) or v for v in videos}
+        scripts = {v.id: db.get(Node, (src[v.id].data or {}).get("script_id")) for v in videos}
         segs = list(dict.fromkeys((s.data or {}).get("audience") for s in scripts.values() if s and (s.data or {}).get("audience"))) or ["小商贩", "学生"]
         personas = _personas(project.market, segs)
         market = project.market
@@ -152,8 +154,9 @@ async def evaluate(node_id: str, comment: str = "") -> None:
         if use_llm:
             try:
                 sc = scripts.get(v.id)
-                shots = (sc.data or {}).get("shots", []) if sc else (v.data or {}).get("shots", [])
-                r = await panel.run(personas, shots, (v.data or {}).get("tasks") or [], _simulated(v, personas)["reactions"], seed=v.id)
+                sv = src[v.id]
+                shots = (sc.data or {}).get("shots", []) if sc else (sv.data or {}).get("shots", [])
+                r = await panel.run(personas, shots, (sv.data or {}).get("tasks") or [], _simulated(v, personas)["reactions"], seed=v.id)
             except Exception as e:  # noqa: BLE001
                 log.warning("40 人评测退回模拟：%s", e)
                 r = None
@@ -165,7 +168,8 @@ async def evaluate(node_id: str, comment: str = "") -> None:
         # ctr 是 40 个模拟用户的点击意向换算的，没有用真实投放数据校准，页面上标「未校准」
         return {"id": v.id, "title": v.title, "score": score, "ctr": round(0.5 + clicks / 40 * 5, 1), "calibrated": False, "vtr": round(done * 100),
                 "clicks": clicks, "reactions": r["reactions"], "dims": r["scores"], "issue": r["issue"], "engine": r["engine"],
-                "retention": r.get("retention"), "agents": r.get("agents", 0), "shot_rel": r.get("shot_rel")}
+                "retention": r.get("retention"), "agents": r.get("agents", 0), "shot_rel": r.get("shot_rel"),
+                "video_url": (v.data or {}).get("video_url") if v.type == "cut" else None}
 
     results = sorted(await asyncio.gather(*(one(v) for v in videos)), key=lambda x: -x["score"])
     with SessionLocal() as db:
@@ -204,7 +208,8 @@ async def plan_delivery(node_id: str, comment: str = "") -> None:
         plan = {"platform": "TikTok", "account": "TECNO Nigeria Ads", "campaign": "Camon · 测试",
                 "adgroups": [{"name": "小商贩", "targeting": {"location": "尼日利亚", "age": "25–34", "interests": ["小生意", "手机"]}},
                              {"name": "学生", "targeting": {"location": "尼日利亚", "age": "18–24", "interests": ["拍照", "足球"]}}],
-                "creatives": picks, "daily_budget": 30, "test_days": 3, "cpa_cap": 2.5,
+                "creatives": picks, "creative_urls": {r["id"]: r.get("video_url") for r in (ev.data or {}).get("results", []) if ev and r["id"] in picks and r.get("video_url")},
+                "daily_budget": 30, "test_days": 3, "cpa_cap": 2.5,
                 "guardrails": {"market_daily_cap": 500, "creative_spend_cap": 60},
                 # TikTok 要求 AI 生成内容打上 AIGC 标识；下发时在广告上开启（具体 API 字段以 TikTok Marketing API 文档为准）
                 "aigc_label": True,
@@ -215,8 +220,14 @@ async def plan_delivery(node_id: str, comment: str = "") -> None:
               + "".join(f" · ⚠ {k}未通过" for k, ok in plan["checks"].items() if not ok))
 
 
-ACTIONS = {"generate_script": generate_script, "generate_video": generate_video, "evaluate": evaluate, "plan_delivery": plan_delivery}
-TYPE_ACTION = {"script": "generate_script", "video": "generate_video", "eval": "evaluate", "deliver": "plan_delivery"}
+async def compose_cut(node_id: str, comment: str = "") -> None:
+    """视频片段 → 成片，见 app/compose.py。"""
+    from app import compose
+    await compose.run(node_id, comment)
+
+
+ACTIONS = {"generate_script": generate_script, "generate_video": generate_video, "compose": compose_cut, "evaluate": evaluate, "plan_delivery": plan_delivery}
+TYPE_ACTION = {"script": "generate_script", "video": "generate_video", "cut": "compose", "eval": "evaluate", "deliver": "plan_delivery"}
 
 
 def run(runs: list[tuple[str, str]]) -> None:
@@ -250,7 +261,7 @@ async def launch(node_id: str) -> None:
         gid = await tiktok.create_adgroup(cid, g["name"], g["targeting"], plan["daily_budget"])
         await log(f"创建广告组：{g['name']} ✓ {gid}")
         for c in plan["creatives"]:
-            aid = await tiktok.create_ad(gid, f"{g['name']}-{c}", f"mock://composed/{c}.mp4")
+            aid = await tiktok.create_ad(gid, f"{g['name']}-{c}", plan.get("creative_urls", {}).get(c) or f"mock://composed/{c}.mp4")
             await log(f"创建广告并提交平台审核 ✓ {aid}")
     await log("平台审核通过，开始投放 ✓")
     with SessionLocal() as db:
