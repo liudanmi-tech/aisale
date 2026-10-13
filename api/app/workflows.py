@@ -151,18 +151,19 @@ async def evaluate(node_id: str, comment: str = "") -> None:
             try:
                 sc = scripts.get(v.id)
                 shots = (sc.data or {}).get("shots", []) if sc else (v.data or {}).get("shots", [])
-                r = await panel.run(personas, shots, (v.data or {}).get("tasks") or [], _simulated(v, personas)["reactions"])
+                r = await panel.run(personas, shots, (v.data or {}).get("tasks") or [], _simulated(v, personas)["reactions"], seed=v.id)
             except Exception as e:  # noqa: BLE001
                 log.warning("40 人评测退回模拟：%s", e)
                 r = None
         r = r or _simulated(v, personas)
         done = sum(x["completed"] for x in r["reactions"]) / 40
         clicks = sum(x["clicked"] for x in r["reactions"])
-        score = round(sum(r["scores"].values()) / 5 * 10)
+        # 模型扮演用户打的分系统性偏高，总分一半看五维评分、一半看抽样出来的完播率（完播 50% 及以上算满分）
+        score = round(sum(r["scores"].values()) / 5 * 10 * 0.5 + min(100, done * 200) * 0.5)
         # ctr 是 40 个模拟用户的点击意向换算的，没有用真实投放数据校准，页面上标「未校准」
         return {"id": v.id, "title": v.title, "score": score, "ctr": round(0.5 + clicks / 40 * 5, 1), "calibrated": False, "vtr": round(done * 100),
                 "clicks": clicks, "reactions": r["reactions"], "dims": r["scores"], "issue": r["issue"], "engine": r["engine"],
-                "retention": r.get("retention"), "agents": r.get("agents", 0)}
+                "retention": r.get("retention"), "agents": r.get("agents", 0), "shot_rel": r.get("shot_rel")}
 
     results = sorted(await asyncio.gather(*(one(v) for v in videos)), key=lambda x: -x["score"])
     with SessionLocal() as db:

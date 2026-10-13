@@ -54,8 +54,9 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
     if "For You 信息流" in system:  # 40 个独立评测 Agent，每人一次调用
         i = int(re.search(r"编号 (\d+)", system).group(1))
         calls["agents"].append(i)
-        watch = [{"shot": k + 1, "keep": True, "thought": "继续看"} for k in range(4)] if i % 2 else [{"shot": 1, "keep": False, "thought": "开头没意思"}]
-        content = json.dumps({"watch": watch, "clicked": i % 5 == 1, "comment": f"第{i}个人的反应",
+        rel = 2 if i % 2 else -2  # 单号的人很喜欢，双号的人很讨厌
+        watch = [{"shot": k + 1, "vs_usual": rel, "thought": "继续看" if rel > 0 else "开头没意思"} for k in range(4)]
+        content = json.dumps({"watch": watch, "click_vs_usual": rel, "comment": f"第{i}个人的反应",
                               "scores": {"hook": 8, "clarity": 7, "trust": 7, "local": 9, "intent": 6}}, ensure_ascii=False)
     else:
         content = json.dumps({"shots": [["0–3s", "停电夜", "Light don cut!", "停电了"], ["3–7s", "收款", "No charger.", "不用充电"],
@@ -127,9 +128,10 @@ def test_settings_and_real_call_paths():
             wait_until(lambda: nodes("eval") and nodes("eval")[0]["status"] == "wait")
             ev = nodes("eval")[0]["data"]
             r0 = ev["results"][0]
-            assert ev["engine"] == "40 个独立 Agent · google/gemini-2.5-pro" and r0["vtr"] == 50 and r0["reactions"][1]["comment"] == "第1个人的反应"
+            assert ev["engine"] == "40 个独立 Agent · google/gemini-2.5-pro" and r0["reactions"][1]["comment"] == "第1个人的反应"
             assert sorted(calls["agents"]) == list(range(40)) and r0["agents"] == 40 and r0["calibrated"] is False
-            assert r0["retention"] == [100, 50, 50, 50] and r0["issue"].startswith("第 1 镜流失最多（20 人划走）") and r0["clicks"] == 4  # 只算看到最后的
+            done = lambda odd: sum(x["completed"] for x in r0["reactions"] if x["persona"] % 2 == odd)  # noqa: E731
+            assert done(1) > done(0) and r0["retention"][0] == 100 and r0["shot_rel"] == [0, 0, 0, 0] and r0["issue"].startswith("第 1 镜流失最多")
             assert "google/gemini-2.5-pro" in calls["llm"] and "anthropic/claude-sonnet-5.5" in calls["llm"]
 
             # 管理员口令
