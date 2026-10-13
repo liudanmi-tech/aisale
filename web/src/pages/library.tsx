@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Empty, Input, Modal, Popconfirm, Segmented, Tag } from "antd";
-import { ImagePlus, Pencil, Plus, Search, Trash2, Upload, Wand2 } from "lucide-react";
+import { Download, ImagePlus, Pencil, Plus, Search, Trash2, Upload, Wand2 } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { PageTitle } from "@/components/common";
+import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { CONSENT_TEXT, consentDialog, COVER_GRADIENTS } from "@/lib/constants";
 import { Assets } from "@/pages/ops-pages";
@@ -38,7 +39,7 @@ function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () =>
             <div className="relative aspect-[3/4]" style={{ background: img ? "#111" : COVER_GRADIENTS[i % COVER_GRADIENTS.length] }}>
                 {img && <img src={img} alt={a.name} loading="lazy" className="h-full w-full object-cover" />}
                 {!img && <span className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-white/90">
-                    {a.status === "generating" ? "生成中…" : a.kind === "product" ? "待上传实拍图" : "还没有图片"}</span>}
+                    {a.status === "generating" ? (a.data?.import_step ? `导入中：${a.data.import_step}` : "生成中…") : a.kind === "product" ? "待上传实拍图" : "还没有图片"}</span>}
                 <span className="absolute left-2 top-2 flex gap-1">
                     {a.uses ? <Tag color="purple" className="!m-0">画布在用 {a.uses}</Tag> : null}
                     <Tag className="!m-0">{a.source === "upload" ? "上传" : "AI 生成"}</Tag>
@@ -52,6 +53,8 @@ function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () =>
                 {a.kind === "product" && <ProductHint a={a} />}
                 {a.kind === "product" && <ProductEditor assetId={a.id} open={editing} onClose={() => setEditing(false)} />}
                 {a.data?.error && <div className="truncate text-bad" title={a.data.error}>生成失败：{a.data.error}</div>}
+                {a.data?.import_error && <div className="line-clamp-2 text-bad" title={a.data.import_error}>{a.data.import_error}</div>}
+                {a.status === "generating" && a.images.length > 0 && a.data?.import_step && <div className="text-ink2">导入中：{a.data.import_step}</div>}
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 <div className="mt-2 flex flex-wrap gap-1">
                     <Button size="small" icon={a.kind === "product" ? <Upload size={12} /> : <ImagePlus size={12} />} loading={upload.isPending}
@@ -119,11 +122,12 @@ export default function Library() {
     const [tab, setTab] = useState<AssetKind | "base">("actor");
     const [q, setQ] = useState("");
     const [editing, setEditing] = useState<LibraryAsset | null | "new">(null);
+    const [importing, setImporting] = useState(false);
     const { data: list = [] } = useQuery({
         queryKey: ["library", tab], queryFn: () => api.library(tab as AssetKind), enabled: tab !== "base",
         refetchInterval: (qq) => (qq.state.data?.some((a) => a.status === "generating") ? 3000 : false),
     });
-    const shown = list.filter((a) => !q || a.name.includes(q) || a.description.includes(q));
+    const shown = list.filter((a) => !q || a.name.toLowerCase().includes(q.toLowerCase()) || a.description.includes(q));
     const t = TABS.find((x) => x.value === tab)!;
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
@@ -133,6 +137,7 @@ export default function Library() {
                 {tab !== "base" && <>
                     <Input allowClear prefix={<Search size={14} className="text-ink2" />} placeholder="搜索名称或描述" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 220 }} />
                     <span className="flex-1" />
+                    {tab === "product" && <Button icon={<Download size={14} />} onClick={() => setImporting(true)}>导入传音机型</Button>}
                     <Button type="primary" icon={<Plus size={14} />} onClick={() => setEditing("new")}>新建{t.label.replace("库", "")}</Button>
                 </>}
             </div>
@@ -142,6 +147,7 @@ export default function Library() {
                     {shown.map((a, i) => <AssetCard key={a.id} a={a} i={i} onEdit={() => setEditing(a)} />)}
                 </div>
             ) : <Empty className="py-16" description={tab === "product" ? "还没有商品：点「新建商品」上传实拍图" : "还没有素材：生成视频时 Agent 会自动选角置景并存到这里，也可以手动新建"} />}
+            <CatalogImport open={importing} onClose={() => setImporting(false)} />
             {tab !== "base" && <EditModal kind={tab} asset={editing === "new" ? null : editing} open={editing !== null} onClose={() => setEditing(null)} />}
         </div>
     );

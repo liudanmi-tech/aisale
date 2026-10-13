@@ -10,12 +10,13 @@ from app import config, settings_store
 transport: httpx.AsyncBaseTransport | None = None  # 测试时注入
 
 
-async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode: bool = False, timeout: float = 60, task: str = "agent") -> dict:
+async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode: bool = False, timeout: float = 60, task: str = "agent",
+               model: str | None = None) -> dict:
     headers = {"Content-Type": "application/json", "X-Title": "AIGC Ads Platform"}
     key = settings_store.get_secret("openrouter") or config.LLM_API_KEY
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    body: dict = {"model": settings_store.get_models()[task], "messages": messages, "temperature": 0.4 if task == "script" else 0.2}
+    body: dict = {"model": model or settings_store.get_models()[task], "messages": messages, "temperature": 0.4 if task == "script" else 0.2}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "required"

@@ -31,6 +31,11 @@ export interface LibraryAsset {
     uses?: number;
 }
 /** 剧本拆解出的每镜拍法 */
+export interface CatalogModel {
+    id: string; brand: "TECNO" | "Infinix" | "itel"; name: string; series: string; announced: string; year: number; color: string; source: string;
+    views: string[]; imported: { id: string; status: string; images: number } | null;
+}
+
 export interface ShotSpec {
     shot: number; size: string; move: string; roles: string[]; scene: string | null; product: boolean; line: string;
     product_tier?: "hero" | "hand" | null; kf_source?: "auto" | "photo" | "placement" | "ai" | "product"; overlay?: string;
@@ -290,6 +295,8 @@ export const api = {
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),
     library: (kind?: AssetKind) => get<LibraryAsset[]>("/library", kind ? { kind } : {}),
+    catalog: () => get<CatalogModel[]>("/library/catalog"),
+    importCatalog: (ids: string[]) => post<{ created: number; items: { catalog_id: string; asset_id: string; created: boolean }[] }>("/library/catalog/import", { ids }),
     createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean; consent?: boolean }) => post<LibraryAsset>("/library", body),
     patchAsset: (id: string, body: Partial<Pick<LibraryAsset, "name" | "description" | "data" | "tags">>) => http.patch(`/library/${id}`, body).then((r) => r.data),
     uploadAsset: (id: string, image: string, consent = false, view?: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent, view }),

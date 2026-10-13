@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, assets, canvas, product, production, settings_store
+from app import agent, assets, canvas, catalog, product, production, settings_store
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
 from app.models import Asset, Node, Project
@@ -20,6 +20,28 @@ def _uses(db: Session) -> dict[str, int]:
         if aid:
             out[aid] = out.get(aid, 0) + 1
     return out
+
+
+@router.get("/library/catalog")
+def catalog_list():
+    """传音机型库（TECNO / Infinix / itel 近两年发布的手机），标出哪些已经导入。"""
+    return catalog.listing()
+
+
+class CatalogImportIn(BaseModel):
+    ids: list[str]
+
+
+@router.post("/library/catalog/import")
+def catalog_import(body: CatalogImportIn):
+    """导入选中的机型：建商品，后台下载官方渲染图、裁成单台、检查抠图、提取说明卡。"""
+    if not body.ids:
+        raise HTTPException(400, "没有选机型")
+    res = catalog.start(body.ids[:60])
+    for r in res:
+        if r["created"]:
+            spawn(catalog.run_import(r["asset_id"], r["catalog_id"]))
+    return {"items": res, "created": sum(r["created"] for r in res)}
 
 
 @router.get("/library")

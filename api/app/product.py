@@ -80,9 +80,12 @@ def local_cutout(url: str) -> str | None:
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-    keep = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] > 0.01 * h * w]
-    if not keep:
+    if n <= 1:
         return None
+    big = max(range(1, n), key=lambda i: stats[i, cv2.CC_STAT_AREA])  # 只留最大的一块：裁剪图边上可能带进相邻手机的一条边
+    if stats[big, cv2.CC_STAT_AREA] < 0.05 * h * w:
+        return None
+    keep = [big]
     mask = np.isin(labels, keep).astype(np.uint8) * 255
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     mask = np.zeros_like(mask)

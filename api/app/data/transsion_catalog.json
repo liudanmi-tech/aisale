@@ -1,0 +1,3952 @@
+[
+ {
+  "id": "tecno-camon-air",
+  "brand": "TECNO",
+  "name": "TECNO Camon Air",
+  "model_sku": "Camon Air",
+  "series": "Camon",
+  "announced": "2026, September 02",
+  "year": 2026,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/tecno_camon_air-14919.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-air-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     250
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-slim",
+  "brand": "TECNO",
+  "name": "TECNO Camon Slim",
+  "model_sku": "Camon Slim",
+  "series": "Camon",
+  "announced": "2026, September 02",
+  "year": 2026,
+  "color": "red",
+  "source": "https://www.gsmarena.com/tecno_camon_slim_5g-14918.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-slim-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-slim-5g-1.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-go-3-pro",
+  "brand": "TECNO",
+  "name": "TECNO Spark Go 3 Pro",
+  "model_sku": "Spark Go 3 Pro",
+  "series": "Spark",
+  "announced": "2026, August 28",
+  "year": 2026,
+  "color": "orange",
+  "source": "https://www.gsmarena.com/tecno_spark_go_3_pro-14905.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go3-pro-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     178
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      172,
+      174,
+      999,
+      366
+     ],
+     [
+      342,
+      364,
+      999,
+      556
+     ],
+     [
+      510,
+      552,
+      999,
+      738
+     ],
+     [
+      510,
+      738,
+      999,
+      999
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go3-pro-1.jpg",
+    "box": [
+     19,
+     396,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-8-pro",
+  "brand": "TECNO",
+  "name": "TECNO Pova 8 Pro",
+  "model_sku": "Pova 8 Pro",
+  "series": "Pova",
+  "announced": "2026, August 13",
+  "year": 2026,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_pova_8_pro_5g-14875.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova8-pro-1.jpg",
+    "box": [
+     1,
+     0,
+     990,
+     497
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova8-pro-1.jpg",
+    "box": [
+     0,
+     498,
+     991,
+     998
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova8-pro-3.jpg",
+    "box": [
+     10,
+     0,
+     990,
+     500
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-slim-4g",
+  "brand": "TECNO",
+  "name": "TECNO Camon Slim 4G",
+  "model_sku": "Camon Slim 4G",
+  "series": "Camon",
+  "announced": "2026, June 23",
+  "year": 2026,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_camon_slim-14745.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-slim-2.jpg",
+    "box": [
+     0,
+     348,
+     995,
+     676
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-slim-3.jpg",
+    "box": [
+     0,
+     660,
+     997,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-50-pro",
+  "brand": "TECNO",
+  "name": "TECNO Spark 50 Pro",
+  "model_sku": "Spark 50 Pro",
+  "series": "Spark",
+  "announced": "2026, June 15",
+  "year": 2026,
+  "color": "dark grey",
+  "source": "https://www.gsmarena.com/tecno_spark_50_pro-14728.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-50-pro-11.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      477,
+      1000,
+      1000
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-8",
+  "brand": "TECNO",
+  "name": "TECNO Pova 8",
+  "model_sku": "Pova 8",
+  "series": "Pova",
+  "announced": "2026, June 11",
+  "year": 2026,
+  "color": "gold",
+  "source": "https://www.gsmarena.com/tecno_pova_8_5g-14714.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova8-5g-01.jpg",
+    "box": [
+     1,
+     0,
+     999,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova8-5g-08.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     360
+    ],
+    "view": "back"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pop-x",
+  "brand": "TECNO",
+  "name": "TECNO Pop X",
+  "model_sku": "Pop X",
+  "series": "Pop",
+  "announced": "2026, April 20",
+  "year": 2026,
+  "color": "white to green gradient",
+  "source": "https://www.gsmarena.com/tecno_pop_x_5g-14608.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pop-x-1.jpg",
+    "box": [
+     0,
+     0,
+     998,
+     553
+    ],
+    "view": "back"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pop-x-4g",
+  "brand": "TECNO",
+  "name": "TECNO Pop X 4G",
+  "model_sku": "Pop X 4G",
+  "series": "Pop",
+  "announced": "2026, March 04",
+  "year": 2026,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_pop_x-14665.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pop-x-4g-2.jpg",
+    "box": [
+     10,
+     0,
+     990,
+     480
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pop-x-4g-2.jpg",
+    "box": [
+     10,
+     480,
+     990,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-50-4g",
+  "brand": "TECNO",
+  "name": "TECNO Spark 50 4G",
+  "model_sku": "Spark 50 4G",
+  "series": "Spark",
+  "announced": "2026, April 14",
+  "year": 2026,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/tecno_spark_50_4g-14596.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark50-4g-1.jpg",
+    "box": [
+     0,
+     31,
+     997,
+     497
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark50-4g-1.jpg",
+    "box": [
+     0,
+     500,
+     997,
+     968
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-50",
+  "brand": "TECNO",
+  "name": "TECNO Spark 50",
+  "model_sku": "Spark 50",
+  "series": "Spark",
+  "announced": "2026, March 27",
+  "year": 2026,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/tecno_spark_50_5g-14566.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark50-2.jpg",
+    "box": [
+     1,
+     505,
+     922,
+     930
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark50-2.jpg",
+    "box": [
+     1,
+     29,
+     922,
+     489
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark50-3.jpg",
+    "box": [
+     0,
+     0,
+     995,
+     242
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-50-ultra",
+  "brand": "TECNO",
+  "name": "TECNO Camon 50 Ultra",
+  "model_sku": "Camon 50 Ultra",
+  "series": "Camon",
+  "announced": "2026, March 02",
+  "year": 2026,
+  "color": "orange",
+  "source": "https://www.gsmarena.com/tecno_camon_50_ultra_5g-14519.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-ultra-1.jpg",
+    "box": [
+     10,
+     0,
+     990,
+     495
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-ultra-1.jpg",
+    "box": [
+     0,
+     495,
+     990,
+     998
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-50-pro",
+  "brand": "TECNO",
+  "name": "TECNO Camon 50 Pro",
+  "model_sku": "Camon 50 Pro",
+  "series": "Camon",
+  "announced": "2026, March 10",
+  "year": 2026,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/tecno_camon_50_pro_5g-14538.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-pro-1.jpg",
+    "box": [
+     10,
+     10,
+     980,
+     490
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-pro-1.jpg",
+    "box": [
+     10,
+     499,
+     980,
+     989
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-50-pro-4g",
+  "brand": "TECNO",
+  "name": "TECNO Camon 50 Pro 4G",
+  "model_sku": "Camon 50 Pro 4G",
+  "series": "Camon",
+  "announced": "2026, February 17",
+  "year": 2026,
+  "color": "purple",
+  "source": "https://www.gsmarena.com/tecno_camon_50_pro-14500.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-pro-4g-1.jpg",
+    "box": [
+     1,
+     0,
+     994,
+     495
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-pro-4g-1.jpg",
+    "box": [
+     5,
+     497,
+     994,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-50-4g",
+  "brand": "TECNO",
+  "name": "TECNO Camon 50 4G",
+  "model_sku": "Camon 50 4G",
+  "series": "Camon",
+  "announced": "2026, February 17",
+  "year": 2026,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/tecno_camon_50-14501.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-4g-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     499
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-50-4g-1.jpg",
+    "box": [
+     0,
+     499,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-curve-2",
+  "brand": "TECNO",
+  "name": "TECNO Pova Curve 2",
+  "model_sku": "Pova Curve 2",
+  "series": "Pova",
+  "announced": "2026, February 13",
+  "year": 2026,
+  "color": "purple",
+  "source": "https://www.gsmarena.com/tecno_pova_curve_2_5g-14384.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-curve2-2.jpg",
+    "box": [
+     12,
+     0,
+     988,
+     327
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-curve2-1.jpg",
+    "box": [
+     193,
+     876,
+     969,
+     977
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-go-3",
+  "brand": "TECNO",
+  "name": "TECNO Spark Go 3",
+  "model_sku": "Spark Go 3",
+  "series": "Spark",
+  "announced": "2026, January 16",
+  "year": 2026,
+  "color": "lavender",
+  "source": "https://www.gsmarena.com/tecno_spark_go_3-14420.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go3-2.jpg",
+    "box": [
+     14,
+     13,
+     989,
+     246
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go3-1.jpg",
+    "box": [
+     61,
+     396,
+     982,
+     882
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go3-1.jpg",
+    "box": [
+     10,
+     878,
+     989,
+     990
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-slim",
+  "brand": "TECNO",
+  "name": "TECNO Pova Slim",
+  "model_sku": "Pova Slim",
+  "series": "Pova",
+  "announced": "2025, September 02",
+  "year": 2025,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_pova_slim_5g-14111.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-slim-1.jpg",
+    "box": [
+     1,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-slim-1.jpg",
+    "box": [
+     1,
+     499,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-slim",
+  "brand": "TECNO",
+  "name": "TECNO Spark Slim",
+  "model_sku": "Spark Slim",
+  "series": "Spark",
+  "announced": "2025, September 02",
+  "year": 2025,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_spark_slim-14112.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-slim-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-slim-1.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-slim-3.jpg",
+    "box": [
+     0,
+     60,
+     509,
+     796
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-40",
+  "brand": "TECNO",
+  "name": "TECNO Spark 40",
+  "model_sku": "Spark 40",
+  "series": "Spark",
+  "announced": "2025, August",
+  "year": 2025,
+  "color": "red",
+  "source": "https://www.gsmarena.com/tecno_spark_40_5g-14568.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-40-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-40-5g-1.jpg",
+    "box": [
+     0,
+     499,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-go",
+  "brand": "TECNO",
+  "name": "TECNO Spark Go",
+  "model_sku": "Spark Go",
+  "series": "Spark",
+  "announced": "2025, August 14",
+  "year": 2025,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_spark_go_5g-14074.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go-5g-2.jpg",
+    "box": [
+     442,
+     278,
+     1000,
+     994
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go-5g-1.jpg",
+    "box": [
+     10,
+     399,
+     990,
+     864
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go-5g-1.jpg",
+    "box": [
+     10,
+     864,
+     990,
+     988
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-40c",
+  "brand": "TECNO",
+  "name": "TECNO Spark 40C",
+  "model_sku": "Spark 40C",
+  "series": "Spark",
+  "announced": "2025, July 19",
+  "year": 2025,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_spark_40c-14052.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-40c-1.jpg",
+    "box": [
+     1,
+     0,
+     999,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-40c-1.jpg",
+    "box": [
+     0,
+     477,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-7-pro",
+  "brand": "TECNO",
+  "name": "TECNO Pova 7 Pro",
+  "model_sku": "Pova 7 Pro",
+  "series": "Pova",
+  "announced": "2025, July 04",
+  "year": 2025,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_pova_7_pro_5g-13990.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-pro-3.jpg",
+    "box": [
+     11,
+     0,
+     990,
+     497
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-7",
+  "brand": "TECNO",
+  "name": "TECNO Pova 7",
+  "model_sku": "Pova 7",
+  "series": "Pova",
+  "announced": "2025, July 04",
+  "year": 2025,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_pova_7_5g-13991.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-5g-1.jpg",
+    "box": [
+     0,
+     490,
+     1000,
+     999
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-40-4g",
+  "brand": "TECNO",
+  "name": "TECNO Spark 40 4G",
+  "model_sku": "Spark 40 4G",
+  "series": "Spark",
+  "announced": "2025, July 02",
+  "year": 2025,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/tecno_spark_40_4g-13984.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/techno-spark-40-4g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     497
+    ],
+    "view": "back"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-7-ultra",
+  "brand": "TECNO",
+  "name": "TECNO Pova 7 Ultra",
+  "model_sku": "Pova 7 Ultra",
+  "series": "Pova",
+  "announced": "2025, June 20",
+  "year": 2025,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_pova_7_ultra_5g-13976.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-ultra-2.jpg",
+    "box": [
+     471,
+     0,
+     1000,
+     999
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-ultra-1.jpg",
+    "box": [
+     0,
+     490,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-7-4g",
+  "brand": "TECNO",
+  "name": "TECNO Pova 7 4G",
+  "model_sku": "Pova 7 4G",
+  "series": "Pova",
+  "announced": "2025, June 20",
+  "year": 2025,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_pova_7-13974.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-2.jpg",
+    "box": [
+     0,
+     137,
+     448,
+     862
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova7-1.jpg",
+    "box": [
+     0,
+     485,
+     1000,
+     999
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-go-2",
+  "brand": "TECNO",
+  "name": "TECNO Spark Go 2",
+  "model_sku": "Spark Go 2",
+  "series": "Spark",
+  "announced": "2025, June 24",
+  "year": 2025,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_spark_go_2-13975.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go2-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go2-1.jpg",
+    "box": [
+     0,
+     480,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-curve",
+  "brand": "TECNO",
+  "name": "TECNO Pova Curve",
+  "model_sku": "Pova Curve",
+  "series": "Pova",
+  "announced": "2025, May 29",
+  "year": 2025,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/tecno_pova_curve_5g-13915.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-curve-5g-4.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     280
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-40-premier",
+  "brand": "TECNO",
+  "name": "TECNO Camon 40 Premier",
+  "model_sku": "Camon 40 Premier",
+  "series": "Camon",
+  "announced": "2025, March 03",
+  "year": 2025,
+  "color": "light blue and white",
+  "source": "https://www.gsmarena.com/tecno_camon_40_premier-13694.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-premier-1.jpg",
+    "box": [
+     82,
+     508,
+     794,
+     918
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-premier-1.jpg",
+    "box": [
+     82,
+     79,
+     794,
+     488
+    ],
+    "view": "detail"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-premier-11.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     546
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-premier-1.jpg",
+    "box": [
+     82,
+     0,
+     794,
+     68
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-40-pro",
+  "brand": "TECNO",
+  "name": "TECNO Camon 40 Pro",
+  "model_sku": "Camon 40 Pro",
+  "series": "Camon",
+  "announced": "2025, March 03",
+  "year": 2025,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_camon_40_pro_5g-13695.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-pro-5g-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     320
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      320,
+      999,
+      649
+     ],
+     [
+      0,
+      649,
+      999,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-pro-5g-2.jpg",
+    "box": [
+     0,
+     649,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-40-pro-4g",
+  "brand": "TECNO",
+  "name": "TECNO Camon 40 Pro 4G",
+  "model_sku": "Camon 40 Pro 4G",
+  "series": "Camon",
+  "announced": "2025, March 03",
+  "year": 2025,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_camon_40_pro-13696.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-pro-4g-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-pro-4g-1.jpg",
+    "box": [
+     0,
+     500,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-40",
+  "brand": "TECNO",
+  "name": "TECNO Camon 40",
+  "model_sku": "Camon 40",
+  "series": "Camon",
+  "announced": "2025, March 03",
+  "year": 2025,
+  "color": "silver and black",
+  "source": "https://www.gsmarena.com/tecno_camon_40-13697.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-4g-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-40-4g-1.jpg",
+    "box": [
+     0,
+     499,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pop-9-4g",
+  "brand": "TECNO",
+  "name": "TECNO Pop 9 4G",
+  "model_sku": "Pop 9 4G",
+  "series": "Pop",
+  "announced": "2024, November 22",
+  "year": 2024,
+  "color": "dark blue",
+  "source": "https://www.gsmarena.com/tecno_pop_9_4g-13509.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pop9-lte-1.jpg",
+    "box": [
+     0,
+     0,
+     997,
+     492
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pop9-lte-1.jpg",
+    "box": [
+     0,
+     492,
+     997,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-30s",
+  "brand": "TECNO",
+  "name": "TECNO Camon 30S",
+  "model_sku": "Camon 30S",
+  "series": "Camon",
+  "announced": "2024, October 10",
+  "year": 2024,
+  "color": "purple",
+  "source": "https://www.gsmarena.com/tecno_camon_30s-13426.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30s-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     317
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      309,
+      1000,
+      626
+     ],
+     [
+      0,
+      617,
+      1000,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30s-2.jpg",
+    "box": [
+     0,
+     617,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-30c-5g",
+  "brand": "TECNO",
+  "name": "TECNO Spark 30C 5G",
+  "model_sku": "Spark 30C 5G",
+  "series": "Spark",
+  "announced": "2024, October 02",
+  "year": 2024,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_spark_30c_5g-13385.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30c-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      480,
+      1000,
+      990
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30c-5g-1.jpg",
+    "box": [
+     0,
+     480,
+     1000,
+     990
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-30-5g",
+  "brand": "TECNO",
+  "name": "TECNO Spark 30 5G",
+  "model_sku": "Spark 30 5G",
+  "series": "Spark",
+  "announced": "2024, October 02",
+  "year": 2024,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/tecno_spark_30_5g-13384.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-5g-1.jpg",
+    "box": [
+     0,
+     484,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-30-pro",
+  "brand": "TECNO",
+  "name": "TECNO Spark 30 Pro",
+  "model_sku": "Spark 30 Pro",
+  "series": "Spark",
+  "announced": "2024, September 23",
+  "year": 2024,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_spark_30_pro-13357.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-pro-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-pro-2.jpg",
+    "box": [
+     0,
+     499,
+     999,
+     999
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-30",
+  "brand": "TECNO",
+  "name": "TECNO Spark 30",
+  "model_sku": "Spark 30",
+  "series": "Spark",
+  "announced": "2024, September 21",
+  "year": 2024,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_spark_30-13356.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-1.jpg",
+    "box": [
+     0,
+     0,
+     996,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30-1.jpg",
+    "box": [
+     0,
+     487,
+     996,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-phantom-v-fold2",
+  "brand": "TECNO",
+  "name": "TECNO Phantom V Fold2",
+  "model_sku": "Phantom V Fold2",
+  "series": "Phantom",
+  "announced": "2024, September 13",
+  "year": 2024,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/tecno_phantom_v_fold2-13334.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-fold2-6.jpg",
+    "box": [
+     83,
+     434,
+     434,
+     621
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-fold2-6.jpg",
+    "box": [
+     83,
+     20,
+     440,
+     369
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-fold2-6.jpg",
+    "box": [
+     54,
+     649,
+     434,
+     695
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "tecno-phantom-v-flip2",
+  "brand": "TECNO",
+  "name": "TECNO Phantom V Flip2",
+  "model_sku": "Phantom V Flip2",
+  "series": "Phantom",
+  "announced": "2024, September 13",
+  "year": 2024,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/tecno_phantom_v_flip2-13335.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-flip2-5g-3.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     248
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-flip2-5g-11.jpg",
+    "box": [
+     0,
+     489,
+     1000,
+     1000
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-phantom-v-flip2-5g-4.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-6-neo-5g",
+  "brand": "TECNO",
+  "name": "TECNO Pova 6 Neo 5G",
+  "model_sku": "Pova 6 Neo 5G",
+  "series": "Pova",
+  "announced": "2024, September 11",
+  "year": 2024,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_pova_6_neo_5g-13326.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-neo-5g-2.jpg",
+    "box": [
+     100,
+     321,
+     894,
+     678
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-neo-5g-1.jpg",
+    "box": [
+     0,
+     420,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-30c",
+  "brand": "TECNO",
+  "name": "TECNO Spark 30C",
+  "model_sku": "Spark 30C",
+  "series": "Spark",
+  "announced": "2024, September 09",
+  "year": 2024,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/tecno_spark_30c-13310.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30c-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     245
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-30c-2.jpg",
+    "box": [
+     0,
+     238,
+     999,
+     494
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-go-1",
+  "brand": "TECNO",
+  "name": "TECNO Spark Go 1",
+  "model_sku": "Spark Go 1",
+  "series": "Spark",
+  "announced": "2024, August 19",
+  "year": 2024,
+  "color": "dark blue",
+  "source": "https://www.gsmarena.com/tecno_spark_go_1-13274.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go1-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-go1-1.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-spark-20-pro-5g",
+  "brand": "TECNO",
+  "name": "TECNO Spark 20 Pro 5G",
+  "model_sku": "Spark 20 Pro 5G",
+  "series": "Spark",
+  "announced": "2024, June 17",
+  "year": 2024,
+  "color": "green",
+  "source": "https://www.gsmarena.com/tecno_spark_20_pro_5g-13124.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-20-pro-5g-1.jpg",
+    "box": [
+     79,
+     513,
+     897,
+     914
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-spark-20-pro-5g-1.jpg",
+    "box": [
+     79,
+     87,
+     898,
+     488
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-6-neo",
+  "brand": "TECNO",
+  "name": "TECNO Pova 6 Neo",
+  "model_sku": "Pova 6 Neo",
+  "series": "Pova",
+  "announced": "2024, April 04",
+  "year": 2024,
+  "color": "grey",
+  "source": "https://www.gsmarena.com/tecno_pova_6_neo-12911.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-neo-01.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      465,
+      1000,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-neo-01.jpg",
+    "box": [
+     0,
+     465,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-30-premier",
+  "brand": "TECNO",
+  "name": "TECNO Camon 30 Premier",
+  "model_sku": "Camon 30 Premier",
+  "series": "Camon",
+  "announced": "2024, February 27",
+  "year": 2024,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/tecno_camon_30_premier-12845.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-premier-5g-2.jpg",
+    "box": [
+     0,
+     314,
+     999,
+     622
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-premier-5g-2.jpg",
+    "box": [
+     0,
+     622,
+     999,
+     1000
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-premier-5g-12.jpg",
+    "box": [
+     0,
+     321,
+     1000,
+     678
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-30-pro",
+  "brand": "TECNO",
+  "name": "TECNO Camon 30 Pro",
+  "model_sku": "Camon 30 Pro",
+  "series": "Camon",
+  "announced": "2024, February 27",
+  "year": 2024,
+  "color": "green",
+  "source": "https://www.gsmarena.com/tecno_camon_30_pro-12846.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-pro-2.jpg",
+    "box": [
+     0,
+     0,
+     994,
+     303
+    ],
+    "view": "angle",
+    "mask": [
+     [
+      0,
+      309,
+      994,
+      612
+     ],
+     [
+      0,
+      619,
+      994,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-pro-2.jpg",
+    "box": [
+     0,
+     619,
+     994,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-30-5g",
+  "brand": "TECNO",
+  "name": "TECNO Camon 30 5G",
+  "model_sku": "Camon 30 5G",
+  "series": "Camon",
+  "announced": "2024, February 27",
+  "year": 2024,
+  "color": "green",
+  "source": "https://www.gsmarena.com/tecno_camon_30_5g-12847.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-premier-5g-01.jpg",
+    "box": [
+     0,
+     31,
+     988,
+     477
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-premier-5g-01.jpg",
+    "box": [
+     0,
+     462,
+     988,
+     974
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-camon-30",
+  "brand": "TECNO",
+  "name": "TECNO Camon 30",
+  "model_sku": "Camon 30",
+  "series": "Camon",
+  "announced": "2024, February 27",
+  "year": 2024,
+  "color": "white",
+  "source": "https://www.gsmarena.com/tecno_camon_30-12848.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-02.jpg",
+    "box": [
+     1,
+     29,
+     995,
+     450
+    ],
+    "view": "back",
+    "mask": [
+     [
+      1,
+      450,
+      995,
+      970
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-camon-30-02.jpg",
+    "box": [
+     1,
+     450,
+     995,
+     970
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "tecno-pova-6-pro",
+  "brand": "TECNO",
+  "name": "TECNO Pova 6 Pro",
+  "model_sku": "Pova 6 Pro",
+  "series": "Pova",
+  "announced": "2024, February 26",
+  "year": 2024,
+  "color": "black",
+  "source": "https://www.gsmarena.com/tecno_pova_6_pro-12830.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-pro-02.jpg",
+    "box": [
+     107,
+     624,
+     893,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-pro-02.jpg",
+    "box": [
+     107,
+     108,
+     893,
+     480
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-6-pro-02.jpg",
+    "box": [
+     0,
+     107,
+     100,
+     483
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-70-pro",
+  "brand": "Infinix",
+  "name": "Infinix Hot 70 Pro",
+  "model_sku": "Hot 70 Pro",
+  "series": "Hot",
+  "announced": "2026, July 16",
+  "year": 2026,
+  "color": "orange",
+  "source": "https://www.gsmarena.com/infinix_hot_70_pro_5g-14806.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-70-pro-3.jpg",
+    "box": [
+     0,
+     0,
+     990,
+     245
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-70-pro-1.jpg",
+    "box": [
+     0,
+     327,
+     1000,
+     999
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-70-pro-2.jpg",
+    "box": [
+     0,
+     797,
+     999,
+     999
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-70",
+  "brand": "Infinix",
+  "name": "Infinix Hot 70",
+  "model_sku": "Hot 70",
+  "series": "Hot",
+  "announced": "2026, May 25",
+  "year": 2026,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/infinix_hot_70-14683.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot70-4g-11.jpg",
+    "box": [
+     1,
+     0,
+     893,
+     483
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot70-4g-3.jpg",
+    "box": [
+     0,
+     690,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-gt-50-pro",
+  "brand": "Infinix",
+  "name": "Infinix GT 50 Pro",
+  "model_sku": "GT 50 Pro",
+  "series": "GT",
+  "announced": "2026, April 24",
+  "year": 2026,
+  "color": "black",
+  "source": "https://www.gsmarena.com/infinix_gt_50_pro_5g-14497.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt50-pro-2.jpg",
+    "box": [
+     1,
+     672,
+     994,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-60-ultra",
+  "brand": "Infinix",
+  "name": "Infinix Note 60 Ultra",
+  "model_sku": "Note 60 Ultra",
+  "series": "Note",
+  "announced": "2026, March 04",
+  "year": 2026,
+  "color": "red",
+  "source": "https://www.gsmarena.com/infinix_note_60_ultra_5g-14528.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-ultra-4.jpg",
+    "box": [
+     13,
+     15,
+     990,
+     497
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-ultra-4.jpg",
+    "box": [
+     15,
+     515,
+     990,
+     995
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-60-pro",
+  "brand": "Infinix",
+  "name": "Infinix Note 60 Pro",
+  "model_sku": "Note 60 Pro",
+  "series": "Note",
+  "announced": "2026, February 18",
+  "year": 2026,
+  "color": "black",
+  "source": "https://www.gsmarena.com/infinix_note_60_pro_5g-14499.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-pro-12.jpg",
+    "box": [
+     442,
+     460,
+     999,
+     908
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-pro-12.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     442
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-pro-pininfarina.jpg",
+    "box": [
+     10,
+     258,
+     990,
+     742
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-pro-12.jpg",
+    "box": [
+     442,
+     910,
+     999,
+     999
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-60",
+  "brand": "Infinix",
+  "name": "Infinix Note 60",
+  "model_sku": "Note 60",
+  "series": "Note",
+  "announced": "2026, February 18",
+  "year": 2026,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/infinix_note_60_5g-14498.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-1.jpg",
+    "box": [
+     0,
+     510,
+     1000,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     480
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note60-3.jpg",
+    "box": [
+     0,
+     666,
+     902,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-smart-20",
+  "brand": "Infinix",
+  "name": "Infinix Smart 20",
+  "model_sku": "Smart 20",
+  "series": "Smart",
+  "announced": "2026, March 04",
+  "year": 2026,
+  "color": "orange",
+  "source": "https://www.gsmarena.com/infinix_smart_20-14502.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart20-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     400
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-edge",
+  "brand": "Infinix",
+  "name": "Infinix Note Edge",
+  "model_sku": "Note Edge",
+  "series": "Note",
+  "announced": "2026, January 19",
+  "year": 2026,
+  "color": "dark green",
+  "source": "https://www.gsmarena.com/infinix_note_edge_5g-14421.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-edge-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-edge-3.jpg",
+    "box": [
+     80,
+     71,
+     919,
+     490
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-edge-2.jpg",
+    "box": [
+     0,
+     0,
+     842,
+     247
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-edge-3.jpg",
+    "box": [
+     100,
+     1,
+     898,
+     57
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-60i",
+  "brand": "Infinix",
+  "name": "Infinix Hot 60i",
+  "model_sku": "Hot 60i",
+  "series": "Hot",
+  "announced": "2025, August 16",
+  "year": 2025,
+  "color": "dark magenta",
+  "source": "https://www.gsmarena.com/infinix_hot_60i_5g-14072.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-60i-5g-00.jpg",
+    "box": [
+     0,
+     0,
+     994,
+     470
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-gt-30",
+  "brand": "Infinix",
+  "name": "Infinix GT 30",
+  "model_sku": "GT 30",
+  "series": "GT",
+  "announced": "2025, August 08",
+  "year": 2025,
+  "color": "green",
+  "source": "https://www.gsmarena.com/infinix_gt_30_5g-14044.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt30-5g-1.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt30-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     499
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt30-5g-2.jpg",
+    "box": [
+     10,
+     672,
+     990,
+     990
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-60",
+  "brand": "Infinix",
+  "name": "Infinix Hot 60",
+  "model_sku": "Hot 60",
+  "series": "Hot",
+  "announced": "2025, July 11",
+  "year": 2025,
+  "color": "green",
+  "source": "https://www.gsmarena.com/infinix_hot_60_5g-14006.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot60-5g-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     246
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-60i-4g",
+  "brand": "Infinix",
+  "name": "Infinix Hot 60i 4G",
+  "model_sku": "Hot 60i 4G",
+  "series": "Hot",
+  "announced": "2025, July 02",
+  "year": 2025,
+  "color": "light purple",
+  "source": "https://www.gsmarena.com/infinix_hot_60i-13983.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-60i-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     150
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-60i-1.jpg",
+    "box": [
+     0,
+     686,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-smart-10-hd",
+  "brand": "Infinix",
+  "name": "Infinix Smart 10 HD",
+  "model_sku": "Smart 10 HD",
+  "series": "Smart",
+  "announced": "2025, June 16",
+  "year": 2025,
+  "color": "gold",
+  "source": "https://www.gsmarena.com/infinix_smart_10_hd-13954.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart10-hd-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     156
+    ],
+    "view": "back",
+    "mask": [
+     [
+      0,
+      152,
+      1000,
+      308
+     ],
+     [
+      0,
+      304,
+      1000,
+      460
+     ],
+     [
+      0,
+      456,
+      1000,
+      612
+     ],
+     [
+      0,
+      608,
+      1000,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart10-hd-1.jpg",
+    "box": [
+     0,
+     608,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-smart-10-plus",
+  "brand": "Infinix",
+  "name": "Infinix Smart 10 Plus",
+  "model_sku": "Smart 10 Plus",
+  "series": "Smart",
+  "announced": "2025, June 16",
+  "year": 2025,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/infinix_smart_10_plus-13953.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart-10-plus-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart-10-plus-1.jpg",
+    "box": [
+     0,
+     606,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-smart-10",
+  "brand": "Infinix",
+  "name": "Infinix Smart 10",
+  "model_sku": "Smart 10",
+  "series": "Smart",
+  "announced": "2025, June 16",
+  "year": 2025,
+  "color": "gold",
+  "source": "https://www.gsmarena.com/infinix_smart_10-13933.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart10-2.jpg",
+    "box": [
+     0,
+     600,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart10-1.jpg",
+    "box": [
+     0,
+     599,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-gt-30-pro",
+  "brand": "Infinix",
+  "name": "Infinix GT 30 Pro",
+  "model_sku": "GT 30 Pro",
+  "series": "GT",
+  "announced": "2025, May 21",
+  "year": 2025,
+  "color": "gray",
+  "source": "https://www.gsmarena.com/infinix_gt_30_pro_5g-13889.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt30-pro-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     499
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt30-pro-1.jpg",
+    "box": [
+     499,
+     499,
+     999,
+     1000
+    ],
+    "view": "detail"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-50s",
+  "brand": "Infinix",
+  "name": "Infinix Note 50s",
+  "model_sku": "Note 50s",
+  "series": "Note",
+  "announced": "2025, April 18",
+  "year": 2025,
+  "color": "red",
+  "source": "https://www.gsmarena.com/infinix_note_50s_5g-13793.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-50s-1.jpg",
+    "box": [
+     0,
+     517,
+     999,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-50s-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     483
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-50s-2.jpg",
+    "box": [
+     1,
+     0,
+     997,
+     335
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-50x",
+  "brand": "Infinix",
+  "name": "Infinix Note 50x",
+  "model_sku": "Note 50x",
+  "series": "Note",
+  "announced": "2025, March 27",
+  "year": 2025,
+  "color": "teal",
+  "source": "https://www.gsmarena.com/infinix_note_50x-13747.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-50x-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     329
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-50-pro-4g",
+  "brand": "Infinix",
+  "name": "Infinix Note 50 Pro 4G",
+  "model_sku": "Note 50 Pro 4G",
+  "series": "Note",
+  "announced": "2025, March 04",
+  "year": 2025,
+  "color": "gold",
+  "source": "https://www.gsmarena.com/infinix_note_50_pro_4g-13701.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note50-pro-1.jpg",
+    "box": [
+     0,
+     510,
+     992,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note50-pro-1.jpg",
+    "box": [
+     0,
+     0,
+     992,
+     483
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note50-pro-3.jpg",
+    "box": [
+     0,
+     10,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-50-4g",
+  "brand": "Infinix",
+  "name": "Infinix Note 50 4G",
+  "model_sku": "Note 50 4G",
+  "series": "Note",
+  "announced": "2025, March 04",
+  "year": 2025,
+  "color": "rose gold",
+  "source": "https://www.gsmarena.com/infinix_note_50_4g-13705.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note50-1.jpg",
+    "box": [
+     0,
+     498,
+     999,
+     999
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-50-pro-4g",
+  "brand": "Infinix",
+  "name": "Infinix Hot 50 Pro 4G",
+  "model_sku": "Hot 50 Pro 4G",
+  "series": "Hot",
+  "announced": "2024, October 20",
+  "year": 2024,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/infinix_hot_50_pro_4g-13461.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-pro-4g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-pro-4g-1.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40s",
+  "brand": "Infinix",
+  "name": "Infinix Note 40S",
+  "model_sku": "Note 40S",
+  "series": "Note",
+  "announced": "2024, September",
+  "year": 2024,
+  "color": "dark blue",
+  "source": "https://www.gsmarena.com/infinix_note_40s-13460.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40s-x6850b-2.jpg",
+    "box": [
+     0,
+     0,
+     994,
+     342
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40s-x6850b-2.jpg",
+    "box": [
+     0,
+     686,
+     994,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-smart-9",
+  "brand": "Infinix",
+  "name": "Infinix Smart 9",
+  "model_sku": "Smart 9",
+  "series": "Smart",
+  "announced": "2024, September 23",
+  "year": 2024,
+  "color": "gold",
+  "source": "https://www.gsmarena.com/infinix_smart_9-13374.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart9-2.jpg",
+    "box": [
+     637,
+     30,
+     870,
+     942
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-smart9-1.jpg",
+    "box": [
+     0,
+     599,
+     999,
+     999
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-50-4g",
+  "brand": "Infinix",
+  "name": "Infinix Hot 50 4G",
+  "model_sku": "Hot 50 4G",
+  "series": "Hot",
+  "announced": "2024, September 30",
+  "year": 2024,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/infinix_hot_50_4g-13367.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-4g-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     230
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-4g-1.jpg",
+    "box": [
+     0,
+     599,
+     1000,
+     999
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-zero-flip",
+  "brand": "Infinix",
+  "name": "Infinix Zero Flip",
+  "model_sku": "Zero Flip",
+  "series": "Zero",
+  "announced": "2024, September 27",
+  "year": 2024,
+  "color": "pink",
+  "source": "https://www.gsmarena.com/infinix_zero_flip-13347.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero-flip-1.jpg",
+    "box": [
+     10,
+     10,
+     415,
+     461
+    ],
+    "view": "detail"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero-flip-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     495
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero-flip-1.jpg",
+    "box": [
+     287,
+     360,
+     977,
+     997
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-hot-50",
+  "brand": "Infinix",
+  "name": "Infinix Hot 50",
+  "model_sku": "Hot 50",
+  "series": "Hot",
+  "announced": "2024, September 05",
+  "year": 2024,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/infinix_hot_50-13305.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-5g-x6720-1.jpg",
+    "box": [
+     0,
+     463,
+     1000,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-hot-50-5g-x6720-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     499
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-zero-40",
+  "brand": "Infinix",
+  "name": "Infinix Zero 40",
+  "model_sku": "Zero 40",
+  "series": "Zero",
+  "announced": "2024, August 29",
+  "year": 2024,
+  "color": "pink",
+  "source": "https://www.gsmarena.com/infinix_zero_40-13290.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero40-5g-2.jpg",
+    "box": [
+     0,
+     323,
+     1000,
+     642
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero40-5g-3.jpg",
+    "box": [
+     0,
+     547,
+     994,
+     1000
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero40-5g-2.jpg",
+    "box": [
+     0,
+     959,
+     1000,
+     1000
+    ],
+    "view": "side"
+   }
+  ]
+ },
+ {
+  "id": "infinix-zero-40-4g",
+  "brand": "Infinix",
+  "name": "Infinix Zero 40 4G",
+  "model_sku": "Zero 40 4G",
+  "series": "Zero",
+  "announced": "2024, August 29",
+  "year": 2024,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/infinix_zero_40_4g-13276.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-zero-40-4g-2.jpg",
+    "box": [
+     0,
+     0,
+     997,
+     327
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40x-5g",
+  "brand": "Infinix",
+  "name": "Infinix Note 40X 5G",
+  "model_sku": "Note 40X 5G",
+  "series": "Note",
+  "announced": "2024, August 05",
+  "year": 2024,
+  "color": "blue and white gradient",
+  "source": "https://www.gsmarena.com/infinix_note_40x_5g-13246.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40x-5g-01.jpg",
+    "box": [
+     0,
+     509,
+     995,
+     1000
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40x-5g-01.jpg",
+    "box": [
+     0,
+     27,
+     995,
+     486
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40-5g",
+  "brand": "Infinix",
+  "name": "Infinix Note 40 5G",
+  "model_sku": "Note 40 5G",
+  "series": "Note",
+  "announced": "2024, May 22",
+  "year": 2024,
+  "color": "dark grey",
+  "source": "https://www.gsmarena.com/infinix_note_40_5g-13035.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40-5g-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     360
+    ],
+    "view": "back",
+    "mask": [
+     [
+      0,
+      340,
+      1000,
+      690
+     ],
+     [
+      0,
+      675,
+      1000,
+      1000
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note40-5g-2.jpg",
+    "box": [
+     0,
+     675,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-gt-20-pro",
+  "brand": "Infinix",
+  "name": "Infinix GT 20 Pro",
+  "model_sku": "GT 20 Pro",
+  "series": "GT",
+  "announced": "2024, April 26",
+  "year": 2024,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/infinix_gt_20_pro-12962.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt-20-pro-3.jpg",
+    "box": [
+     10,
+     10,
+     990,
+     990
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-gt-20-pro-0.jpg",
+    "box": [
+     0,
+     499,
+     1000,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40-pro",
+  "brand": "Infinix",
+  "name": "Infinix Note 40 Pro",
+  "model_sku": "Note 40 Pro",
+  "series": "Note",
+  "announced": "2024, March 18",
+  "year": 2024,
+  "color": "green",
+  "source": "https://www.gsmarena.com/infinix_note_40_pro-12875.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-40-pro-5g-31.jpg",
+    "box": [
+     11,
+     0,
+     990,
+     996
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40-pro-4g",
+  "brand": "Infinix",
+  "name": "Infinix Note 40 Pro 4G",
+  "model_sku": "Note 40 Pro 4G",
+  "series": "Note",
+  "announced": "2024, March 18",
+  "year": 2024,
+  "color": "green",
+  "source": "https://www.gsmarena.com/infinix_note_40_pro_4g-12876.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-40-pro-4g-3.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "infinix-note-40",
+  "brand": "Infinix",
+  "name": "Infinix Note 40",
+  "model_sku": "Note 40",
+  "series": "Note",
+  "announced": "2024, March 18",
+  "year": 2024,
+  "color": "white to gold gradient",
+  "source": "https://www.gsmarena.com/infinix_note_40-12877.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/infinix/infinix-note-40-4g-4.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ]
+ },
+ {
+  "id": "itel-a300c",
+  "brand": "itel",
+  "name": "itel A300C",
+  "model_sku": "A300C",
+  "series": "A300C",
+  "announced": "2026, September 18",
+  "year": 2026,
+  "color": "dark gray",
+  "source": "https://www.gsmarena.com/itel_a300c-14956.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a300c-4.jpg",
+    "box": [
+     0,
+     452,
+     999,
+     686
+    ],
+    "view": "back",
+    "mask": [
+     [
+      0,
+      0,
+      999,
+      269
+     ],
+     [
+      0,
+      226,
+      999,
+      460
+     ],
+     [
+      0,
+      678,
+      999,
+      999
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a300c-2.jpg",
+    "box": [
+     0,
+     391,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ]
+ },
+ {
+  "id": "itel-power-80",
+  "brand": "itel",
+  "name": "itel Power 80",
+  "model_sku": "Power 80",
+  "series": "Power",
+  "announced": "2026, June 09",
+  "year": 2026,
+  "color": "green",
+  "source": "https://www.gsmarena.com/itel_power_80-14814.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-power80-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     500
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-power80-1.jpg",
+    "box": [
+     0,
+     499,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a100-pro",
+  "brand": "itel",
+  "name": "itel A100 Pro",
+  "model_sku": "A100 Pro",
+  "series": "A100",
+  "announced": "2026, May 20",
+  "year": 2026,
+  "color": "white",
+  "source": "https://www.gsmarena.com/itel_a100_pro-14678.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a100-pro-1.jpg",
+    "box": [
+     0,
+     0,
+     874,
+     274
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a100-pro-1.jpg",
+    "box": [
+     115,
+     220,
+     1000,
+     483
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-zeno-100",
+  "brand": "itel",
+  "name": "itel Zeno 100",
+  "model_sku": "Zeno 100",
+  "series": "Zeno",
+  "announced": "2026, March 06",
+  "year": 2026,
+  "color": "white",
+  "source": "https://www.gsmarena.com/itel_zeno_100-14533.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno-100-2.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     331
+    ],
+    "view": "back"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a200",
+  "brand": "itel",
+  "name": "itel A200",
+  "model_sku": "A200",
+  "series": "A200",
+  "announced": "2026, February",
+  "year": 2026,
+  "color": "green",
+  "source": "https://www.gsmarena.com/itel_a200-14478.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a200-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-city-200",
+  "brand": "itel",
+  "name": "itel City 200",
+  "model_sku": "City 200",
+  "series": "City",
+  "announced": "2026, February",
+  "year": 2026,
+  "color": "lavender",
+  "source": "https://www.gsmarena.com/itel_city_200-14479.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-city-200-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     495
+    ],
+    "view": "back",
+    "mask": [
+     [
+      0,
+      439,
+      999,
+      999
+     ]
+    ]
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-city-200-1.jpg",
+    "box": [
+     0,
+     439,
+     999,
+     999
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-zeno-20-max",
+  "brand": "itel",
+  "name": "itel Zeno 20 Max",
+  "model_sku": "Zeno 20 Max",
+  "series": "Zeno",
+  "announced": "2025, December 21",
+  "year": 2025,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/itel_zeno_20_max-14374.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno-20-max-1.jpg",
+    "box": [
+     0,
+     503,
+     898,
+     999
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno-20-max-1.jpg",
+    "box": [
+     0,
+     0,
+     898,
+     490
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno-20-max-2.jpg",
+    "box": [
+     11,
+     12,
+     988,
+     500
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno-20-max-1.jpg",
+    "box": [
+     0,
+     0,
+     898,
+     100
+    ],
+    "view": "side"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-ts-pro",
+  "brand": "itel",
+  "name": "itel TS Pro",
+  "model_sku": "TS Pro",
+  "series": "TS",
+  "announced": "2025, October",
+  "year": 2025,
+  "color": "black",
+  "source": "https://www.gsmarena.com/itel_ts_pro-14223.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-ts-pro-1.jpg",
+    "box": [
+     1,
+     0,
+     990,
+     486
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-ts-pro-1.jpg",
+    "box": [
+     0,
+     513,
+     998,
+     1000
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a100c",
+  "brand": "itel",
+  "name": "itel A100C",
+  "model_sku": "A100C",
+  "series": "A100C",
+  "announced": "2025, October 06",
+  "year": 2025,
+  "color": "green",
+  "source": "https://www.gsmarena.com/itel_a100c-14212.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a100c-1.jpg",
+    "box": [
+     10,
+     10,
+     989,
+     989
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a100",
+  "brand": "itel",
+  "name": "itel A100",
+  "model_sku": "A100",
+  "series": "A100",
+  "announced": "2025, September 25",
+  "year": 2025,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/itel_a100-14211.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a100-1.jpg",
+    "box": [
+     1,
+     0,
+     997,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a95",
+  "brand": "itel",
+  "name": "itel A95",
+  "model_sku": "A95",
+  "series": "A95",
+  "announced": "2025, April 17",
+  "year": 2025,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/itel_a95_5g-14210.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a95-5g-1.jpg",
+    "box": [
+     0,
+     200,
+     1000,
+     800
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a95-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     100
+    ],
+    "view": "side"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a90-limited",
+  "brand": "itel",
+  "name": "itel A90 Limited",
+  "model_sku": "A90 Limited",
+  "series": "A90",
+  "announced": "2025, September 02",
+  "year": 2025,
+  "color": "dark blue",
+  "source": "https://www.gsmarena.com/itel_a90_limited-14209.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a90-limited-1.jpg",
+    "box": [
+     10,
+     577,
+     910,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a90-limited-1.jpg",
+    "box": [
+     10,
+     0,
+     910,
+     495
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a90-limited-1.jpg",
+    "box": [
+     10,
+     509,
+     910,
+     560
+    ],
+    "view": "side"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-zeno-20",
+  "brand": "itel",
+  "name": "itel Zeno 20",
+  "model_sku": "Zeno 20",
+  "series": "Zeno",
+  "announced": "2025, August 23",
+  "year": 2025,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/itel_zeno_20-14096.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno20-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-city-100",
+  "brand": "itel",
+  "name": "itel City 100",
+  "model_sku": "City 100",
+  "series": "City",
+  "announced": "2025, April 27",
+  "year": 2025,
+  "color": "purple",
+  "source": "https://www.gsmarena.com/itel_city_100-13853.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-city-100-2.jpg",
+    "box": [
+     0,
+     500,
+     999,
+     1000
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-city-100-2.jpg",
+    "box": [
+     1,
+     0,
+     999,
+     499
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-city-100-1.jpg",
+    "box": [
+     0,
+     333,
+     999,
+     665
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a90",
+  "brand": "itel",
+  "name": "itel A90",
+  "model_sku": "A90",
+  "series": "A90",
+  "announced": "2025, April 20",
+  "year": 2025,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/itel_a90-13852.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a90-1.jpg",
+    "box": [
+     0,
+     0,
+     992,
+     994
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-power-70",
+  "brand": "itel",
+  "name": "itel Power 70",
+  "model_sku": "Power 70",
+  "series": "Power",
+  "announced": "2025, March 02",
+  "year": 2025,
+  "color": "blue",
+  "source": "https://www.gsmarena.com/itel_power_70-13684.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-power70-2.jpg",
+    "box": [
+     0,
+     552,
+     988,
+     999
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-power70-2.jpg",
+    "box": [
+     172,
+     172,
+     988,
+     489
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-power70-3.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     401
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-zeno-10",
+  "brand": "itel",
+  "name": "itel Zeno 10",
+  "model_sku": "Zeno 10",
+  "series": "Zeno",
+  "announced": "2025, January 02",
+  "year": 2025,
+  "color": "dark green",
+  "source": "https://www.gsmarena.com/itel_zeno_10-13618.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno10-2.jpg",
+    "box": [
+     0,
+     11,
+     1000,
+     480
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-zeno10-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-s25-ultra",
+  "brand": "itel",
+  "name": "itel S25 Ultra",
+  "model_sku": "S25 Ultra",
+  "series": "S25",
+  "announced": "2024, November 09",
+  "year": 2024,
+  "color": "silver",
+  "source": "https://www.gsmarena.com/itel_s25_ultra-13504.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s25-ultra-2.jpg",
+    "box": [
+     0,
+     0,
+     506,
+     1000
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s25-ultra-1.jpg",
+    "box": [
+     0,
+     449,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-s25",
+  "brand": "itel",
+  "name": "itel S25",
+  "model_sku": "S25",
+  "series": "S25",
+  "announced": "2024, November 09",
+  "year": 2024,
+  "color": "dark grey",
+  "source": "https://www.gsmarena.com/itel_s25-13505.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s25-1.jpg",
+    "box": [
+     10,
+     0,
+     990,
+     997
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s25-2.jpg",
+    "box": [
+     0,
+     638,
+     1000,
+     1000
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s25-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     203
+    ],
+    "view": "side"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a80",
+  "brand": "itel",
+  "name": "itel A80",
+  "model_sku": "A80",
+  "series": "A80",
+  "announced": "2024, September",
+  "year": 2024,
+  "color": "black",
+  "source": "https://www.gsmarena.com/itel_a80-13343.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a80-2.jpg",
+    "box": [
+     490,
+     497,
+     1000,
+     720
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a80-2.jpg",
+    "box": [
+     220,
+     219,
+     1000,
+     494
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a80-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a50c",
+  "brand": "itel",
+  "name": "itel A50C",
+  "model_sku": "A50C",
+  "series": "A50C",
+  "announced": "2024, August 12",
+  "year": 2024,
+  "color": "dark blue",
+  "source": "https://www.gsmarena.com/itel_a50c-13287.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a50c-1.jpg",
+    "box": [
+     1,
+     1,
+     992,
+     991
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-p65",
+  "brand": "itel",
+  "name": "itel P65",
+  "model_sku": "P65",
+  "series": "P65",
+  "announced": "2024, August 08",
+  "year": 2024,
+  "color": "red",
+  "source": "https://www.gsmarena.com/itel_p65-13258.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-p65-1.jpg",
+    "box": [
+     1,
+     0,
+     997,
+     552
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-p65-2.jpg",
+    "box": [
+     0,
+     696,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-color-pro",
+  "brand": "itel",
+  "name": "itel Color Pro",
+  "model_sku": "Color Pro",
+  "series": "Color",
+  "announced": "2024, July 17",
+  "year": 2024,
+  "color": "light blue",
+  "source": "https://www.gsmarena.com/itel_color_pro-13626.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-color-pro-5g-1.jpg",
+    "box": [
+     576,
+     631,
+     920,
+     999
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-color-pro-5g-1.jpg",
+    "box": [
+     100,
+     0,
+     915,
+     458
+    ],
+    "view": "front"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-color-pro-5g-1.jpg",
+    "box": [
+     0,
+     0,
+     999,
+     100
+    ],
+    "view": "side"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-a50",
+  "brand": "itel",
+  "name": "itel A50",
+  "model_sku": "A50",
+  "series": "A50",
+  "announced": "2024, May",
+  "year": 2024,
+  "color": "light green",
+  "source": "https://www.gsmarena.com/itel_a50-13183.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-a50-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-rs4",
+  "brand": "itel",
+  "name": "itel RS4",
+  "model_sku": "RS4",
+  "series": "RS4",
+  "announced": "2024, April 06",
+  "year": 2024,
+  "color": "white",
+  "source": "https://www.gsmarena.com/itel_rs4-12930.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-rs4-1.jpg",
+    "box": [
+     79,
+     588,
+     920,
+     953
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-rs4-1.jpg",
+    "box": [
+     80,
+     77,
+     919,
+     485
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-s24",
+  "brand": "itel",
+  "name": "itel S24",
+  "model_sku": "S24",
+  "series": "S24",
+  "announced": "2024, March 29",
+  "year": 2024,
+  "color": "white",
+  "source": "https://www.gsmarena.com/itel_s24-12917.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s24-3.jpg",
+    "box": [
+     0,
+     240,
+     680,
+     999
+    ],
+    "view": "angle"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-s24-2.jpg",
+    "box": [
+     0,
+     610,
+     999,
+     1000
+    ],
+    "view": "front"
+   }
+  ],
+  "unverified": true
+ },
+ {
+  "id": "itel-p55",
+  "brand": "itel",
+  "name": "itel P55",
+  "model_sku": "P55",
+  "series": "P55",
+  "announced": "2024, January 26",
+  "year": 2024,
+  "color": "white",
+  "source": "https://www.gsmarena.com/itel_p55-12808.php",
+  "images": [
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-p55-2.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     400
+    ],
+    "view": "back"
+   },
+   {
+    "src": "https://fdn2.gsmarena.com/vv/pics/itel/itel-p55-1.jpg",
+    "box": [
+     0,
+     0,
+     1000,
+     1000
+    ],
+    "view": "angle"
+   }
+  ],
+  "unverified": true
+ }
+]

@@ -161,3 +161,41 @@ def test_similarity_rules(tmp_path, monkeypatch):
     verdict.update(same=True, mismatches=[])
     assert asyncio.run(qc.product_similarity([other], spec, cast))["status"] == "pass"
     assert qc.summarize({"similarity": {"status": "fail", "reason": "x"}}, spec)["issues"] == ["商品相似度：x"]
+
+
+def test_catalog_import(tmp_path, monkeypatch):
+    """传音机型库：官方渲染图（一张里两台：背面 + 正面）按框裁成单台，带视角导入，走检查和抠图；重复导入跳过。"""
+    from app import catalog
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    render = np.full((800, 1000, 3), 255, np.uint8)
+    cv2.rectangle(render, (100, 100), (400, 700), (40, 120, 60), -1)  # 背面（绿）
+    cv2.circle(render, (180, 200), 50, (10, 10, 10), -1)
+    cv2.rectangle(render, (600, 100), (900, 700), (30, 30, 30), -1)  # 正面（黑屏）
+    raw = cv2.imencode(".jpg", render)[1].tobytes()
+    fake = [{"id": "tecno-pova-9", "brand": "TECNO", "name": "TECNO Pova 9", "model_sku": "Pova 9", "series": "Pova", "announced": "2026, May 1",
+             "year": 2026, "color": "green", "source": "https://www.gsmarena.com/x.php",
+             "images": [{"src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-9-1.jpg", "box": [100, 600, 900, 920], "view": "front"},
+                        {"src": "https://fdn2.gsmarena.com/vv/pics/tecno/tecno-pova-9-1.jpg", "box": [100, 80, 900, 420], "view": "back"}]}]
+    monkeypatch.setattr(catalog, "load", lambda: fake)
+    got = []
+    catalog.transport = httpx.MockTransport(lambda r: (got.append(str(r.url)), httpx.Response(200, content=raw))[1])
+    try:
+        with TestClient(app) as c:
+            assert [m["imported"] for m in c.get("/api/v1/library/catalog").json()] == [None]
+            r = c.post("/api/v1/library/catalog/import", json={"ids": ["tecno-pova-9", "nope"]}).json()
+            assert r["created"] == 1
+            aid = r["items"][0]["asset_id"]
+            get = lambda: next(x for x in c.get("/api/v1/library", params={"kind": "product"}).json() if x["id"] == aid)  # noqa: E731
+            wait_until(lambda: get()["data"].get("import_step") == "完成" and get()["status"] == "ready")
+            a = get()
+            assert a["name"] == "TECNO Pova 9" and a["data"]["brand"] == "TECNO" and a["data"]["model_sku"] == "Pova 9" and len(a["images"]) == 2
+            assert len(got) == 1  # 同一张渲染图只下载一次
+            views = a["data"]["views"]
+            assert views[a["images"][0]]["view"] == "back" and views[a["images"][1]]["view"] == "front"  # 背面排第一（商品主图）
+            back = cv2.imread(str(tmp_path / a["images"][0].split("/api/v1/media/", 1)[1]))
+            assert np.abs(back[back.shape[0] // 2, back.shape[1] // 2].astype(int) - [40, 120, 60]).max() <= 3  # 裁出来的是绿色背面那台
+            assert all(views[u].get("cutout") for u in a["images"])
+            assert c.get("/api/v1/library/catalog").json()[0]["imported"]["id"] == aid
+            assert c.post("/api/v1/library/catalog/import", json={"ids": ["tecno-pova-9"]}).json()["created"] == 0
+    finally:
+        catalog.transport = None
