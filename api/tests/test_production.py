@@ -201,6 +201,44 @@ def test_production(tmp_path, monkeypatch):
         assert "Exhausted balance" in t2["retry_error"] and t2["qc"]["status"] == "fail"
         FAL_DOWN.update(on=False, after=None)
         c.put("/api/v1/settings/retries", json={"keyframe": 2, "clip": 0})
+        monkeypatch.undo()
+        monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+        monkeypatch.setattr(qc, "_face", {"loaded": True, "det": None, "rec": None, "error": "测试环境不下载人脸模型"})
+        monkeypatch.setattr(qc, "_ffmpeg_ok", lambda: False)
+
+        # 回到关键帧：只重画第 1 镜关键帧（带修改意见），画完停下等确认，不生成视频
+        n_img, n_i2v = len(images), len(i2v)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/0/keyframe", json={"comment": "摊主要拿着手机照亮摊位"}).json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "input")
+        vv = of("video")[0]
+        t0 = vv["data"]["tasks"][0]
+        assert vv["data"]["stage"] == "关键帧待确认" and t0["phase"] == "关键帧待确认" and t0["url"] is None and t0["keyframe"]
+        assert len(images) == n_img + 1 and len(i2v) == n_i2v and "摊主要拿着手机照亮摊位" in images[-1]["messages"][0]["content"][0]["text"]
+        assert not [r for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["node_id"] == v["id"]]  # 旧审核单作废
+        assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").status_code == 409
+        # 确认这张 → 生成视频 → 重新提交审核
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/0/clip").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "wait")
+        assert len(i2v) == n_i2v + 1 and of("video")[0]["data"]["tasks"][0]["keyframe"] == t0["keyframe"]
+        assert len([r for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["node_id"] == v["id"]]) == 1
+
+        # 商品特写：有真实的商品实拍图时，关键帧直接用实拍图合成（不调用生图），视频提示词要求商品不变
+        import cv2
+        import numpy as np
+        photo = np.full((400, 300, 3), 255, np.uint8)
+        cv2.rectangle(photo, (80, 40), (220, 360), (90, 90, 90), -1)
+        real = "data:image/png;base64," + base64.b64encode(cv2.imencode(".png", photo)[1].tobytes()).decode()
+        c.post(f"/api/v1/library/{lib['TECNO Spark 40']['id']}/upload", json={"image": real})
+        n_img, n_i2v = len(images), len(i2v)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/keyframe", json={}).json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "input")
+        t2 = of("video")[0]["data"]["tasks"][2]
+        assert len(images) == n_img and t2["kf_from"] == "product" and t2["qc"]["checks"]["product"]["status"] == "pass"
+        kf = cv2.imread(str(tmp_path / t2["keyframe"].split("/api/v1/media/", 1)[1]))
+        assert kf.shape[:2] == (1920, 1080) and tuple(int(x) for x in kf[10, 10]) == (255, 255, 255)  # 背景取实拍图的底色
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/clip").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "wait")
+        assert "exact phone in the first frame" in i2v[-1]["prompt"] and of("video")[0]["data"]["tasks"][2]["kf_from"] == "product"
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")

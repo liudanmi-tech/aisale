@@ -118,8 +118,8 @@ def regenerate_shot(nid: str, i: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "video not found")
     if not 0 <= i < len((n.data or {}).get("shots", [])):
         raise HTTPException(400, "bad shot index")
-    if n.status in ("run", "input"):
-        raise HTTPException(409, "视频还在生成或等待上传，稍后再试")
+    if n.status == "run" or (n.data or {}).get("stage") in ("确认选角", "等待商品图"):
+        raise HTTPException(409, "视频还在生成或等待确认，稍后再试")
     spawn(production.run(nid, only=[i]))
     return {"ok": True}
 
@@ -186,6 +186,49 @@ def set_cast(nid: str, body: CastIn, db: Session = Depends(get_db)):
     return {"cast": cast}
 
 
+def _shot_guard(db: Session, nid: str, i: int) -> Node:
+    """单镜修改的前置检查：整条视频在跑（分镜 / 选角 / 关键帧阶段）或在等选角确认时不行；这一镜正在做也不行。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    d = n.data or {}
+    if not 0 <= i < len(d.get("shots", [])):
+        raise HTTPException(400, "bad shot index")
+    if (n.status == "run" and d.get("stage") != "单镜修改") or d.get("stage") in ("确认选角", "等待商品图"):
+        raise HTTPException(409, "视频还在生成或等待确认，稍后再试")
+    t = (d.get("tasks") or [])[i] if i < len(d.get("tasks") or []) else {}
+    if t.get("phase") not in production.IDLE:
+        raise HTTPException(409, f"第 {i + 1} 镜正在{t.get('phase')}，稍后再试")
+    return n
+
+
+class KeyframeIn(BaseModel):
+    comment: str = ""
+
+
+@router.post("/nodes/{nid}/shots/{i}/keyframe")
+def redo_keyframe(nid: str, i: int, body: KeyframeIn, db: Session = Depends(get_db)):
+    """回到关键帧：只重画这一镜的关键帧（可写修改意见），画完停下等你确认，不自动生成视频。"""
+    n = _shot_guard(db, nid, i)
+    canvas.audit(db, n.project_id, "user", "redo_keyframe", {"node_id": nid, "shot": i, "comment": body.comment})
+    db.commit()
+    spawn(production.redo_keyframe(nid, i, body.comment.strip()))
+    return {"ok": True}
+
+
+@router.post("/nodes/{nid}/shots/{i}/clip")
+def redo_clip(nid: str, i: int, db: Session = Depends(get_db)):
+    """用这一镜现在的关键帧生成视频。"""
+    n = _shot_guard(db, nid, i)
+    t = ((n.data or {}).get("tasks") or [{}] * (i + 1))[i]
+    if not t.get("keyframe"):
+        raise HTTPException(400, "这一镜还没有关键帧，先画关键帧")
+    canvas.audit(db, n.project_id, "user", "redo_clip", {"node_id": nid, "shot": i})
+    db.commit()
+    spawn(production.redo_clip(nid, i))
+    return {"ok": True}
+
+
 class ShotsIn(BaseModel):
     indices: list[int]
 
@@ -200,7 +243,7 @@ def regenerate_shots(nid: str, body: ShotsIn, db: Session = Depends(get_db)):
     idx = sorted({i for i in body.indices if 0 <= i < total})
     if not idx:
         raise HTTPException(400, "没有要重新生成的镜头")
-    if n.status in ("run", "input"):
+    if n.status == "run" or (n.data or {}).get("stage") in ("确认选角", "等待商品图"):
         raise HTTPException(409, "视频还在生成或等待确认，稍后再试")
     canvas.audit(db, n.project_id, "user", "regenerate_shots", {"node_id": nid, "indices": idx})
     db.commit()

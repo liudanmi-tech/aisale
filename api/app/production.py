@@ -17,7 +17,7 @@ from app import agent, assets, canvas, config, qc, settings_store, storyboard
 from app.adapters import fal, llm, seedance
 from app.db import SessionLocal
 from app.events import emit
-from app.models import Asset, Edge, Node, Project
+from app.models import Asset, Edge, Node, Project, ReviewTask
 
 log = logging.getLogger(__name__)
 SIZES = ["WS", "MS", "CU", "ECU"]  # 全景 / 中景 / 特写 / 大特写
@@ -175,7 +175,7 @@ def inputs(sh: list, spec: dict, cast: dict) -> dict:
         for kind, key, aid in keys:
             a = db.get(Asset, aid) if aid else None
             refs.append([kind, key, aid, (a.images or [None])[0] if a else None])
-    return {"visual": sh[1] if len(sh) > 1 else "", "spec": {k: spec.get(k) for k in ("size", "move", "roles", "scene", "product")}, "refs": refs}
+    return {"visual": sh[1] if len(sh) > 1 else "", "spec": {k: spec.get(k) for k in ("size", "move", "roles", "scene", "product", "kf_source")}, "refs": refs}
 
 
 def _shot(video_id: str, i: int, **fields) -> None:
@@ -356,73 +356,151 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         prev = old[i] if i < len(old) and only is not None and i not in only else None
         if prev:
             return prev
-        spec = specs[i] if i < len(specs) else {"size": "MS", "move": "固定", "roles": [], "scene": None, "product": i == PRODUCT_SHOT}
-        kf, err, kf_qc, fix, tries = None, "", None, "", 0
+        spec = _spec(specs, i)
         frame = (frames[i] or {}).get("url") if i < len(frames) and frames[i] else None
         last = old[i] if i < len(old) else {}
+        kf, kf_qc, tries, err = None, None, 0, ""
         if use_kf and last.get("keyframe") and last.get("status") == "failed" and last.get("inputs") == inputs(sh, spec, cast):
             # 上次关键帧画好了、只是视频没生成出来，输入也没改：沿用关键帧，只重做视频，不重复花钱
             kf, kf_qc = last["keyframe"], last.get("qc")
         elif use_kf:
             async with sem:
-                # 关键帧质检：不合格带着问题重画，最多重画 kf_retries 次；仍不合格就用最后一张并标红
-                for tries in range(1, kf_retries + 2):
-                    _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
-                    try:
-                        kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
-                    except Exception as e:  # noqa: BLE001
-                        err = str(e)[:200]
-                        log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
-                        break
-                    _shot(video_id, i, keyframe=kf, phase="关键帧质检")
-                    kf_qc = await qc.check_keyframe(kf, sh, spec, cast)
-                    if kf_qc["status"] != "fail":
-                        break
-                    fix = "上一张没通过质检，必须改正：" + "；".join(kf_qc["issues"])[:400]
+                kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, market, comment, kf_retries)
         if spec.get("product") and not kf and not cast.get("product"):
             return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec,
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
-        move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
-        prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-        # 成片质检：不合格重生成 clip_retries 次；重做失败时保留上一条已生成的视频，不能把它扔掉
-        best, retry_error, clip_qc = None, "", None
-        for clip_tries in range(1, clip_retries + 2):
-            _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
-            res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
-            if res.get("status") == "failed":
-                if best:
-                    retry_error = res.get("error") or "重新生成失败"
-                    log.warning("镜头 %s #%d 质检后重做失败，保留上一条视频：%s", video_id, i, retry_error)
-                break
-            _shot(video_id, i, phase="视频质检", url=res.get("video_url"))
-            clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
-            best = (res, clip_qc, clip_tries)
-            if clip_qc["status"] != "fail":
-                break
-        if best:
-            res, clip_qc, clip_tries = best
-        return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
-                "url": res.get("video_url"), **res, "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
-                **({"retry_error": f"质检不合格后自动重做失败，保留了第一条视频：{retry_error[:200]}"} if retry_error else {}),
-                "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries if use_kf else 0, "clip": clip_tries})}
+        return await make_clip(video_id, i, sh, spec, cast, kf, kf_qc, tries if use_kf else 0, err, comment, clip_retries)
 
     tasks = list(await asyncio.gather(*(one(i, sh) for i, sh in enumerate(shots))))
+    _finalize(video_id, cast, shots, tasks)
+
+
+def _spec(specs: list, i: int) -> dict:
+    return specs[i] if i < len(specs) else {"size": "MS", "move": "固定", "roles": [], "scene": None, "product": i == PRODUCT_SHOT}
+
+
+def kf_source(spec: dict, cast: dict) -> str:
+    """关键帧来源：商品镜头有实拍图时默认直接用实拍图（AI 画不准具体机型），可在拍法里改成 AI 生成。"""
+    if not spec.get("product") or spec.get("kf_source") == "ai" or not cast.get("product"):
+        return "ai"
+    with SessionLocal() as db:
+        a = db.get(Asset, cast["product"])
+        return "product" if a and a.images else "ai"
+
+
+def product_keyframe(video_id: str, i: int, cast: dict) -> str:
+    """用商品实拍图合成 9:16 关键帧：背景取实拍图边缘的颜色（棚拍底色），商品居中放大。外观和实拍图完全一致。"""
+    import cv2
+    import numpy as np
+    with SessionLocal() as db:
+        a = db.get(Asset, cast["product"])
+        path = config.MEDIA_DIR / a.images[0].split("/api/v1/media/", 1)[1]
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("商品实拍图读不出来")
+    h, w = img.shape[:2]
+    edge = np.concatenate([img[:4].reshape(-1, 3), img[-4:].reshape(-1, 3), img[:, :4].reshape(-1, 3), img[:, -4:].reshape(-1, 3)])
+    bg = np.median(edge, axis=0).astype(np.uint8)
+    W, H = 1080, 1920
+    canvas_ = np.empty((H, W, 3), np.uint8)
+    canvas_[:] = bg
+    scale = min(W * 0.9 / w, H * 0.72 / h)
+    nw, nh = int(w * scale), int(h * scale)
+    small = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
+    x, y = (W - nw) // 2, (H - nh) // 2
+    canvas_[y:y + nh, x:x + nw] = small
+    ok, buf = cv2.imencode(".jpg", canvas_, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    return _save_keyframe(video_id, i, buf.tobytes(), "image/jpeg")
+
+
+async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict, frame: str | None, market: str,
+                        comment: str, retries: int) -> tuple[str | None, dict | None, int, str]:
+    """画一镜的关键帧并质检；不合格带着问题重画，最多重画 retries 次。返回 (关键帧, 质检, 画了几次, 错误)。"""
+    if kf_source(spec, cast) == "product":
+        _shot(video_id, i, phase="用商品实拍图合成关键帧")
+        try:
+            kf = await asyncio.to_thread(product_keyframe, video_id, i, cast)
+        except Exception as e:  # noqa: BLE001  合成失败就退回 AI 画
+            log.warning("实拍图合成关键帧失败 %s #%d：%s", video_id, i, e)
+        else:
+            res = qc.summarize({"product": {"status": "pass", "reason": "关键帧直接用商品实拍图，外观与实拍一致"}}, spec)
+            return kf, {**res, "manual_confirm": False, "source": "product"}, 1, ""
+    kf, kf_qc, err, fix, tries = None, None, "", "", 0
+    for tries in range(1, retries + 2):
+        _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
+        try:
+            kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
+        except Exception as e:  # noqa: BLE001
+            err = str(e)[:200]
+            log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
+            break
+        _shot(video_id, i, keyframe=kf, phase="关键帧质检")
+        kf_qc = await qc.check_keyframe(kf, sh, spec, cast)
+        if kf_qc["status"] != "fail":
+            break
+        fix = "上一张没通过质检，必须改正：" + "；".join(kf_qc["issues"])[:400]
+    return kf, kf_qc, tries, err
+
+
+async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf: str | None, kf_qc: dict | None, tries: int,
+                    err: str, comment: str, retries: int) -> dict:
+    """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。"""
+    move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
+    prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
+    if (kf_qc or {}).get("source") == "product":
+        prompt = (f"Product hero shot of the exact phone in the first frame. Camera: slow, subtle {move}; soft moving studio light. "
+                  "The phone must stay exactly as in the first frame: same shape, color, camera module and logo; no morphing, no extra phones, "
+                  f"no hands, no text. {VIDEO_STYLE}")
+    best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
+    for clip_tries in range(1, retries + 2):
+        _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
+        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
+        if res.get("status") == "failed":
+            if best:
+                retry_error = res.get("error") or "重新生成失败"
+                log.warning("镜头 %s #%d 质检后重做失败，保留上一条视频：%s", video_id, i, retry_error)
+            break
+        _shot(video_id, i, phase="视频质检", url=res.get("video_url"))
+        clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
+        best = (res, clip_qc, clip_tries)
+        if clip_qc["status"] != "fail":
+            break
+    if best:
+        res, clip_qc, clip_tries = best
+    return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
+            "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, **res,
+            "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
+            "kf_from": "product" if (kf_qc or {}).get("source") == "product" else "ai",
+            **({"retry_error": f"质检不合格后自动重做失败，保留了第一条视频：{retry_error[:200]}"} if retry_error else {}),
+            "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries, "clip": clip_tries})}
+
+
+IDLE = ("完成", "失败", "关键帧待确认", None)
+
+
+def _finalize(video_id: str, cast: dict, shots: list, tasks: list) -> None:
+    """所有镜头做完后：有失败 → 标失败；有关键帧待确认 → 等人；否则提交审核。"""
     with SessionLocal() as db:
         v = db.get(Node, video_id)
         if not v:
             return
         failed = [t for t in tasks if t.get("status") == "failed"]
+        pending = [k + 1 for k, t in enumerate(tasks) if t.get("phase") == "关键帧待确认"]
         real = [t for t in tasks if t.get("provider") in ("fal", "byteplus")]
         urls = [t["url"] for t in tasks if (t.get("url") or "").startswith("http")]
         kfs = sum(1 for t in tasks if t.get("keyframe"))
         report = qc.video_summary(tasks)
-        v.data = {**(v.data or {}), "shots": shots, "tasks": tasks, "stage": "完成", "waiting_asset": None, "names": cast.get("names", {}),
-                  "video_url": urls[0] if urls else f"mock://composed/{video_id}.mp4", "shot_urls": urls,
-                  "engine": real[0].get("model", real[0]["provider"]) if real else "mock",
-                  "qc": report}
+        v.data = {**(v.data or {}), "shots": shots, "tasks": tasks, "stage": "关键帧待确认" if pending else "完成", "waiting_asset": None,
+                  "names": cast.get("names", {}), "video_url": urls[0] if urls else f"mock://composed/{video_id}.mp4", "shot_urls": urls,
+                  "engine": real[0].get("model", real[0]["provider"]) if real else (v.data or {}).get("engine", "mock"), "qc": report}
+        if pending:
+            v.status, v.sub = "input", f"第 {'、'.join(map(str, pending))} 镜关键帧已更新，确认后生成视频"
+            db.commit()
+            emit(v.project_id, "canvas")
+            return
         if failed:
             v.status, v.sub = "failed", f"{len(failed)} 个镜头生成失败，可重试"
-            agent.say(db, v.project_id, f"{agent.ref(v)} 有 {len(failed)} 个镜头的视频生成失败（关键帧已画好；点「重新生成」会沿用关键帧，只重做视频）：{failed[0].get('error', '')[:300]}")
+            agent.say(db, v.project_id, f"{agent.ref(v)} 有 {len(failed)} 个镜头的视频生成失败（关键帧已画好；点「重做视频」会沿用关键帧，只重做视频）：{failed[0].get('error', '')[:300]}")
             db.commit()
             emit(v.project_id, "canvas")
             emit(v.project_id, "chat")
@@ -435,6 +513,83 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         db.commit()
         emit(v.project_id, "canvas")
         emit(v.project_id, "reviews")
+
+
+def _context(video_id: str) -> dict:
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        s = db.get(Node, (v.data or {}).get("script_id"))
+        project = db.get(Project, v.project_id)
+        return {"shots": [list(x) for x in (s.data or {}).get("shots", [])], "frames": (s.data or {}).get("frames") or [],
+                "cast": (s.data or {}).get("cast") or {}, "market": project.market, "script_id": s.id}
+
+
+def _begin_shot(video_id: str, i: int, what: str) -> None:
+    """单镜修改开始：视频节点进入「生成中」，旧审核单作废（改完重新提交）。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        for r in db.query(ReviewTask).filter(ReviewTask.node_id == video_id, ReviewTask.status == "wait"):
+            r.status, r.comment = "cancel", f"第 {i + 1} 镜{what}"
+        v.status, v.sub = "run", f"第 {i + 1} 镜{what}中…"
+        v.data = {**(v.data or {}), "stage": "单镜修改"}
+        db.commit()
+        emit(v.project_id, "canvas")
+        emit(v.project_id, "reviews")
+
+
+def _settle(video_id: str) -> None:
+    """单镜修改结束：其他镜头都空闲了才收尾。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        tasks = list((v.data or {}).get("tasks") or [])
+    if any(t.get("phase") not in IDLE for t in tasks):
+        return
+    ctx = _context(video_id)
+    _finalize(video_id, ctx["cast"], ctx["shots"], tasks)
+
+
+async def redo_keyframe(video_id: str, i: int, comment: str = "") -> None:
+    """只重画第 i 镜的关键帧（可带修改意见），画完停下等人看；满意了再 redo_clip 生成视频。"""
+    _begin_shot(video_id, i, "重画关键帧")
+    try:
+        ctx = _context(video_id)
+        sh, spec, cast = ctx["shots"][i], _spec(ctx["cast"].get("specs") or [], i), ctx["cast"]
+        frame = (ctx["frames"][i] or {}).get("url") if i < len(ctx["frames"]) and ctx["frames"][i] else None
+        kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, ctx["market"], comment,
+                                                    settings_store.get_retries()["keyframe"])
+        if kf:
+            kq = qc.merge(kf_qc, None, spec, {"keyframe": tries})
+            if (kf_qc or {}).get("source") == "product":
+                kq["manual_confirm"] = False  # 实拍图合成的关键帧外观就是实拍；视频生成后再由视频质检和人确认
+            _shot(video_id, i, keyframe=kf, keyframe_error="", qc=kq, phase="关键帧待确认",
+                  status="keyframe_ready", url=None, video_url=None, error=None, retry_error=None, spec=spec, inputs=inputs(sh, spec, cast),
+                  kf_from="product" if (kf_qc or {}).get("source") == "product" else "ai")
+        else:
+            _shot(video_id, i, phase="失败", status="failed", error=f"关键帧没画出来：{err}")
+    except Exception as e:  # noqa: BLE001
+        log.exception("重画关键帧出错 %s #%d", video_id, i)
+        _shot(video_id, i, phase="失败", status="failed", error=f"重画关键帧出错：{str(e)[:200]}")
+    _settle(video_id)
+
+
+async def redo_clip(video_id: str, i: int) -> None:
+    """用第 i 镜现在的关键帧生成视频（关键帧确认后、或只有视频失败时）。"""
+    _begin_shot(video_id, i, "生成视频")
+    try:
+        ctx = _context(video_id)
+        with SessionLocal() as db:
+            t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i]
+        sh, spec, cast = ctx["shots"][i], _spec(ctx["cast"].get("specs") or [], i), ctx["cast"]
+        kf_qc = t.get("qc")
+        if t.get("kf_from") == "product":  # 实拍图合成的关键帧，视频提示词要求商品保持不变
+            kf_qc = {**(kf_qc or {}), "source": "product"}
+        res = await make_clip(video_id, i, sh, spec, cast, t.get("keyframe"), kf_qc, ((t.get("qc") or {}).get("attempts") or {}).get("keyframe", 1),
+                              "", "", settings_store.get_retries()["clip"])
+        _shot(video_id, i, **res)
+    except Exception as e:  # noqa: BLE001
+        log.exception("生成视频出错 %s #%d", video_id, i)
+        _shot(video_id, i, phase="失败", status="failed", error=f"生成视频出错：{str(e)[:200]}")
+    _settle(video_id)
 
 
 def resume_waiting(asset_id: str) -> list[str]:

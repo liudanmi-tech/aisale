@@ -46,7 +46,8 @@ function useLibrary() {
 function SpecChips({ spec, cast, onChange }: { spec: ShotSpec; cast: Cast; onChange?: (s: ShotSpec) => void }) {
     const [open, setOpen] = useState(false);
     const roleNames = spec.roles.map((r) => cast.names?.[r] || r);
-    const chips = [SIZE_ZH[spec.size] || spec.size, spec.move, roleNames.length ? roleNames.join("、") : "无人物", spec.scene ? cast.names?.[spec.scene] || spec.scene : "", spec.product ? "商品" : ""].filter(Boolean);
+    const chips = [SIZE_ZH[spec.size] || spec.size, spec.move, roleNames.length ? roleNames.join("、") : "无人物", spec.scene ? cast.names?.[spec.scene] || spec.scene : "",
+        spec.product ? (spec.kf_source === "ai" ? "商品 · AI 画" : "商品 · 实拍图") : ""].filter(Boolean);
     const body = (
         <div className="flex w-[240px] flex-col gap-2 text-xs" data-ui>
             <label>景别<Select size="small" className="mt-0.5 w-full" value={spec.size} onChange={(size) => onChange?.({ ...spec, size })}
@@ -57,6 +58,10 @@ function SpecChips({ spec, cast, onChange }: { spec: ShotSpec; cast: Cast; onCha
             <label>场景<Select size="small" className="mt-0.5 w-full" value={spec.scene ?? undefined} onChange={(scene) => onChange?.({ ...spec, scene })}
                 options={Object.keys(cast.scenes).map((k) => ({ value: k, label: cast.names?.[k] || k }))} /></label>
             <label className="flex items-center justify-between">出现商品<Switch size="small" checked={spec.product} onChange={(product) => onChange?.({ ...spec, product })} /></label>
+            {spec.product && (
+                <label>关键帧来源<Select size="small" className="mt-0.5 w-full" value={spec.kf_source ?? "product"} onChange={(kf_source) => onChange?.({ ...spec, kf_source })}
+                    options={[{ value: "product", label: "商品实拍图（外观 100% 一致，推荐）" }, { value: "ai", label: "AI 生成（可以有手和场景，外观可能走样）" }]} /></label>
+            )}
             <div className="text-[11px] text-ink2">改完后视频里这一镜会标「已修改」，点「重新生成改过的镜头」生效</div>
         </div>
     );
@@ -183,7 +188,7 @@ function ShotQcChips({ q, keyframe, shot }: { q?: ShotQc; keyframe?: string; sho
     );
 }
 
-const SPEC_KEYS = ["size", "move", "roles", "scene", "product"] as const;
+const SPEC_KEYS = ["size", "move", "roles", "scene", "product", "kf_source"] as const;
 
 /** 这一镜现在的输入和上次生成时用的输入不一样（改了画面 / 拍法，换了演员 / 场景 / 商品或它们的图）→ 需要重新生成 */
 function shotDirty(t: any, visual: string, spec: ShotSpec | undefined, cast: Cast | undefined, lib: Record<string, LibraryAsset>) {
@@ -192,8 +197,8 @@ function shotDirty(t: any, visual: string, spec: ShotSpec | undefined, cast: Cas
     const refs: any[] = spec.roles.map((k) => ["role", k, cast.roles[k] ?? null, img(cast.roles[k])]);
     refs.push(["scene", spec.scene, (spec.scene && cast.scenes[spec.scene]) || null, img(spec.scene ? cast.scenes[spec.scene] : null)]);
     if (spec.product) refs.push(["product", "product", cast.product, img(cast.product)]);
-    const now = { visual, spec: Object.fromEntries(SPEC_KEYS.map((k) => [k, spec[k]])), refs };
-    const was = { visual: t.inputs.visual, spec: Object.fromEntries(SPEC_KEYS.map((k) => [k, t.inputs.spec?.[k]])), refs: t.inputs.refs };
+    const now = { visual, spec: Object.fromEntries(SPEC_KEYS.map((k) => [k, spec[k] ?? null])), refs };
+    const was = { visual: t.inputs.visual, spec: Object.fromEntries(SPEC_KEYS.map((k) => [k, t.inputs.spec?.[k] ?? null])), refs: t.inputs.refs };
     return JSON.stringify(now) !== JSON.stringify(was);
 }
 
@@ -279,6 +284,27 @@ function ShotEditor({ shot, onSave, disabled }: { shot: string[]; onSave: (visua
     );
 }
 
+/** 回到关键帧：写修改意见重画这一镜的关键帧，画完停下等确认 */
+function KeyframeRedo({ onRedo, disabled, primary }: { onRedo: (comment: string) => void; disabled: boolean; primary?: boolean }) {
+    const [open, setOpen] = useState(false);
+    const [comment, setComment] = useState("");
+    const body = (
+        <div data-ui className="flex w-[260px] flex-col gap-2 text-xs" onPointerDown={(e) => e.stopPropagation()}>
+            <Input.TextArea autoFocus rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="哪里不对？如：手机要竖排三摄、灰色机身；摊主站在左边" />
+            <div className="text-[11px] text-ink2">只重画关键帧，画完先给你看，满意了再点「用这张生成视频」</div>
+            <div className="flex justify-end gap-1">
+                <Btn onClick={() => setOpen(false)}>取消</Btn>
+                <Btn primary onClick={() => { onRedo(comment.trim()); setOpen(false); setComment(""); }}>重画关键帧</Btn>
+            </div>
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={setOpen} trigger="click" title="重画这一镜的关键帧" content={body}>
+            <span><Btn primary={primary} icon={<Pencil size={10} />} disabled={disabled} onClick={() => setOpen(true)}>重画关键帧</Btn></span>
+        </Popover>
+    );
+}
+
 const VSTAGES = ["分镜", "选角置景", "确认选角", "关键帧", "完成"];
 
 function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
@@ -295,12 +321,17 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const stage: string | undefined = n.data.stage;
     const running = n.status === "run";
     const confirming = n.status === "input" && stage === "确认选角";
+    const shotMode = stage === "单镜修改" || stage === "关键帧待确认";
+    const fullRun = running && !shotMode;
     const editable = !running && !!script;
+    const pendingKf = tasks.flatMap((t, i) => (t?.phase === "关键帧待确认" ? [i] : []));
     const onErr = (e: unknown) => message.error(errMsg(e));
     const saveScript = useMutation({ mutationFn: (data: object) => api.updateNodeData(pid, script!.id, data), onSuccess: refresh, onError: onErr });
     const confirm = useMutation({ mutationFn: () => api.confirmCast(n.id), onSuccess: () => { message.success("已确认，开始画关键帧"); refresh(); }, onError: onErr });
     const regen = useMutation({ mutationFn: (i: number) => api.regenerateShot(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 重新生成中`); refresh(); }, onError: onErr });
     const regenSome = useMutation({ mutationFn: (idx: number[]) => api.regenerateShots(n.id, idx), onSuccess: (r) => { message.success(`重新生成 ${r.indices.length} 镜`); refresh(); }, onError: onErr });
+    const redoKf = useMutation({ mutationFn: ({ i, c }: { i: number; c: string }) => api.redoKeyframe(n.id, i, c), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
+    const redoClip = useMutation({ mutationFn: (i: number) => api.redoClip(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 用当前关键帧生成视频中`); refresh(); }, onError: onErr });
     const regenAll = useMutation({ mutationFn: () => api.regenerateVideo(n.id), onSuccess: () => { message.success("整条视频重新生成中（使用当前的演员 / 场景 / 商品）"); refresh(); }, onError: onErr });
     const dirty = shots.map((s, i) => libReady && shotDirty(tasks[i], s[1], cast?.specs?.[i], cast, lib));
     const dirtyIdx = dirty.flatMap((d, i) => (d ? [i] : []));
@@ -313,7 +344,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     return (
         <div>
             <div className="mb-2 flex items-center gap-1.5 text-[11px]">
-                {(running || n.status === "input") && stage && stage !== "完成"
+                {(running || n.status === "input") && stage && !["完成", "单镜修改", "关键帧待确认"].includes(stage)
                     ? <span className="flex items-center gap-1">{[...VSTAGES.slice(0, 3), ...(stage === "等待商品图" ? ["等待商品图"] : []), ...VSTAGES.slice(3)].map((x, k, arr) => (
                         <span key={x} className={clsx("rounded px-1.5", x === stage ? "bg-brand/25 text-ink" : arr.indexOf(x) < arr.indexOf(stage) ? "text-good" : "text-ink2")}>{x}</span>
                     ))}{stage === "关键帧" && <span className="text-ink2">· 已完成 {done}/{shots.length} 镜</span>}</span>
@@ -326,6 +357,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                         </span>
                         : <span className="text-ink2">每镜：分镜 → 关键帧 → 质检 → 图生视频 → 质检</span>}
                 <span className="ml-auto" />
+                {pendingKf.length > 0 && <Btn primary icon={<Rocket size={11} />} disabled={redoClip.isPending} onClick={() => pendingKf.forEach((i) => redoClip.mutate(i))}>为 {pendingKf.length} 镜生成视频</Btn>}
                 {dirtyIdx.length > 0 && editable && !confirming && <Btn primary icon={<RefreshCw size={11} />} disabled={regenSome.isPending} onClick={() => regenSome.mutate(dirtyIdx)}>重新生成改过的 {dirtyIdx.length} 镜</Btn>}
                 <Btn icon={<RefreshCw size={11} />} disabled={running || confirming || regenAll.isPending} onClick={() => regenAll.mutate()}>全部重新生成</Btn>
             </div>
@@ -349,10 +381,14 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                         const t = tasks[i] || {};
                         const f = frames[i];
                         const phase: string | undefined = t.phase && t.phase !== "完成" ? t.phase : undefined;
-                        const live = running && phase && phase !== "失败";
+                        const waitingKf = phase === "关键帧待确认";
+                        const live = running && phase && phase !== "失败" && !waitingKf;
+                        const shotBusy = !!phase && !["失败", "关键帧待确认"].includes(phase);
+                        const locked = fullRun || confirming || shotBusy || stage === "等待商品图";
+                        const hasVideo = (t.url || "").startsWith("http");
                         const spec = cast?.specs?.[i];
                         return (
-                            <div key={i} className={clsx("min-w-0 rounded-lg border bg-elev p-1.5 text-[11px]", dirty[i] ? "border-warn/70" : "border-line")}>
+                            <div key={i} className={clsx("min-w-0 rounded-lg border bg-elev p-1.5 text-[11px]", waitingKf ? "border-brand" : dirty[i] ? "border-warn/70" : "border-line")}>
                                 <div className="relative">
                                     {(t.url || "").startsWith("http")
                                         ? <video data-ui src={t.url} poster={t.keyframe || undefined} className="aspect-[9/16] w-full rounded-md bg-black object-cover" muted loop playsInline controls preload="metadata" />
@@ -371,7 +407,13 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                             {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />}{phase === "失败" || t.status === "failed" ? "生成失败" : phase}
                                         </span>
                                     )}
-                                    {dirty[i] && !live && <span className="absolute right-1 top-1 rounded bg-warn px-1 text-[10px] text-black">已修改</span>}
+                                    {dirty[i] && !live && !waitingKf && <span className="absolute right-1 top-1 rounded bg-warn px-1 text-[10px] text-black">已修改</span>}
+                                    {waitingKf && <span className="absolute inset-x-1 bottom-1 rounded bg-brand px-1 py-0.5 text-center text-[10px] text-white">关键帧待确认：满意就生成视频</span>}
+                                    {hasVideo && t.keyframe && (
+                                        <span data-ui className="absolute right-1 top-1 overflow-hidden rounded border border-white/60" title="看这一镜的关键帧（视频的第一帧）">
+                                            <Image src={t.keyframe} alt="关键帧" width={28} height={50} className="object-cover" preview={{ mask: false }} />
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span></div>
                                 {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有返回原因），可以点「重做视频」"}</div>}
@@ -379,7 +421,14 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5"><ShotEditor shot={s} disabled={!editable} onSave={(v, l) => saveShot(i, v, l)} /></div>
-                                {!confirming && <div className="mt-1"><Btn icon={<RefreshCw size={10} />} disabled={running || n.status === "input" || regen.isPending} onClick={() => regen.mutate(i)}>{t.status === "failed" && t.keyframe ? "重做视频" : "重新生成"}</Btn></div>}
+                                {!confirming && (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                        {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
+                                        {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || redoClip.isPending} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
+                                        {t.keyframe && <KeyframeRedo primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(c) => redoKf.mutate({ i, c })} />}
+                                        <Btn icon={<RefreshCw size={10} />} disabled={locked || regen.isPending} onClick={() => regen.mutate(i)}>{t.keyframe ? "全部重做" : "重新生成"}</Btn>
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
