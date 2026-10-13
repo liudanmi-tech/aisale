@@ -22,6 +22,10 @@ PROMPTS = {
     "scene": ("Photorealistic location photo for a smartphone TikTok ad, vertical 9:16, no people in frame, natural cinematic light, "
               "no text, no logo. Location: {name}. {description}"),
 }
+TURNAROUND = ("Character turnaround sheet of the SAME person as the reference photo, for keeping the actor consistent across shots. "
+              "Horizontal 16:9, plain light-grey studio background, even soft light, photorealistic. Four full-body views side by side, "
+              "left to right: front, three-quarter, side profile, back. Identical face, hairstyle, outfit and accessories in every view. "
+              "No text, no labels, no logo. Character: {name}. {description}")
 
 
 def asset_dict(a: Asset) -> dict:
@@ -98,10 +102,38 @@ async def generate_image(asset_id: str) -> bool:
         a = db.get(Asset, asset_id)
         if a:
             a.images = [url, *(a.images or [])][:6]
-            a.status = "ready"
-            a.data = {k: v for k, v in (a.data or {}).items() if k != "error"}
+            a.status = "generating" if a.kind == "actor" else "ready"
+            a.data = {**{k: v for k, v in (a.data or {}).items() if k != "error"}, **({"gen_step": "三视图"} if a.kind == "actor" else {})}
             db.commit()
+    if a and a.kind == "actor":
+        await generate_turnaround(asset_id)
     return True
+
+
+async def generate_turnaround(asset_id: str) -> None:
+    """演员三视图（正面 / 四分之三 / 侧面 / 背面），参考定妆照生成；关键帧时和定妆照一起作参考，保证不同机位下是同一个人。"""
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        if not a or not a.images:
+            return
+        ref = media_data_url(a.images[0])
+        text = TURNAROUND.format(name=a.name, description=a.description)
+        a.status, a.data = "generating", {**(a.data or {}), "gen_step": "三视图"}
+        db.commit()
+    url, err = None, ""
+    try:
+        raw, mime = await llm.image([{"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": ref}}], task="keyframe", aspect_ratio="16:9")
+        url = save_image(raw, mime)
+    except Exception as e:  # noqa: BLE001  三视图失败不影响定妆照
+        err = str(e)[:200]
+        log.warning("三视图生成失败 %s: %s", asset_id, e)
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        if a:
+            d = {k: v for k, v in (a.data or {}).items() if k != "gen_step"}
+            a.data = {**d, "turnaround": url} if url else {**d, "turnaround_error": err}
+            a.status = "ready"
+            db.commit()
 
 
 def add_upload(asset_id: str, data_url: str) -> Asset:

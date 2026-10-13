@@ -143,6 +143,71 @@ def regenerate_video(nid: str, body: RegenIn, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/nodes/{nid}/confirm-cast")
+def confirm_cast(nid: str, db: Session = Depends(get_db)):
+    """选角确认：人看过演员、场景、每镜拍法和口播后，继续画关键帧和生成视频。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    if n.status != "input" or (n.data or {}).get("stage") != "确认选角":
+        raise HTTPException(409, "这条视频现在不在等选角确认")
+    try:
+        production.confirm_cast(nid)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    canvas.audit(db, n.project_id, "user", "confirm_cast", {"node_id": nid})
+    agent.say(db, n.project_id, f"选角已确认，{agent.ref(n)} 开始画关键帧，每镜画完先质检再生成视频。")
+    db.commit()
+    emit(n.project_id, "chat")
+    spawn(production.run(nid))
+    return {"ok": True}
+
+
+class CastIn(BaseModel):
+    key: str  # 角色 / 场景的 key（如 r1、s1），商品写 product
+    asset_id: str
+
+
+@router.post("/nodes/{nid}/cast")
+def set_cast(nid: str, body: CastIn, db: Session = Depends(get_db)):
+    """在视频节点里换某个角色 / 场景 / 商品（从素材库选）。生成中不能换。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    if n.status == "run":
+        raise HTTPException(409, "视频还在生成，等这一轮做完再换")
+    try:
+        cast = production.set_cast(nid, body.key, body.asset_id)
+    except KeyError:
+        raise HTTPException(404, "没有这个角色或素材") from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    emit(n.project_id, "canvas")
+    return {"cast": cast}
+
+
+class ShotsIn(BaseModel):
+    indices: list[int]
+
+
+@router.post("/nodes/{nid}/shots/regenerate")
+def regenerate_shots(nid: str, body: ShotsIn, db: Session = Depends(get_db)):
+    """只重新生成指定的几镜（改过拍法、换过演员 / 场景的镜头），其余保留。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    total = len((n.data or {}).get("shots", []))
+    idx = sorted({i for i in body.indices if 0 <= i < total})
+    if not idx:
+        raise HTTPException(400, "没有要重新生成的镜头")
+    if n.status in ("run", "input"):
+        raise HTTPException(409, "视频还在生成或等待确认，稍后再试")
+    canvas.audit(db, n.project_id, "user", "regenerate_shots", {"node_id": nid, "indices": idx})
+    db.commit()
+    spawn(production.run(nid, only=idx))
+    return {"ok": True, "indices": idx}
+
+
 @router.get("/reviews")
 def reviews(status: str | None = None, project_id: str | None = None, db: Session = Depends(get_db)):
     q = db.query(ReviewTask)

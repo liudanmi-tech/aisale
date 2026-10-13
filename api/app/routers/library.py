@@ -67,6 +67,8 @@ def create_asset(body: AssetIn):
             a = assets.add_upload(a.id, body.image)
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
+        if a.kind == "actor" and settings_store.llm_enabled():
+            spawn(assets.generate_turnaround(a.id))
     elif body.generate and body.kind != "product":
         if not settings_store.llm_enabled():
             raise HTTPException(400, "AI 生成图片需要 OpenRouter Key")
@@ -121,6 +123,8 @@ def upload(aid: str, body: UploadIn, db: Session = Depends(get_db)):
     db.commit()
     for vid in resumed:
         spawn(production.run(vid))
+    if a.kind == "actor" and settings_store.llm_enabled():
+        spawn(assets.generate_turnaround(aid))  # 换了定妆照，三视图跟着重画
     _touch(db, aid)
     return {**assets.asset_dict(a), "resumed": resumed}
 

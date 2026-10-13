@@ -97,12 +97,23 @@ def test_production(tmp_path, monkeypatch):
         assert len(of("actor")) == 2 and len(of("scene")) == 1 and of("product")[0]["status"] == "input"
         lib = {a["name"]: a for a in c.get("/api/v1/library").json()}
         assert lib["女摊主"]["images"] and lib["雨夜市场"]["images"] and not lib["TECNO Spark 40"]["images"]
-        assert "上传商品图" in c.get(P + "/chat").json()[-1]["text"]
+        assert "实拍图" in c.get(P + "/chat").json()[-1]["text"] and "确认选角" in c.get(P + "/chat").json()[-1]["text"]
 
-        # 上传商品图 → 自动继续：每镜关键帧（参考分镜、演员、场景、商品）→ 图生视频
+        # 选角确认：花钱画关键帧之前停下；演员有定妆照 + 三视图
+        assert v["data"]["stage"] == "确认选角" and v["data"]["need_product"] == lib["TECNO Spark 40"]["id"]
+        assert lib["女摊主"]["data"]["turnaround"].startswith("/api/v1/media/") and lib["女摊主"]["status"] == "ready"
+        assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").status_code == 400  # 还没上传商品图
+        # 确认前在视频节点里换场景：只改这条视频的剧本选角
+        alt = c.post("/api/v1/library", json={"kind": "scene", "name": "白天的路边摊", "description": "晴天", "image": PNG}).json()
+        assert c.post(f"/api/v1/nodes/{v['id']}/cast", json={"key": "s1", "asset_id": alt["id"]}).json()["cast"]["scenes"]["s1"] == alt["id"]
+        assert c.post(f"/api/v1/nodes/{v['id']}/cast", json={"key": "s1", "asset_id": lib["女摊主"]["id"]}).status_code == 400
+        assert not any(n["data"]["asset_id"] == lib["雨夜市场"]["id"] for n in of("scene") if any(e["source"] == n["id"] and e["target"] == v["id"] for e in canvas()["edges"]))
+
+        # 上传商品图后不自动继续（还在等确认）；确认 → 每镜关键帧（参考分镜、演员、三视图、场景、商品）→ 质检 → 图生视频
         n_img = len(images)
         r = c.post(f"/api/v1/library/{lib['TECNO Spark 40']['id']}/upload", json={"image": PNG}).json()
-        assert r["resumed"] == [v["id"]]
+        assert r["resumed"] == []
+        assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] == "wait")
         v = of("video")[0]
         kf_calls = images[n_img:]
@@ -110,7 +121,9 @@ def test_production(tmp_path, monkeypatch):
         refs = lambda b: len(b["messages"][0]["content"]) - 1 if isinstance(b["messages"][0]["content"], list) else 0  # noqa: E731
         texts = [b["messages"][0]["content"][0]["text"] for b in kf_calls]
         shot0 = next(b for b, t in zip(kf_calls, texts) if "停电的夜市" in t)
-        assert refs(shot0) == 4 and "女摊主" in shot0["messages"][0]["content"][0]["text"]  # 分镜 + 2 个演员 + 场景
+        assert refs(shot0) == 6 and "三视图" in shot0["messages"][0]["content"][0]["text"]  # 分镜 + 2 个演员各定妆照和三视图 + 场景
+        t0 = v["data"]["tasks"][0]
+        assert t0["phase"] == "完成" and t0["inputs"]["visual"] == "停电的夜市" and ["scene", "s1", alt["id"], alt["images"][0]] in t0["inputs"]["refs"]
         prod = next(b for b, t in zip(kf_calls, texts) if "产品特写" in t)
         assert "商品实拍" in prod["messages"][0]["content"][0]["text"]
         assert len(i2v) == 4 and all(x["path"].endswith("/image-to-video") and x["image_url"].startswith("data:image/") for x in i2v)
@@ -140,6 +153,12 @@ def test_production(tmp_path, monkeypatch):
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/1/regenerate").json()["ok"]
         wait_until(lambda: len(i2v) == n_i2v + 1 and of("video")[0]["status"] == "wait")
         assert len([r for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["node_id"] == v["id"]]) == 1  # 旧审核单作废
+
+        # 只重做改过的几镜
+        n_i2v = len(i2v)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/regenerate", json={"indices": [0, 3, 9]}).json()["indices"] == [0, 3]
+        wait_until(lambda: len(i2v) == n_i2v + 2 and of("video")[0]["status"] == "wait")
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/regenerate", json={"indices": []}).status_code == 400
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")

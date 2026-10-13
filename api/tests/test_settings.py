@@ -112,10 +112,12 @@ def test_settings_and_real_call_paths():
             approve()  # 剧本通过后自动生成视频：先选角置景；有商品镜头时等用户上传商品实拍图
 
             wait_until(lambda: nodes("video") and nodes("video")[0]["status"] in ("input", "wait"), timeout=20)
-            if nodes("video")[0]["status"] == "input":
-                aid = nodes("video")[0]["data"]["waiting_asset"]
+            if nodes("video")[0]["status"] == "input":  # 选角确认：先上传商品图，再确认
+                v = nodes("video")[0]
+                aid = v["data"]["need_product"]
                 png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n product").decode()
-                assert c.post(f"/api/v1/library/{aid}/upload", json={"image": png}).json()["resumed"]
+                assert c.post(f"/api/v1/library/{aid}/upload", json={"image": png}).json()["resumed"] == []
+                assert c.post(f"/api/v1/nodes/{v['id']}/confirm-cast").json()["ok"]
             wait_until(lambda: nodes("video") and nodes("video")[0]["status"] == "wait", timeout=20)
             assert {n["type"] for n in c.get(f"{P}/canvas").json()["nodes"]} >= {"actor", "scene", "product"}
             v = nodes("video")[0]

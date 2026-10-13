@@ -157,6 +157,43 @@ def _img(asset_id: str | None) -> str | None:
         return assets.media_data_url((a.images or [None])[0]) if a and a.images else None
 
 
+def _turnaround(asset_id: str | None) -> str | None:
+    if not asset_id:
+        return None
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        url = (a.data or {}).get("turnaround") if a else None
+    return assets.media_data_url(url) if url else None
+
+
+def inputs(sh: list, spec: dict, cast: dict) -> dict:
+    """一镜用到的输入（画面、拍法、演员 / 场景 / 商品及其图片）。改了任何一项，这一镜就需要重新生成。"""
+    keys = [("role", k, cast["roles"].get(k)) for k in spec.get("roles") or []] + [("scene", spec.get("scene"), cast["scenes"].get(spec.get("scene")))]
+    if spec.get("product"):
+        keys.append(("product", "product", cast.get("product")))
+    with SessionLocal() as db:
+        refs = []
+        for kind, key, aid in keys:
+            a = db.get(Asset, aid) if aid else None
+            refs.append([kind, key, aid, (a.images or [None])[0] if a else None])
+    return {"visual": sh[1] if len(sh) > 1 else "", "spec": {k: spec.get(k) for k in ("size", "move", "roles", "scene", "product")}, "refs": refs}
+
+
+def _shot(video_id: str, i: int, **fields) -> None:
+    """实时写一镜的进度，画布上能看到每一镜走到哪一步。"""
+    with SessionLocal() as db:
+        n = db.get(Node, video_id)
+        if not n:
+            return
+        tasks = list((n.data or {}).get("tasks") or [])
+        while len(tasks) <= i:
+            tasks.append({"shot": len(tasks) + 1})
+        tasks[i] = {**tasks[i], **fields}
+        n.data = {**(n.data or {}), "tasks": tasks}
+        db.commit()
+        emit(n.project_id, "canvas")
+
+
 def _save_keyframe(video_id: str, i: int, raw: bytes, mime: str) -> str:
     ext = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime, "png")
     d = config.MEDIA_DIR / "keyframes"
@@ -178,6 +215,10 @@ async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, fr
         if img:
             refs.append(img)
             notes.append(f"第 {len(refs)} 张参考图是角色「{cast['names'].get(key, key)}」：长相、发型、服装必须和它一致")
+        turn = _turnaround(cast["roles"].get(key))
+        if turn:
+            refs.append(turn)
+            notes.append(f"第 {len(refs)} 张参考图是「{cast['names'].get(key, key)}」的三视图：不同角度下都必须是这同一个人")
     sc = _img(cast["scenes"].get(spec.get("scene")))
     if sc:
         refs.append(sc)
@@ -249,7 +290,9 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
     if not script_id:
         _set(video_id, status="failed", sub="没有找到来源剧本")
         return
-    _set(video_id, status="run", data={"stage": "分镜"})
+    _set(video_id, status="run", sub="生成中…", data={"stage": "分镜"})
+    if recast:
+        _set(video_id, data={"cast_confirmed": False})
     await storyboard.run(script_id)  # 已经画过的镜头不会重画
     with SessionLocal() as db:
         s = db.get(Node, script_id)
@@ -268,6 +311,24 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         need_product = prod is not None and not prod.images and settings_store.llm_enabled()  # 演示模式没有关键帧，不必等商品图
         v = db.get(Node, video_id)
         old = list((v.data or {}).get("tasks") or [])
+        confirmed = (v.data or {}).get("cast_confirmed") or not settings_store.llm_enabled()  # 演示模式不停
+    if not confirmed:
+        # 选角确认：花钱画关键帧之前先停下，让人看演员（定妆照 + 三视图）、场景、每镜拍法和口播，可以换、可以改
+        with SessionLocal() as db:
+            v = db.get(Node, video_id)
+            v.status, v.sub = "input", "选角完成，等你确认后开始画关键帧" + ("（还需要上传商品图）" if need_product else "")
+            v.data = {**(v.data or {}), "shots": shots, "stage": "确认选角", "need_product": prod.id if need_product else None}
+            if need_product:
+                for n in canvas.nodes_of(db, v.project_id, "product"):
+                    if (n.data or {}).get("asset_id") == prod.id:
+                        n.status = "input"
+            agent.say(db, v.project_id, f"{agent.ref(v)} 选好了 {len(cast['roles'])} 个演员、{len(cast['scenes'])} 个场景。"
+                      "在视频节点里检查定妆照和三视图、每镜的拍法和口播，不合适可以从素材库换、AI 重画或上传；"
+                      + (f"还需要上传「{prod.name}」的实拍图；" if need_product else "") + "确认后点「确认选角，开始生成」。")
+            db.commit()
+            emit(v.project_id, "canvas")
+            emit(v.project_id, "chat")
+        return
     if need_product:
         with SessionLocal() as db:
             v = db.get(Node, video_id)
@@ -282,8 +343,11 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
             emit(v.project_id, "chat")
         return
 
-    _set(video_id, data={"stage": "关键帧", "shots": shots})
+    _set(video_id, data={"stage": "关键帧", "shots": shots, "need_product": None})
     specs = cast.get("specs") or []
+    for i in range(len(shots)):
+        if only is None or i in only:
+            _shot(video_id, i, phase="排队中", status=None)
     use_kf = settings_store.llm_enabled()
     sem = asyncio.Semaphore(3)
 
@@ -298,31 +362,36 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
             async with sem:
                 # 关键帧质检：不合格带着问题重画，最多重画 KF_RETRIES 次；仍不合格就用最后一张并标红
                 for tries in range(1, KF_RETRIES + 2):
+                    _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
                     try:
                         kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
                     except Exception as e:  # noqa: BLE001
                         err = str(e)[:200]
                         log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
                         break
+                    _shot(video_id, i, keyframe=kf, phase="关键帧质检")
                     kf_qc = await qc.check_keyframe(kf, sh, spec, cast)
                     if kf_qc["status"] != "fail":
                         break
                     fix = "上一张没通过质检，必须改正：" + "；".join(kf_qc["issues"])[:400]
         if spec.get("product") and not kf and not cast.get("product"):
-            return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec}
+            return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec,
+                    "phase": "完成", "inputs": inputs(sh, spec, cast)}
         move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
         prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
         # 成片质检：不合格重生成 CLIP_RETRIES 次
         for clip_tries in range(1, CLIP_RETRIES + 2):
+            _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
             res = await clip(prompt, assets.media_data_url(kf) if kf else None)
             if res.get("status") == "failed":
                 clip_qc = None
                 break
+            _shot(video_id, i, phase="视频质检", url=res.get("video_url"))
             clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
             if clip_qc["status"] != "fail":
                 break
         return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
-                "url": res.get("video_url"), **res,
+                "url": res.get("video_url"), **res, "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
                 "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries if use_kf else 0, "clip": clip_tries})}
 
     tasks = list(await asyncio.gather(*(one(i, sh) for i, sh in enumerate(shots))))
@@ -359,10 +428,59 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
 def resume_waiting(asset_id: str) -> list[str]:
     """商品图上传后：把等这张图的视频继续跑下去。返回恢复的视频 id。"""
     with SessionLocal() as db:
-        vids = [n.id for n in db.query(Node).filter(Node.type == "video", Node.status == "input") if (n.data or {}).get("waiting_asset") == asset_id]
+        vids = [n.id for n in db.query(Node).filter(Node.type == "video", Node.status == "input")
+                if (n.data or {}).get("waiting_asset") == asset_id and (n.data or {}).get("stage") == "等待商品图"]
         for n in db.query(Node).filter(Node.type == "product", Node.status == "input"):
             if (n.data or {}).get("asset_id") == asset_id:
                 n.status = "pass"
                 emit(n.project_id, "canvas")
         db.commit()
     return vids
+
+
+def confirm_cast(video_id: str) -> None:
+    """人确认选角后继续：画关键帧 → 质检 → 图生视频。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        cast = None
+        if v:
+            s = db.get(Node, (v.data or {}).get("script_id")) if (v.data or {}).get("script_id") else None
+            cast = (s.data or {}).get("cast") if s else None
+        prod = db.get(Asset, cast["product"]) if cast and cast.get("product") else None
+        if prod and not prod.images and settings_store.llm_enabled():
+            raise ValueError(f"还需要先上传「{prod.name}」的实拍图")
+        v.data = {**(v.data or {}), "cast_confirmed": True}
+        db.commit()
+
+
+def set_cast(video_id: str, key: str, asset_id: str) -> dict:
+    """这条视频的剧本里，把某个角色 / 场景 / 商品换成素材库里的另一个；画布上的素材节点跟着换。返回新的 cast。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        s = db.get(Node, (v.data or {}).get("script_id")) if v and (v.data or {}).get("script_id") else None
+        cast = dict((s.data or {}).get("cast") or {}) if s else {}
+        a = db.get(Asset, asset_id)
+        if not cast or not a:
+            raise KeyError(key)
+        slot = "product" if key == "product" else "roles" if key in cast.get("roles", {}) else "scenes" if key in cast.get("scenes", {}) else None
+        want = {"product": "product", "roles": "actor", "scenes": "scene"}.get(slot or "")
+        if not slot or a.kind != want:
+            raise ValueError("只能换成同类型的素材")
+        old = cast["product"] if slot == "product" else cast[slot][key]
+        if slot == "product":
+            cast["product"] = a.id
+        else:
+            cast[slot] = {**cast[slot], key: a.id}
+            cast["names"] = {**cast.get("names", {}), key: a.name}
+        s.data = {**s.data, "cast": cast}
+        still = set(cast["roles"].values()) | set(cast["scenes"].values()) | {cast.get("product")}
+        if old not in still:  # 旧素材这条视频不再用：断开连线
+            for e in db.query(Edge).filter(Edge.target == video_id):
+                src = db.get(Node, e.source)
+                if src and (src.data or {}).get("asset_id") == old:
+                    db.delete(e)
+        canvas.bump(db.get(Project, v.project_id))
+        canvas.audit(db, v.project_id, "user", "set_cast", {"video_id": video_id, "key": key, "from": old, "to": a.id})
+        db.commit()
+    place_asset_nodes(video_id, cast)
+    return cast

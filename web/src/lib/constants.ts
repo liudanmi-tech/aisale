@@ -18,7 +18,7 @@ export const NODE_META: Record<NodeType, { label: string; ch: string; color: str
 export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: string }> = {
     none: { label: "未开始", cls: "bg-elev text-ink2" },
     run: { label: "生成中", cls: "bg-brand/20 text-[#b5a3ff]" },
-    input: { label: "待上传", cls: "bg-warn/25 text-warn" },
+    input: { label: "待你确认", cls: "bg-warn/25 text-warn" },
     wait: { label: "待审核", cls: "bg-warn/15 text-warn" },
     pass: { label: "已通过", cls: "bg-good/15 text-good" },
     reject: { label: "已驳回", cls: "bg-bad/15 text-bad" },
