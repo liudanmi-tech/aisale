@@ -421,6 +421,11 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5"><ShotEditor shot={s} disabled={!editable} onSave={(v, l) => saveShot(i, v, l)} /></div>
+                                {!confirming && locked && (
+                                    <div className="mt-1 text-[10px] text-ink2">
+                                        {shotBusy ? `这一镜正在${phase}，做完后可以重画关键帧或重做` : fullRun ? "整条视频生成中，完成后可以单镜修改" : "等商品图上传后可以修改"}
+                                    </div>
+                                )}
                                 {!confirming && (
                                     <div className="mt-1 flex flex-wrap gap-1">
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}

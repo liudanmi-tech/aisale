@@ -230,7 +230,7 @@ def test_recover_interrupted():
     """服务重启：停在「生成中」的节点改成失败，可以重新生成。"""
     from app import canvas
     from app.db import SessionLocal
-    from app.models import Node
+    from app.models import Node, Project
     with TestClient(app) as c:
         pid = c.post("/api/v1/projects", json={"name": "重启", "market": "尼日利亚", "brand": "TECNO", "model_sku": "Spark 40", "selling_point": "续航"}).json()["id"]
         with SessionLocal() as db:
@@ -239,3 +239,9 @@ def test_recover_interrupted():
             db.commit()
             assert canvas.recover_interrupted(db) >= 1
             assert db.get(Node, n.id).status == "failed"
+            v = canvas.create_node(db, db.get(Project, pid), "video", status="run", data={"tasks": [
+                {"phase": "视频质检", "url": "https://x/1.mp4", "keyframe": "/k1"}, {"phase": "生成视频", "keyframe": "/k2"}, {"phase": "完成"}]})
+            db.commit()
+            canvas.recover_interrupted(db)
+            t = db.get(Node, v.id).data["tasks"]
+            assert [x["phase"] for x in t] == ["完成", "失败", "完成"] and "重做视频" in t[1]["error"] and t[0]["retry_error"]

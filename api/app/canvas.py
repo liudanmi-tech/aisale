@@ -223,9 +223,24 @@ def now() -> datetime:
 def recover_interrupted(db: Session) -> int:
     """服务重启时进程内的后台任务都没了：停在「生成中」的节点改成失败，让用户可以重新生成。"""
     n = 0
+    idle = ("完成", "失败", "关键帧待确认", None)
     for node in db.query(Node).filter(Node.status == "run"):
         node.status, node.sub = "failed", "服务重启，生成中断，可重新生成"
         n += 1
+    for node in db.query(Node).filter(Node.type == "video"):
+        tasks = list((node.data or {}).get("tasks") or [])
+        if not any(t.get("phase") not in idle for t in tasks):
+            continue
+        # 镜头停在半路（画关键帧 / 生成视频 / 质检中）：视频已出来就算完成（质检没做完），否则标失败，按钮才能再点
+        for k, t in enumerate(tasks):
+            if t.get("phase") in idle:
+                continue
+            if (t.get("url") or "").startswith("http"):
+                tasks[k] = {**t, "phase": "完成", "status": "completed", "retry_error": "服务重启，这一镜的视频质检没做完，请自己看一下"}
+            else:
+                tasks[k] = {**t, "phase": "失败", "status": "failed",
+                            "error": "服务重启，生成中断" + ("，可点「重做视频」（沿用关键帧）" if t.get("keyframe") else "，可点「重新生成」")}
+        node.data = {**node.data, "tasks": tasks}
     for node in db.query(Node).filter(Node.type == "script"):
         sb = (node.data or {}).get("storyboard") or {}
         if sb.get("status") == "running":

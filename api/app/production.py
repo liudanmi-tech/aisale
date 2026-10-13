@@ -461,7 +461,11 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
                 log.warning("镜头 %s #%d 质检后重做失败，保留上一条视频：%s", video_id, i, retry_error)
             break
         _shot(video_id, i, phase="视频质检", url=res.get("video_url"))
-        clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
+        try:
+            clip_qc = await asyncio.wait_for(qc.check_clip(res.get("video_url") or "", sh, spec, cast), QC_TIMEOUT)
+        except Exception as e:  # noqa: BLE001  质检超时或出错：保留视频，标「未执行」交给人看
+            log.warning("视频质检没做完 %s #%d：%s", video_id, i, e)
+            clip_qc = qc.summarize({"tech": {"status": "skip", "reason": f"未执行：视频质检{'超时' if isinstance(e, TimeoutError) else '出错'}，请自己看一下"}}, spec)
         best = (res, clip_qc, clip_tries)
         if clip_qc["status"] != "fail":
             break
@@ -476,6 +480,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
 
 
 IDLE = ("完成", "失败", "关键帧待确认", None)
+QC_TIMEOUT = 300  # 视频质检最长 5 分钟（下载视频 + 抽帧 + 模型看图）
 
 
 def _finalize(video_id: str, cast: dict, shots: list, tasks: list) -> None:
