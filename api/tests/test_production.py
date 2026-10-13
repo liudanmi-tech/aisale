@@ -185,6 +185,14 @@ def test_production(tmp_path, monkeypatch):
         async def bad_clip(url, shot, spec, cast_):
             return qc.summarize({"tech": {"status": "fail", "reason": "画幅不是 9:16"}}, spec)
         monkeypatch.setattr(qc, "check_clip", bad_clip)
+        # 默认不自动重做视频：只生成 1 条，标红交给人
+        assert c.get("/api/v1/settings").json()["retries"] == {"keyframe": 2, "clip": 0}
+        n_i2v = len(i2v)
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/regenerate").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] == "wait" and of("video")[0]["data"]["tasks"][2].get("phase") == "完成")
+        assert len(i2v) == n_i2v + 1 and of("video")[0]["data"]["tasks"][2]["qc"]["status"] == "fail"
+        # 打开 1 次自动重做
+        assert c.put("/api/v1/settings/retries", json={"clip": 5, "keyframe": "x"}).json() == {"keyframe": 2, "clip": 1}  # 超出上限按上限
         FAL_DOWN["after"] = 1  # 第一次提交成功，第二次（重做）失败
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/regenerate").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] in ("wait", "failed") and of("video")[0]["data"]["tasks"][2].get("phase") == "完成")
@@ -192,6 +200,7 @@ def test_production(tmp_path, monkeypatch):
         assert of("video")[0]["status"] == "wait" and t2["status"] == "completed" and t2["url"].startswith("https://")
         assert "Exhausted balance" in t2["retry_error"] and t2["qc"]["status"] == "fail"
         FAL_DOWN.update(on=False, after=None)
+        c.put("/api/v1/settings/retries", json={"keyframe": 2, "clip": 0})
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")

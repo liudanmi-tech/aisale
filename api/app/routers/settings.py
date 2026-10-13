@@ -30,6 +30,7 @@ def get_settings():
         "admin_required": bool(os.getenv("ADMIN_TOKEN")),
         "secrets": {k: {"label": v, **settings_store.secret_status(k)} for k, v in NAMES.items()},
         "models": settings_store.get_models(),
+        "retries": settings_store.get_retries(),
         "catalog": {"llm": settings_store.LLM_MODELS, "video": settings_store.VIDEO_MODELS, "image": settings_store.IMAGE_MODELS, "video_i2v": settings_store.VIDEO_I2V_MODELS, "resolutions": ["480p", "720p", "1080p"]},
         "integrations": [
             {"name": "视频生成", "mode": {"fal": "fal.ai 真实调用", "byteplus": "BytePlus 直连", "mock": "模拟"}[vp], "ready": vp != "mock"},
@@ -40,6 +41,15 @@ def get_settings():
             {"name": "Meta / X", "mode": "二期", "ready": False},
         ],
     }
+
+
+@router.put("/retries", dependencies=[Depends(require_admin)])
+def put_retries(body: dict, db: Session = Depends(get_db)):
+    """质检不合格时自动重做几次：keyframe 0–2（关键帧，按张计费，便宜），clip 0–1（视频，按条计费，贵）。"""
+    r = settings_store.set_retries(body)
+    canvas.audit(db, "-", "user", "set_retries", r)
+    db.commit()
+    return r
 
 
 class SecretIn(BaseModel):

@@ -75,6 +75,7 @@ export default function Settings() {
     useEffect(() => { if (data) setModels(data.models); }, [data]);
     const refresh = () => qc.invalidateQueries({ queryKey: ["settings"] });
     const saveModels = useMutation({ mutationFn: () => api.saveModels(models), onSuccess: () => { message.success("模型设置已保存"); refresh(); }, onError: (e) => message.error(errMsg(e)) });
+    const saveRetries = useMutation({ mutationFn: api.saveRetries, onSuccess: () => { message.success("已保存，下一次生成生效"); refresh(); }, onError: (e) => message.error(errMsg(e)) });
     if (!data) return null;
     const rows: [string, string, string, ModelOption[]][] = [
         ["agent", "Agent 理解指令", "把一句话转成画布操作，要求快、支持工具调用", data.catalog.llm],
@@ -116,6 +117,19 @@ export default function Settings() {
                             <Select className="w-40" value={models.video_resolution} onChange={(v) => setModels({ ...models, video_resolution: v })} options={data.catalog.resolutions.map((r) => ({ value: r }))} />
                             <span className="ml-2 text-xs text-ink2">Seedance 2.5 最高 720p；1080p 需选 Seedance 1.0 Pro</span>
                         </div>
+                    </div>
+                </Card>
+                <Card title="质检不合格时自动重做">
+                    <div className="flex flex-col gap-3 text-sm">
+                        <div className="flex items-center gap-3"><b className="w-24">关键帧</b>
+                            <Select className="w-36" value={data.retries.keyframe} onChange={(v) => saveRetries.mutate({ keyframe: v })}
+                                options={[0, 1, 2].map((n) => ({ value: n, label: n ? `最多重画 ${n} 次` : "不自动重画" }))} />
+                            <span className="text-xs text-ink2">按张计费，较便宜；每镜最多 {data.retries.keyframe + 1} 张</span></div>
+                        <div className="flex items-center gap-3"><b className="w-24">视频</b>
+                            <Select className="w-36" value={data.retries.clip} onChange={(v) => saveRetries.mutate({ clip: v })}
+                                options={[0, 1].map((n) => ({ value: n, label: n ? "最多重做 1 次" : "不自动重做" }))} />
+                            <span className="text-xs text-ink2">fal 按条计费，较贵；每镜最多 {data.retries.clip + 1} 条</span></div>
+                        <div className="text-xs leading-5 text-ink2">到上限仍不合格就停下、标红，保留已生成的结果交给你判断，不会无限重试。之后只有你点「重新生成」才会再花钱。</div>
                     </div>
                 </Card>
                 <Card title="服务状态">

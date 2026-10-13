@@ -161,6 +161,7 @@ export interface ModelOption {
 export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
+    retries: { keyframe: number; clip: number };
     models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard" | "keyframe" | "video_i2v" | "qc", string>;
     catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
@@ -324,6 +325,7 @@ export const api = {
     deleteReport: (id: string) => http.delete(`/watch/reports/${id}`).then((r) => r.data),
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
+    saveRetries: (r: { keyframe?: number; clip?: number }) => http.put("/settings/retries", r).then((x) => x.data),
 };
 
 export const PROJECT_ID = "p1";

@@ -119,6 +119,27 @@ def set_models(values: dict) -> dict:
     return get_models()
 
 
+# 质检不合格时自动重做的次数。视频按条计费，默认不自动重做视频，只标红交给人决定
+RETRY_DEFAULTS = {"keyframe": 2, "clip": 0}
+RETRY_LIMITS = {"keyframe": 2, "clip": 1}
+
+
+def get_retries() -> dict:
+    with SessionLocal() as db:
+        s = db.get(Setting, "retries")
+        return {**RETRY_DEFAULTS, **((s.value if s else {}) or {})}
+
+
+def set_retries(values: dict) -> dict:
+    ok = {k: max(0, min(RETRY_LIMITS[k], int(v))) for k, v in values.items() if k in RETRY_LIMITS and str(v).lstrip("-").isdigit()}
+    with SessionLocal() as db:
+        s = db.get(Setting, "retries") or Setting(key="retries", value={})
+        s.value = {**(s.value or {}), **ok}
+        db.merge(s)
+        db.commit()
+    return get_retries()
+
+
 def llm_enabled() -> bool:
     from app import config
     return config.LLM_ENABLED or bool(get_secret("openrouter"))

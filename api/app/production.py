@@ -25,7 +25,6 @@ SIZE_ZH = {"WS": "全景", "MS": "中景", "CU": "特写", "ECU": "大特写"}
 MOVES = ["固定", "推", "拉", "摇", "跟拍", "手持"]
 GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子", "达人口播", "产品展示"]
 PRODUCT_SHOT = 2
-KF_RETRIES, CLIP_RETRIES = 2, 1  # 质检不合格时自动重做的次数
 VIDEO_STYLE = "vertical 9:16 smartphone ad shot, photorealistic, natural light, no on-screen text, no watermark"
 _slots = asyncio.Semaphore(2)
 
@@ -349,6 +348,8 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         if only is None or i in only:
             _shot(video_id, i, phase="排队中", status=None)
     use_kf = settings_store.llm_enabled()
+    retries = settings_store.get_retries()  # 设置页可调；视频默认不自动重做
+    kf_retries, clip_retries = retries["keyframe"], retries["clip"]
     sem = asyncio.Semaphore(3)
 
     async def one(i: int, sh: list) -> dict:
@@ -364,8 +365,8 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
             kf, kf_qc = last["keyframe"], last.get("qc")
         elif use_kf:
             async with sem:
-                # 关键帧质检：不合格带着问题重画，最多重画 KF_RETRIES 次；仍不合格就用最后一张并标红
-                for tries in range(1, KF_RETRIES + 2):
+                # 关键帧质检：不合格带着问题重画，最多重画 kf_retries 次；仍不合格就用最后一张并标红
+                for tries in range(1, kf_retries + 2):
                     _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
                     try:
                         kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
@@ -383,9 +384,9 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
         move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
         prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-        # 成片质检：不合格重生成 CLIP_RETRIES 次；重做失败时保留上一条已生成的视频，不能把它扔掉
+        # 成片质检：不合格重生成 clip_retries 次；重做失败时保留上一条已生成的视频，不能把它扔掉
         best, retry_error, clip_qc = None, "", None
-        for clip_tries in range(1, CLIP_RETRIES + 2):
+        for clip_tries in range(1, clip_retries + 2):
             _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
             res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
             if res.get("status") == "failed":
