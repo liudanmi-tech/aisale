@@ -51,10 +51,13 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]})
 
 
-FAL_DOWN = {"on": False}
+FAL_DOWN = {"on": False, "after": None}
 
 
 def fal_handler(req: httpx.Request) -> httpx.Response:
+    if req.method == "POST" and FAL_DOWN["after"] is not None:
+        FAL_DOWN["after"] -= 1
+        FAL_DOWN["on"] = FAL_DOWN["after"] < 0
     if req.method == "POST" and FAL_DOWN["on"]:
         return httpx.Response(403, json={"detail": "User is locked. Reason: Exhausted balance."})
     if req.method == "POST":
@@ -177,6 +180,18 @@ def test_production(tmp_path, monkeypatch):
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/1/regenerate").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] == "wait")
         assert len(images) == n_img and len(i2v) == n_i2v + 1 and of("video")[0]["data"]["tasks"][1]["keyframe"] == t1["keyframe"]
+
+        # 视频质检不合格 → 自动重做；重做那次 fal 失败 → 保留第一条视频，不判失败
+        async def bad_clip(url, shot, spec, cast_):
+            return qc.summarize({"tech": {"status": "fail", "reason": "画幅不是 9:16"}}, spec)
+        monkeypatch.setattr(qc, "check_clip", bad_clip)
+        FAL_DOWN["after"] = 1  # 第一次提交成功，第二次（重做）失败
+        assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/regenerate").json()["ok"]
+        wait_until(lambda: of("video")[0]["status"] in ("wait", "failed") and of("video")[0]["data"]["tasks"][2].get("phase") == "完成")
+        t2 = of("video")[0]["data"]["tasks"][2]
+        assert of("video")[0]["status"] == "wait" and t2["status"] == "completed" and t2["url"].startswith("https://")
+        assert "Exhausted balance" in t2["retry_error"] and t2["qc"]["status"] == "fail"
+        FAL_DOWN.update(on=False, after=None)
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")

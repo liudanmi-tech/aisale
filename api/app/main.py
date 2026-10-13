@@ -47,6 +47,19 @@ app.mount("/api/v1/media", StaticFiles(directory=config.MEDIA_DIR), name="media"
 
 # 生产部署时由 API 直接托管前端构建产物（web/dist），单容器即可运行
 WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+WEB_SRC = Path(__file__).resolve().parents[2] / "web"
+
+
+@app.get("/api/v1/build-status")
+def build_status():
+    """前端打包产物是不是比前端源码旧（拉了新代码没重新 npm run build）。页面据此提示重新打包。"""
+    index = WEB_DIST / "index.html"
+    if not index.exists() or not (WEB_SRC / "src").exists():
+        return {"stale": False}
+    files = [p for p in (WEB_SRC / "src").rglob("*") if p.is_file()] + [WEB_SRC / "index.html", WEB_SRC / "package.json"]
+    newest = max((p.stat().st_mtime for p in files if p.exists()), default=0)
+    return {"stale": newest > index.stat().st_mtime + 1}
+
 if WEB_DIST.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIST / "static"), name="static")
 

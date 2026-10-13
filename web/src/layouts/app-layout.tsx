@@ -32,6 +32,9 @@ export function AppLayout() {
 
     const { data: waiting = [] } = useQuery({ queryKey: ["reviews", "wait"], queryFn: () => api.reviews({ status: "wait" }) });
     const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+    // 打包版才检查（开发模式 npm run dev 本来就是最新代码）
+    const { data: build } = useQuery({ queryKey: ["build-status"], queryFn: api.buildStatus, enabled: import.meta.env.PROD, refetchInterval: 60_000 });
+    const stale = !!build?.stale;
     const groups: { title?: string; items: Item[] }[] = [
         { items: [
             { to: "/", label: "首页", icon: <House size={17} />, match: (p) => p === "/" },
@@ -99,6 +102,11 @@ export function AppLayout() {
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elev text-xs">运营</span>
                 </header>
                 <main className="min-h-0 flex-1 overflow-auto">
+                    {stale && (
+                        <div className="sticky top-0 z-50 bg-warn px-4 py-1.5 text-center text-[13px] font-medium text-black">
+                            页面是旧版本：代码已更新，但前端还没重新打包。请在项目的 web 目录运行 <code className="rounded bg-black/15 px-1">npm run build</code>，然后刷新页面。
+                        </div>
+                    )}
                     <Outlet />
                 </main>
                 <MobileNav />

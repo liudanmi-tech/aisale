@@ -383,19 +383,26 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
         move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
         prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-        # 成片质检：不合格重生成 CLIP_RETRIES 次
+        # 成片质检：不合格重生成 CLIP_RETRIES 次；重做失败时保留上一条已生成的视频，不能把它扔掉
+        best, retry_error, clip_qc = None, "", None
         for clip_tries in range(1, CLIP_RETRIES + 2):
-            _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
+            _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
             res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
             if res.get("status") == "failed":
-                clip_qc = None
+                if best:
+                    retry_error = res.get("error") or "重新生成失败"
+                    log.warning("镜头 %s #%d 质检后重做失败，保留上一条视频：%s", video_id, i, retry_error)
                 break
             _shot(video_id, i, phase="视频质检", url=res.get("video_url"))
             clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
+            best = (res, clip_qc, clip_tries)
             if clip_qc["status"] != "fail":
                 break
+        if best:
+            res, clip_qc, clip_tries = best
         return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
                 "url": res.get("video_url"), **res, "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
+                **({"retry_error": f"质检不合格后自动重做失败，保留了第一条视频：{retry_error[:200]}"} if retry_error else {}),
                 "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries if use_kf else 0, "clip": clip_tries})}
 
     tasks = list(await asyncio.gather(*(one(i, sh) for i, sh in enumerate(shots))))

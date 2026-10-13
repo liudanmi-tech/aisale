@@ -291,6 +291,7 @@ export const api = {
     generateAsset: (id: string) => post(`/library/${id}/generate`),
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
+    buildStatus: () => get<{ stale: boolean }>("/build-status"),
     confirmCast: (nid: string) => post(`/nodes/${nid}/confirm-cast`),
     setCast: (nid: string, key: string, asset_id: string) => post<{ cast: Cast }>(`/nodes/${nid}/cast`, { key, asset_id }),
     regenerateShots: (nid: string, indices: number[]) => post<{ ok: boolean; indices: number[] }>(`/nodes/${nid}/shots/regenerate`, { indices }),
