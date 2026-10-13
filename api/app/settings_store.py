@@ -42,13 +42,14 @@ VIDEO_I2V_MODELS = [
 DEFAULT_MODELS = {
     "agent": "google/gemini-2.5-flash",  # 理解指令 → 画布工具调用，要快
     "script": "anthropic/claude-sonnet-5.5",  # 剧本与皮钦语 / 乌尔都语口播，要自然
-    "eval": "google/gemini-2.5-flash",  # 40 人评测输出大段 JSON，要便宜
+    "eval": "google/gemini-2.5-flash",  # 40 个独立评测 Agent，每人一次调用、看关键帧，要便宜且能看图
     "video": "bytedance/seedance-2.5/text-to-video",
     "video_resolution": "720p",
     "analysis": "google/gemini-2.5-flash",  # 竞品视频逐条拆解（看封面 + 文案 + 字幕），量大要便宜、能看图
     "report": "anthropic/claude-sonnet-5.5",  # 汇总成分析报告，要会写洞察
     "storyboard": "google/gemini-3.1-flash-lite-image",  # 剧本分镜图（电影学院简笔分镜风格）
     "keyframe": "google/gemini-3.1-flash-image",  # 演员定妆照、场景图、每镜关键帧（真实质感，要能参考多张图）
+    "qc": "google/gemini-2.5-flash",  # 质检：看关键帧和成片抽帧，对照定妆照和商品实拍图逐项检查
     "video_i2v": "fal-ai/bytedance/seedance/v1/pro/image-to-video",  # 关键帧 → 视频（图生视频）
     "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }

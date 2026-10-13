@@ -106,6 +106,7 @@ def test_full_flow():
         # 7 投放方案 → 审核 → 下发（下发要花钱，必须人点）
         wait_until(c, lambda: nodes(c, "deliver") and nodes(c, "deliver")[0]["status"] == "wait")
         d = nodes(c, "deliver")[0]
+        assert d["data"]["plan"]["aigc_label"] and d["data"]["plan"]["checks"]["演员肖像授权"]
         assert c.post(f"/api/v1/nodes/{d['id']}/launch").status_code == 409  # 未审核不能下发
         approve_all(c)
         assert c.post(f"/api/v1/nodes/{d['id']}/launch").status_code == 200
@@ -223,3 +224,18 @@ def test_migrate_layouts_once():
             assert canvas.migrate_layouts(db) == 1 and canvas.migrate_layouts(db) == 0
         s = sorted((n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script"), key=lambda n: n["y"])
         assert s[0]["x"] == canvas.COL_X[1] and s[1]["y"] - s[0]["y"] >= canvas.NODE_SIZE["script"][1]
+
+
+def test_recover_interrupted():
+    """服务重启：停在「生成中」的节点改成失败，可以重新生成。"""
+    from app import canvas
+    from app.db import SessionLocal
+    from app.models import Node
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "重启", "market": "尼日利亚", "brand": "TECNO", "model_sku": "Spark 40", "selling_point": "续航"}).json()["id"]
+        with SessionLocal() as db:
+            n = canvas.nodes_of(db, pid)[0]
+            n.status = "run"
+            db.commit()
+            assert canvas.recover_interrupted(db) >= 1
+            assert db.get(Node, n.id).status == "failed"

@@ -4,7 +4,7 @@ import { ImagePlus, Pencil, Plus, Search, Trash2, Upload, Wand2 } from "lucide-r
 import { useRef, useState } from "react";
 
 import { PageTitle } from "@/components/common";
-import { COVER_GRADIENTS } from "@/lib/constants";
+import { CONSENT_TEXT, consentDialog, COVER_GRADIENTS } from "@/lib/constants";
 import { Assets } from "@/pages/ops-pages";
 import { api, type AssetKind, type LibraryAsset } from "@/services/api";
 
@@ -23,11 +23,11 @@ const readFile = (f: File) => new Promise<string>((ok, bad) => {
 });
 
 function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () => void }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const qc = useQueryClient();
     const file = useRef<HTMLInputElement>(null);
     const done = () => qc.invalidateQueries({ queryKey: ["library"] });
-    const upload = useMutation({ mutationFn: async (f: File) => api.uploadAsset(a.id, await readFile(f)), onSuccess: () => { message.success("已上传"); done(); }, onError: (e) => message.error(errMsg(e)) });
+    const upload = useMutation({ mutationFn: async (f: File) => api.uploadAsset(a.id, await readFile(f), a.kind === "actor"), onSuccess: () => { message.success("已上传"); done(); }, onError: (e) => message.error(errMsg(e)) });
     const gen = useMutation({ mutationFn: () => api.generateAsset(a.id), onSuccess: done, onError: (e) => message.error(errMsg(e)) });
     const del = useMutation({ mutationFn: () => api.deleteAsset(a.id), onSuccess: () => { message.success("已删除"); done(); }, onError: (e) => message.error(errMsg(e)) });
     const img = a.images[0];
@@ -50,7 +50,8 @@ function AssetCard({ a, i, onEdit }: { a: LibraryAsset; i: number; onEdit: () =>
                 {a.data?.error && <div className="truncate text-bad" title={a.data.error}>生成失败：{a.data.error}</div>}
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 <div className="mt-2 flex flex-wrap gap-1">
-                    <Button size="small" icon={a.kind === "product" ? <Upload size={12} /> : <ImagePlus size={12} />} loading={upload.isPending} onClick={() => file.current?.click()}>上传</Button>
+                    <Button size="small" icon={a.kind === "product" ? <Upload size={12} /> : <ImagePlus size={12} />} loading={upload.isPending}
+                        onClick={() => (a.kind === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}>上传</Button>
                     {a.kind !== "product" && <Button size="small" icon={<Wand2 size={12} />} loading={gen.isPending || a.status === "generating"} onClick={() => gen.mutate()}>AI 生成</Button>}
                     <Button size="small" type="text" icon={<Pencil size={12} />} onClick={onEdit} aria-label="编辑" />
                     <Popconfirm title="删除这个素材？" okText="删除" cancelText="取消" onConfirm={() => del.mutate()}>
@@ -71,11 +72,12 @@ function EditModal({ kind, asset, open, onClose }: { kind: AssetKind; asset: Lib
     const [sku, setSku] = useState("");
     const [image, setImage] = useState<string | null>(null);
     const [generate, setGenerate] = useState(true);
-    const reset = () => { setName(asset?.name ?? ""); setDesc(asset?.description ?? ""); setBrand(asset?.data.brand ?? "TECNO"); setSku(asset?.data.model_sku ?? ""); setImage(null); setGenerate(true); };
+    const [consent, setConsent] = useState(false);
+    const reset = () => { setConsent(false); setName(asset?.name ?? ""); setDesc(asset?.description ?? ""); setBrand(asset?.data.brand ?? "TECNO"); setSku(asset?.data.model_sku ?? ""); setImage(null); setGenerate(true); };
     const save = useMutation({
         mutationFn: () => asset
             ? api.patchAsset(asset.id, { name, description: desc, ...(kind === "product" ? { data: { brand, model_sku: sku } } : {}) })
-            : api.createAsset({ kind, name, description: desc, image: image ?? undefined, generate: kind !== "product" && !image && generate,
+            : api.createAsset({ kind, name, description: desc, image: image ?? undefined, generate: kind !== "product" && !image && generate, consent: kind === "actor" && !!image && consent,
                 ...(kind === "product" ? { data: { brand, model_sku: sku } } : {}) }),
         onSuccess: () => { message.success(asset ? "已保存" : "已添加"); qc.invalidateQueries({ queryKey: ["library"] }); onClose(); },
         onError: (e) => message.error(errMsg(e)),
@@ -83,7 +85,7 @@ function EditModal({ kind, asset, open, onClose }: { kind: AssetKind; asset: Lib
     const label = { actor: "演员", scene: "场景", product: "商品" }[kind];
     return (
         <Modal open={open} afterOpenChange={(v) => v && reset()} onCancel={onClose} title={asset ? `编辑${label}` : `新建${label}`}
-            okText="保存" cancelText="取消" confirmLoading={save.isPending} okButtonProps={{ disabled: !name.trim() || (kind === "product" && !asset && !image) }} onOk={() => save.mutate()}>
+            okText="保存" cancelText="取消" confirmLoading={save.isPending} okButtonProps={{ disabled: !name.trim() || (kind === "product" && !asset && !image) || (kind === "actor" && !asset && !!image && !consent) }} onOk={() => save.mutate()}>
             <div className="flex flex-col gap-3 text-sm">
                 <label>名称<Input className="mt-1" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "actor" ? "如：女摊主 Ada" : kind === "scene" ? "如：雨夜的拉各斯街头市场" : "如：TECNO Spark 40"} /></label>
                 {kind === "product" && (
@@ -99,6 +101,7 @@ function EditModal({ kind, asset, open, onClose }: { kind: AssetKind; asset: Lib
                         <div className="mb-1">图片{kind === "product" ? "（必填，商品实拍图）" : "（可选）"}</div>
                         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (e) => { const f = e.target.files?.[0]; setImage(f ? await readFile(f) : null); }} />
                         {image && <img src={image} alt="" className="mt-2 h-32 rounded-lg object-cover" />}
+                        {kind === "actor" && image && <Checkbox className="mt-2" checked={consent} onChange={(e) => setConsent(e.target.checked)}>{CONSENT_TEXT}</Checkbox>}
                         {kind !== "product" && !image && <Checkbox className="mt-2" checked={generate} onChange={(e) => setGenerate(e.target.checked)}>没有图片时用 AI 生成（真实质感）</Checkbox>}
                     </div>
                 )}

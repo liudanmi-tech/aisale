@@ -11,13 +11,18 @@ os.environ["LLM_ENABLED"] = "false"
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import config  # noqa: E402
+from app import config, qc  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.main import app  # noqa: E402
 
 PNG = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n img").decode()
 images: list[dict] = []
 i2v: list[dict] = []
+qc_calls: list[dict] = []
+OK = {"status": "pass", "reason": "无"}
+QC_GOOD = {"product": {"present": True, "status": "pass", "items": {"颜色": "pass", "摄像头模组": "pass"}, "reason": "无"},
+           "people": OK, "artifacts": {**OK, "items": []}, "text": OK, "script": OK}
+QC_BAD = {**QC_GOOD, "artifacts": {"status": "fail", "items": ["手指畸形"], "reason": "女摊主左手六根手指"}}
 CAST = {"genre": "情景剧",
         "roles": [{"key": "r1", "name": "女摊主", "description": "25 岁尼日利亚女性，编发，印花上衣", "reuse": None},
                   {"key": "r2", "name": "顾客", "description": "30 岁男性，衬衫", "reuse": None}],
@@ -36,6 +41,11 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
     if body.get("tools"):
         return httpx.Response(200, json={"choices": [{"message": {"content": "", "tool_calls": []}}]})
     sys_prompt = body["messages"][0]["content"]
+    if isinstance(sys_prompt, list) and "质检员" in sys_prompt[0]["text"]:
+        qc_calls.append(body)
+        # 第 1 镜（停电的夜市）的第一张关键帧不合格，其余都合格
+        bad = "停电的夜市" in sys_prompt[0]["text"] and sum("停电的夜市" in b["messages"][0]["content"][0]["text"] for b in qc_calls) == 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(QC_BAD if bad else QC_GOOD, ensure_ascii=False)}}]})
     out = CAST if "选角导演" in sys_prompt else {"shots": [["3", "停电的夜市", "NEPA!", "停电"], ["4", "接单不停", "E no die", "不会没电"],
                                                          ["4", "产品特写", "6000mAh", "大电池"], ["4", "顾客问价", "Go shop", "去门店"]]}
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]})
@@ -63,6 +73,8 @@ def wait_until(cond, timeout=15):
 
 def test_production(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    monkeypatch.setattr(qc, "_face", {"loaded": True, "det": None, "rec": None, "error": "测试环境不下载人脸模型"})
+    monkeypatch.setattr(qc, "_ffmpeg_ok", lambda: False)
     llm.transport, fal.transport, fal.POLL_SECONDS = httpx.MockTransport(llm_handler), httpx.MockTransport(fal_handler), 0.01
     with TestClient(app) as c:
         c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
@@ -94,7 +106,7 @@ def test_production(tmp_path, monkeypatch):
         wait_until(lambda: of("video")[0]["status"] == "wait")
         v = of("video")[0]
         kf_calls = images[n_img:]
-        assert len(kf_calls) == 4 and all(t["keyframe"].startswith("/api/v1/media/keyframes/") for t in v["data"]["tasks"])
+        assert len(kf_calls) == 5 and all(t["keyframe"].startswith("/api/v1/media/keyframes/") for t in v["data"]["tasks"])
         refs = lambda b: len(b["messages"][0]["content"]) - 1 if isinstance(b["messages"][0]["content"], list) else 0  # noqa: E731
         texts = [b["messages"][0]["content"][0]["text"] for b in kf_calls]
         shot0 = next(b for b, t in zip(kf_calls, texts) if "停电的夜市" in t)
@@ -102,10 +114,21 @@ def test_production(tmp_path, monkeypatch):
         prod = next(b for b, t in zip(kf_calls, texts) if "产品特写" in t)
         assert "商品实拍" in prod["messages"][0]["content"][0]["text"]
         assert len(i2v) == 4 and all(x["path"].endswith("/image-to-video") and x["image_url"].startswith("data:image/") for x in i2v)
-        assert v["data"]["qc"]["人物一致"] and v["data"]["engine"].endswith("image-to-video")
+        assert v["data"]["engine"].endswith("image-to-video")
+        # 质检：第 1 镜关键帧不合格 → 带着问题重画一次后通过；商品镜头要人工确认
+        retry = [b for b, t in zip(kf_calls, texts) if "停电的夜市" in t]
+        assert len(retry) == 2 and "六根手指" in retry[1]["messages"][0]["content"][0]["text"]
+        t0 = v["data"]["tasks"][0]["qc"]
+        assert t0["status"] == "pass" and t0["attempts"]["keyframe"] == 2 and t0["checks"]["face"]["status"] == "skip"
+        rep = v["data"]["qc"]
+        assert rep["retried"] == 1 and rep["manual"] == [3] and rep["pass"] + rep["warn"] == 4
+        assert "质检" in v["sub"]
 
         # 换演员：画布上的演员节点换成素材库里另一个，剧本选角同步
-        new = c.post("/api/v1/library", json={"kind": "actor", "name": "年轻男摊主", "description": "20 岁男性", "image": PNG}).json()
+        actor_in = {"kind": "actor", "name": "年轻男摊主", "description": "20 岁男性", "image": PNG}
+        assert c.post("/api/v1/library", json=actor_in).status_code == 400  # 真人照片没确认肖像授权
+        new = c.post("/api/v1/library", json={**actor_in, "consent": True}).json()
+        assert new["data"]["consent"]["text"].startswith("我确认已取得")
         actor = next(n for n in of("actor") if "女摊主" in n["title"])
         assert c.post(f"/api/v1/nodes/{actor['id']}/asset", json={"asset_id": new["id"]}).json()["title"] == "演员 · 年轻男摊主"
         assert of("script")[0]["data"]["cast"]["roles"]["r1"] == new["id"]

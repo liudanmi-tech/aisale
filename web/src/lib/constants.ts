@@ -43,3 +43,13 @@ export const COVER_GRADIENTS = [
     "linear-gradient(160deg,#9254de,#3e8bff)",
     "linear-gradient(160deg,#f25f5c,#ff7a45)",
 ];
+
+/** 演员上传真人照片前要确认的肖像授权（和后端 CONSENT_TEXT 一致） */
+export const CONSENT_TEXT = "我确认已取得照片中本人的书面授权，同意其肖像用于 AI 生成广告并在 TikTok 等平台投放";
+export const consentDialog = (onOk: () => void) => ({
+    title: "上传真人照片：确认肖像授权",
+    content: `${CONSENT_TEXT}。没有授权请改用「AI 生成」演员。`,
+    okText: "我已取得授权，选择照片",
+    cancelText: "取消",
+    onOk,
+});

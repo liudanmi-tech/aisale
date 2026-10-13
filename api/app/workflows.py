@@ -6,15 +6,18 @@
 import asyncio
 import hashlib
 import json
+import logging
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, config, production, settings_store, storyboard
+from app import agent, canvas, config, panel, production, settings_store, storyboard
 from app.adapters import llm, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
-from app.models import MetricDaily, Node, Project, RefAd
+from app.models import Asset, MetricDaily, Node, Project, RefAd
 from app.seed import SHOTS
+
+log = logging.getLogger(__name__)
 
 
 def _h(s: str, mod: int) -> int:
@@ -92,6 +95,14 @@ NAMES = {"尼日利亚": ["Ada", "Musa", "Chidi", "Bola", "Femi", "Ngozi", "Tund
 CITIES = {"尼日利亚": ["Lagos", "Kano", "Abuja", "Ibadan"], "巴基斯坦": ["Karachi", "Lahore", "Islamabad", "Faisalabad"]}
 
 
+JOBS = {"小商贩": ["菜市场摊主", "手机配件店老板", "摩托车司机（okada）", "裁缝铺老板"]}
+JOBS_ANY = ["上班族", "小店店员", "网约车司机", "美发师"]
+JOBS_YOUNG = ["大学生", "高中生", "实习生", "刚毕业找工作"]
+LIKES = ["足球和球星集锦", "搞笑短剧", "Afrobeats 音乐", "赚钱副业教程", "美妆穿搭", "手机评测和开箱"]
+HABITS = ["刷得很快，1 秒不吸引就划走", "会看完有剧情的视频", "只看熟人和关注的博主", "喜欢看评论区再决定", "对广告很反感"]
+LANGS = {"尼日利亚": ["尼日利亚皮钦英语", "英语", "约鲁巴语和英语混说", "豪萨语和英语混说"], "巴基斯坦": ["乌尔都语", "乌尔都语和英语混说", "旁遮普语"]}
+
+
 def _personas(market: str, segments: list[str]) -> list[dict]:
     """按市场与人群抽 40 个虚拟用户：第一人群 60%，第二人群 40%。"""
     names, cities = NAMES.get(market, NAMES["尼日利亚"]), CITIES.get(market, CITIES["尼日利亚"])
@@ -102,7 +113,9 @@ def _personas(market: str, segments: list[str]) -> list[dict]:
         young = seg == "学生"
         out.append({"id": i, "name": names[i % 8], "segment": seg, "age": (18 + i % 6) if young else (25 + i % 12), "city": cities[i % 4],
                     "phone": ["Tecno Spark", "itel A70", "Samsung A05", "Infinix Hot", "Redmi 13C"][i % 5],
-                    "income": "低" if i % 3 == 0 else "中"})
+                    "income": "低" if i % 3 == 0 else "中",
+                    "job": (JOBS_YOUNG if young else JOBS.get(seg, JOBS_ANY))[i % 4], "likes": LIKES[i % 6], "habit": HABITS[i % 5],
+                    "lang": LANGS.get(market, ["英语"])[i % len(LANGS.get(market, ["英语"]))]})
     return out
 
 
@@ -115,33 +128,6 @@ def _simulated(v: Node, personas: list[dict]) -> dict:
     s = 7 + _h(v.id, 3)
     return {"reactions": reactions, "scores": {"hook": s, "clarity": s, "trust": s - 1, "local": s, "intent": s - 1},
             "issue": "前 3 秒流失偏高，建议换停电场景钩子", "engine": "simulated"}
-
-
-async def _llm_eval(v: Node, script: Node | None, personas: list[dict], market: str) -> dict:
-    shots = (script.data or {}).get("shots", []) if script else (v.data or {}).get("shots", [])
-    board = "\n".join(f"镜{i + 1}（{s[0]}）画面：{s[1]}；口播：{s[2]}" for i, s in enumerate(shots))
-    people = "\n".join(f"{p['id']}. {p['name']}，{p['age']} 岁，{p['segment']}，{p['city']}，现用 {p['phone']}，收入{p['income']}" for p in personas)
-    system = ("你在模拟 TikTok 信息流里刷到一条 15 秒手机广告的真实用户。根据每个人的画像独立判断他会在第几秒划走、"
-              "是否看完、是否点击 CTA，并写一句他会说的真实反应（中文，口语）。不要所有人都一样，要符合真实的流失分布："
-              "真实信息流里约一半人在前 3 秒划走，看完的通常不到三分之一，点击 CTA 的通常只有 1–4 人；与自己人群无关的广告更容易划走。"
-              "只输出 JSON：{\"reactions\":[{\"persona\":编号,\"drop_at\":0-15 的整数（看完填 15）,\"clicked\":true/false,\"comment\":\"一句话\"}]（40 条，编号 0-39 全覆盖）,"
-              "\"scores\":{\"hook\":1-10,\"clarity\":1-10,\"trust\":1-10,\"local\":1-10,\"intent\":1-10},\"issue\":\"最主要的问题与修改建议，一句话\"}")
-    out = await llm.chat_json(system, f"市场：{market}\n广告分镜：\n{board}\n\n用户画像：\n{people}", task="eval", timeout=120)
-    by = {int(r["persona"]): r for r in out.get("reactions", []) if str(r.get("persona", "")).isdigit() or isinstance(r.get("persona"), int)}
-    if len(by) < 30:
-        raise ValueError("reactions incomplete")
-    sim = _simulated(v, personas)["reactions"]
-    reactions = []
-    for p in personas:
-        r = by.get(p["id"])
-        if not r:
-            reactions.append(sim[p["id"]])
-            continue
-        drop = max(0, min(15, int(r.get("drop_at", 15))))
-        reactions.append({"persona": p["id"], "drop_at": drop, "completed": drop >= 15, "clicked": bool(r.get("clicked")) and drop >= 6,
-                          "comment": str(r.get("comment", ""))[:80]})
-    scores = {k: max(1, min(10, int((out.get("scores") or {}).get(k, 6)))) for k in ("hook", "clarity", "trust", "local", "intent")}
-    return {"reactions": reactions, "scores": scores, "issue": str(out.get("issue", ""))[:120], "engine": settings_store.get_models()["eval"]}
 
 
 async def evaluate(node_id: str, comment: str = "") -> None:
@@ -163,15 +149,20 @@ async def evaluate(node_id: str, comment: str = "") -> None:
         r = None
         if use_llm:
             try:
-                r = await _llm_eval(v, scripts.get(v.id), personas, market)
-            except Exception:
+                sc = scripts.get(v.id)
+                shots = (sc.data or {}).get("shots", []) if sc else (v.data or {}).get("shots", [])
+                r = await panel.run(personas, shots, (v.data or {}).get("tasks") or [], _simulated(v, personas)["reactions"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("40 人评测退回模拟：%s", e)
                 r = None
         r = r or _simulated(v, personas)
         done = sum(x["completed"] for x in r["reactions"]) / 40
         clicks = sum(x["clicked"] for x in r["reactions"])
         score = round(sum(r["scores"].values()) / 5 * 10)
-        return {"id": v.id, "title": v.title, "score": score, "ctr": round(0.5 + clicks / 40 * 5, 1), "vtr": round(done * 100),
-                "clicks": clicks, "reactions": r["reactions"], "dims": r["scores"], "issue": r["issue"], "engine": r["engine"]}
+        # ctr 是 40 个模拟用户的点击意向换算的，没有用真实投放数据校准，页面上标「未校准」
+        return {"id": v.id, "title": v.title, "score": score, "ctr": round(0.5 + clicks / 40 * 5, 1), "calibrated": False, "vtr": round(done * 100),
+                "clicks": clicks, "reactions": r["reactions"], "dims": r["scores"], "issue": r["issue"], "engine": r["engine"],
+                "retention": r.get("retention"), "agents": r.get("agents", 0)}
 
     results = sorted(await asyncio.gather(*(one(v) for v in videos)), key=lambda x: -x["score"])
     with SessionLocal() as db:
@@ -192,6 +183,13 @@ async def evaluate(node_id: str, comment: str = "") -> None:
               "；".join(f"{r['title']}：{r['score']} 分 / CTR {r['ctr']}% / 完播 {r['vtr']}%" for r in results))
 
 
+def _compliance(db, pid: str) -> dict:
+    """用了真人照片的演员都要有肖像授权记录。"""
+    ids = [(x.data or {}).get("asset_id") for x in canvas.nodes_of(db, pid, "actor")]
+    actors = [a for a in (db.get(Asset, i) for i in ids if i) if a]
+    return {"演员肖像授权": all(a.source != "upload" or (a.data or {}).get("consent") for a in actors)}
+
+
 async def plan_delivery(node_id: str, comment: str = "") -> None:
     await _sleep(0.5)
     with SessionLocal() as db:
@@ -204,10 +202,14 @@ async def plan_delivery(node_id: str, comment: str = "") -> None:
                 "adgroups": [{"name": "小商贩", "targeting": {"location": "尼日利亚", "age": "25–34", "interests": ["小生意", "手机"]}},
                              {"name": "学生", "targeting": {"location": "尼日利亚", "age": "18–24", "interests": ["拍照", "足球"]}}],
                 "creatives": picks, "daily_budget": 30, "test_days": 3, "cpa_cap": 2.5,
-                "guardrails": {"market_daily_cap": 500, "creative_spend_cap": 60}, "checks": {"政策预审": True, "落地页": True, "追踪参数": True}}
+                "guardrails": {"market_daily_cap": 500, "creative_spend_cap": 60},
+                # TikTok 要求 AI 生成内容打上 AIGC 标识；下发时在广告上开启（具体 API 字段以 TikTok Marketing API 文档为准）
+                "aigc_label": True,
+                "checks": {"政策预审": True, "落地页": True, "追踪参数": True, **_compliance(db, n.project_id)}}
         n.data = {**(n.data or {}), "plan": plan, "log": []}
         _done(db, n, "TikTok · 2 个广告组 · $30/天 × 3 天 · CPA 上限 $2.5",
-              "政策预审通过 · 落地页可访问 · 追踪参数完整 · 预算在市场日上限内")
+              "政策预审通过 · 落地页可访问 · 追踪参数完整 · 预算在市场日上限内 · 开启 AIGC 标识"
+              + "".join(f" · ⚠ {k}未通过" for k, ok in plan["checks"].items() if not ok))
 
 
 ACTIONS = {"generate_script": generate_script, "generate_video": generate_video, "evaluate": evaluate, "plan_delivery": plan_delivery}

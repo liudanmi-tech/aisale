@@ -6,7 +6,7 @@ import clsx from "clsx";
 import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Upload, Wand2 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
-import { COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
+import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
 import { api, type AssetKind, type CanvasNode, type Cast, type ShotSpec } from "@/services/api";
 
 export interface BodyActions {
@@ -135,6 +135,55 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
 
 const STAGES = ["分镜", "选角置景", "等待商品图", "关键帧", "完成"];
 
+// 质检：每镜四个标签（商品 / 人物 / 画质 / 剧本），每个标签合并几项检查，取最差
+type QcState = "pass" | "warn" | "fail" | "skip";
+type QcCheck = { status: QcState; reason?: string; scores?: any; items?: any };
+type ShotQc = { status: QcState; checks?: Record<string, QcCheck>; issues?: string[]; manual_confirm?: boolean; attempts?: { keyframe?: number; clip?: number } };
+const QC_GROUPS: [string, string[]][] = [["商品", ["product"]], ["人物", ["face", "people"]], ["画质", ["artifacts", "text", "tech"]], ["剧本", ["script"]]];
+const QC_RANK: Record<QcState, number> = { skip: 0, pass: 1, warn: 2, fail: 3 };
+const QC_MARK: Record<QcState, [string, string]> = { pass: ["✓", "text-good"], warn: ["⚠", "text-warn"], fail: ["✗", "text-bad"], skip: ["–", "text-ink2"] };
+const QC_ITEM: Record<string, string> = { product: "商品外观", face: "人脸相似度", people: "服装与人数", artifacts: "畸形与穿模", text: "乱码文字", tech: "规格与画质", script: "符合剧本" };
+
+function ShotQcChips({ q, keyframe, shot }: { q?: ShotQc; keyframe?: string; shot: number }) {
+    if (!q?.checks) return null;
+    const checks = q.checks;
+    const groups = QC_GROUPS.map(([label, keys]) => {
+        const got = keys.filter((k) => checks[k]);
+        const st = got.reduce<QcState>((w, k) => (QC_RANK[checks[k].status] > QC_RANK[w] ? checks[k].status : w), "skip");
+        return { label, keys: got, st };
+    });
+    const tries = (q.attempts?.keyframe ?? 0) - 1 + Math.max(0, (q.attempts?.clip ?? 0) - 1);
+    const detail = (
+        <div data-ui className="w-[300px] text-[12px] leading-5" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="mb-1 flex gap-2">
+                {keyframe && <img src={keyframe} alt="" className="h-[96px] w-[54px] shrink-0 rounded object-cover" />}
+                <div className="min-w-0">
+                    <b>镜 {shot} 质检：{{ pass: "通过", warn: "有问题待看", fail: "不合格", skip: "未执行" }[q.status]}</b>
+                    {tries > 0 && <div className="text-ink2">自动重做了 {tries} 次{q.status === "fail" ? "，仍不合格，建议换素材或改分镜后重新生成" : ""}</div>}
+                    {q.manual_confirm && <div className="text-warn">商品镜头：请人工核对外观和实拍图一致</div>}
+                </div>
+            </div>
+            {Object.entries(checks).map(([k, c]) => (
+                <div key={k} className="flex gap-1.5">
+                    <span className={QC_MARK[c.status][1]}>{QC_MARK[c.status][0]}</span>
+                    <span className="shrink-0 text-ink2">{QC_ITEM[k] ?? k}</span>
+                    <span className="min-w-0">{c.reason || "无"}{k === "face" && c.scores && !Array.isArray(c.scores) && Object.keys(c.scores).length
+                        ? <span className="text-ink2">（{Object.entries(c.scores).map(([n, v]) => `${n} ${v}`).join("，")}）</span> : null}</span>
+                </div>
+            ))}
+        </div>
+    );
+    return (
+        <Popover content={detail} trigger="click" placement="right">
+            <button data-ui className={clsx("mt-0.5 flex w-full cursor-pointer flex-wrap gap-x-1.5 rounded border bg-transparent px-1 py-0.5 text-left text-[10px] text-ink",
+                q.status === "fail" ? "border-bad/60" : q.status === "warn" ? "border-warn/50" : "border-line")} title="点开看质检详情">
+                {groups.map((g) => <span key={g.label}>{g.label}<span className={QC_MARK[g.st][1]}>{QC_MARK[g.st][0]}</span></span>)}
+                {q.manual_confirm && <span className="text-warn">需人工确认</span>}
+            </button>
+        </Popover>
+    );
+}
+
 function VideoBody({ n }: { n: CanvasNode }) {
     const { message } = App.useApp();
     const refresh = useRefresh(n);
@@ -151,7 +200,15 @@ function VideoBody({ n }: { n: CanvasNode }) {
                     ? <span className="flex items-center gap-1">{STAGES.filter((x) => x !== "等待商品图" || stage === x).map((x) => (
                         <span key={x} className={clsx("rounded px-1.5", x === stage ? "bg-brand/25 text-ink" : STAGES.indexOf(x) < STAGES.indexOf(stage) ? "text-good" : "text-ink2")}>{x}</span>
                     ))}</span>
-                    : <span className="text-ink2">引擎 {n.data.engine || "—"} · 每镜：分镜 → 关键帧（参考演员 / 场景 / 商品）→ 图生视频</span>}
+                    : n.data.qc?.text
+                        ? <span className="flex items-center gap-1.5 text-ink2">
+                            <span className={clsx("h-1.5 w-1.5 rounded-full", { pass: "bg-good", warn: "bg-warn", fail: "bg-bad", skip: "bg-ink2" }[n.data.qc.status as QcState])} />
+                            <span className="text-ink">质检 {n.data.qc.text}</span>
+                            {n.data.qc.retried > 0 && <span>· 自动重做 {n.data.qc.retried} 次</span>}
+                            {n.data.qc.manual?.length > 0 && <span className="text-warn">· 第 {n.data.qc.manual.join("、")} 镜商品需人工确认</span>}
+                            <span>· {n.data.engine || "—"}</span>
+                        </span>
+                        : <span className="text-ink2">引擎 {n.data.engine || "—"} · 每镜：分镜 → 关键帧 → 质检 → 图生视频 → 质检</span>}
                 <span className="ml-auto" />
                 <Btn icon={<RefreshCw size={11} />} disabled={busy || regenAll.isPending} onClick={() => regenAll.mutate()}>全部重新生成</Btn>
             </div>
@@ -173,6 +230,7 @@ function VideoBody({ n }: { n: CanvasNode }) {
                                         </div>}
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span></div>
                                 {t.spec && <div className="mt-0.5"><SpecChips spec={t.spec} cast={{ roles: {}, scenes: {}, names: n.data.names || {}, genre: "", product: null, specs: [] }} /></div>}
+                                <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5 line-clamp-2 text-ink2" title={s[1]}>{s[1]}</div>
                                 <div className="mt-1"><Btn icon={<RefreshCw size={10} />} disabled={busy || regen.isPending} onClick={() => regen.mutate(i)}>重新生成</Btn></div>
                             </div>
@@ -188,7 +246,7 @@ const KIND_ZH: Record<AssetKind, string> = { actor: "演员", scene: "场景", p
 
 /** 演员 / 场景 / 商品节点：看图、上传、AI 重新生成、换成素材库里的另一个 */
 function AssetBody({ n }: { n: CanvasNode }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const qc = useQueryClient();
     const refresh = useRefresh(n);
     const kind = n.type as AssetKind;
@@ -197,7 +255,7 @@ function AssetBody({ n }: { n: CanvasNode }) {
     const file = useRef<HTMLInputElement>(null);
     const after = () => { qc.invalidateQueries({ queryKey: ["library"] }); refresh(); };
     const upload = useMutation({
-        mutationFn: async (f: File) => api.uploadAsset(n.data.asset_id, await readFile(f)),
+        mutationFn: async (f: File) => api.uploadAsset(n.data.asset_id, await readFile(f), kind === "actor"),
         onSuccess: (r) => { message.success(r.resumed?.length ? "已上传，视频继续生成" : "已上传"); after(); },
         onError: (e) => message.error(errMsg(e)),
     });
@@ -219,7 +277,8 @@ function AssetBody({ n }: { n: CanvasNode }) {
             {a.data?.error && <div className="mt-1 text-[11px] text-bad">生成失败：{a.data.error}</div>}
             <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
             <div className="mt-1.5 flex flex-wrap gap-1">
-                <Btn primary={kind === "product" && !img} icon={kind === "product" ? <Upload size={11} /> : <ImagePlus size={11} />} disabled={upload.isPending} onClick={() => file.current?.click()}>
+                <Btn primary={kind === "product" && !img} icon={kind === "product" ? <Upload size={11} /> : <ImagePlus size={11} />} disabled={upload.isPending}
+                    onClick={() => (kind === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}>
                     {kind === "product" ? "上传商品图" : "上传图片"}
                 </Btn>
                 {kind !== "product" && <Btn icon={<Wand2 size={11} />} disabled={gen.isPending || a.status === "generating"} onClick={() => gen.mutate()}>AI 重新生成</Btn>}
@@ -237,13 +296,13 @@ const DIMS: [string, string][] = [["hook", "钩子"], ["clarity", "卖点"], ["t
 
 function EvalBody({ n }: { n: CanvasNode }) {
     const results: any[] = n.data.results || [];
-    if (!results.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "40 个虚拟用户正在观看…" : "还没有评测结果"}</div>;
+    if (!results.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "40 个独立 Agent 正在逐镜观看…" : "还没有评测结果"}</div>;
     const best = [...results].sort((a, b) => b.score - a.score)[0];
     const personas: any[] = n.data.personas || [];
     return (
         <div className="text-[12px]">
             <table className="w-full border-collapse text-left">
-                <thead className="text-[11px] text-ink2"><tr><th className="py-1 font-normal">视频</th><th className="font-normal">得分</th><th className="font-normal">预测 CTR</th><th className="font-normal">完播</th></tr></thead>
+                <thead className="text-[11px] text-ink2"><tr><th className="py-1 font-normal">视频</th><th className="font-normal">得分</th><th className="font-normal" title="40 个模拟用户的点击意向换算，没有用真实投放数据校准">点击意向 CTR<span className="text-warn">（未校准）</span></th><th className="font-normal">完播</th></tr></thead>
                 <tbody>
                     {results.map((r) => (
                         <tr key={r.id} className="border-t border-line">
@@ -267,7 +326,9 @@ function EvalBody({ n }: { n: CanvasNode }) {
                 {best?.reactions && (
                     <div className="grid grid-cols-10 content-start gap-1" title={`${best.title}：绿 = 看完，灰 = 划走，★ = 点击`}>
                         {best.reactions.slice(0, 40).map((r: any) => (
-                            <span key={r.persona} title={`${personas[r.persona]?.name ?? ""} · ${personas[r.persona]?.segment ?? ""}${r.comment ? `：${r.comment}` : ""}`}
+                            <span key={r.persona} title={`${personas[r.persona]?.name ?? ""} · ${personas[r.persona]?.segment ?? ""} · ${personas[r.persona]?.job ?? ""}`
+                                + (r.completed ? " · 看完" : r.drop_shot ? ` · 第 ${r.drop_shot} 镜划走` : " · 划走")
+                                + (r.thought ? `\n心里想：${r.thought}` : "") + (r.comment ? `\n评论：${r.comment}` : "")}
                                 className={clsx("flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px]", r.completed ? "bg-good/80 text-black" : "bg-[#3a3a42]")}>
                                 {r.clicked ? "★" : ""}
                             </span>
@@ -275,7 +336,14 @@ function EvalBody({ n }: { n: CanvasNode }) {
                     </div>
                 )}
             </div>
-            <div className="mt-2 leading-5 text-ink2">建议人群：<span className="text-ink">{n.data.suggest_audience || "—"}</span>　主要问题：<span className="text-ink">{n.data.issue || "—"}</span></div>
+            {best?.retention && (
+                <div className="mt-2 flex items-center gap-1 text-[10px] text-ink2" title="每一镜开始时还在看的人数占比">
+                    留存{best.retention.map((p: number, i: number) => (
+                        <span key={i} className="flex items-center gap-0.5">镜{i + 1}<span className="inline-block h-1.5 w-10 overflow-hidden rounded bg-elev"><span className="block h-full bg-brand" style={{ width: `${p}%` }} /></span><span className="text-ink">{p}%</span></span>
+                    ))}
+                </div>
+            )}
+            <div className="mt-2 leading-5 text-ink2">{best?.agents ? <>评测：<span className="text-ink">{best.agents} 个独立 Agent 逐镜观看</span>　</> : null}建议人群：<span className="text-ink">{n.data.suggest_audience || "—"}</span>　主要问题：<span className="text-ink">{n.data.issue || "—"}</span></div>
         </div>
     );
 }
@@ -293,6 +361,9 @@ function DeliverBody({ n }: { n: CanvasNode }) {
             <div><span className="text-ink2">广告组：</span>{plan.adgroups.map((g: any) => `${g.name}（${g.targeting.age} 岁）`).join("、")}</div>
             <div><span className="text-ink2">预算：</span>${plan.daily_budget}/天 × {plan.test_days} 天 · CPA 上限 ${plan.cpa_cap}</div>
             <div><span className="text-ink2">护栏：</span>市场日上限 ${plan.guardrails.market_daily_cap} · 单素材上限 ${plan.guardrails.creative_spend_cap}</div>
+            {plan.aigc_label && <div><span className="text-ink2">标识：</span>AIGC 内容标识已开启（TikTok 要求 AI 生成内容打标）</div>}
+            {plan.checks && <div className="flex flex-wrap gap-x-2"><span className="text-ink2">检查：</span>{Object.entries(plan.checks as Record<string, boolean>).map(([k, ok]) =>
+                <span key={k} className={ok ? "text-good" : "text-bad"}>{ok ? "✓" : "✗"} {k}</span>)}</div>}
             {log.length > 0 && <div className="mt-1.5 max-h-24 overflow-hidden rounded-md bg-[#0a0b0e] p-1.5 font-mono text-[10px] leading-4 text-ink2">{log.slice(-5).map((l, i) => <div key={i}>{l}</div>)}</div>}
             <div className="mt-2">
                 <Btn primary icon={<Rocket size={11} />} disabled={n.status !== "pass" || !!n.data.launching || launch.isPending} onClick={() => launch.mutate()}>

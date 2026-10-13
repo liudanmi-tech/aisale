@@ -1,4 +1,6 @@
 """素材库接口：演员 / 场景 / 商品的增删改、上传图片、AI 生成图片；画布上的素材节点换素材。"""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -37,6 +39,19 @@ class AssetIn(BaseModel):
     tags: list[str] = []
     image: str | None = None  # data URI，上传图片
     generate: bool = False  # 演员 / 场景：AI 生成图片
+    consent: bool = False  # 演员上传真人照片：确认已取得本人肖像授权
+
+
+CONSENT_TEXT = "我确认已取得照片中本人的书面授权，同意其肖像用于 AI 生成广告并在 TikTok 等平台投放"
+
+
+def _check_consent(kind: str, consent: bool) -> dict:
+    """演员上传真人照片必须确认肖像授权；记下确认时间和条款，备查。"""
+    if kind != "actor":
+        return {}
+    if not consent:
+        raise HTTPException(400, "上传真人照片前，请确认已取得本人的肖像授权")
+    return {"consent": {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "text": CONSENT_TEXT}}
 
 
 @router.post("/library")
@@ -45,7 +60,8 @@ def create_asset(body: AssetIn):
         raise HTTPException(400, "kind 只能是 actor / scene / product")
     if not body.name.strip():
         raise HTTPException(400, "请填写名称")
-    a = assets.create(body.kind, body.name, body.description, data=body.data, tags=body.tags)
+    extra = _check_consent(body.kind, body.consent) if body.image else {}
+    a = assets.create(body.kind, body.name, body.description, data={**body.data, **extra}, tags=body.tags)
     if body.image:
         try:
             a = assets.add_upload(a.id, body.image)
@@ -78,10 +94,18 @@ def patch_asset(aid: str, body: AssetPatch, db: Session = Depends(get_db)):
 
 class UploadIn(BaseModel):
     image: str  # data URI
+    consent: bool = False
 
 
 @router.post("/library/{aid}/upload")
 def upload(aid: str, body: UploadIn, db: Session = Depends(get_db)):
+    a = db.get(Asset, aid)
+    if not a:
+        raise HTTPException(404, "not found")
+    extra = _check_consent(a.kind, body.consent)
+    if extra:
+        a.data = {**(a.data or {}), **extra}
+        db.commit()
     try:
         a = assets.add_upload(aid, body.image)
     except KeyError:

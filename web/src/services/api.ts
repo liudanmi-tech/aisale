@@ -161,7 +161,7 @@ export interface ModelOption {
 export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
-    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard", string>;
+    models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard" | "keyframe" | "video_i2v" | "qc", string>;
     catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
 }
@@ -285,9 +285,9 @@ export const api = {
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),
     library: (kind?: AssetKind) => get<LibraryAsset[]>("/library", kind ? { kind } : {}),
-    createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean }) => post<LibraryAsset>("/library", body),
+    createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean; consent?: boolean }) => post<LibraryAsset>("/library", body),
     patchAsset: (id: string, body: Partial<Pick<LibraryAsset, "name" | "description" | "data" | "tags">>) => http.patch(`/library/${id}`, body).then((r) => r.data),
-    uploadAsset: (id: string, image: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image }),
+    uploadAsset: (id: string, image: string, consent = false) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent }),
     generateAsset: (id: string) => post(`/library/${id}/generate`),
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),

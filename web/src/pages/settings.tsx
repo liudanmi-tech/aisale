@@ -79,10 +79,12 @@ export default function Settings() {
     const rows: [string, string, string, ModelOption[]][] = [
         ["agent", "Agent 理解指令", "把一句话转成画布操作，要求快、支持工具调用", data.catalog.llm],
         ["script", "剧本与本土化", "写分镜和皮钦语 / 乌尔都语口播，要求口语自然", data.catalog.llm],
-        ["eval", "40 人评测", "40 个画像逐个给出反应，输出量大，要求便宜", data.catalog.llm],
+        ["eval", "40 人评测", "40 个独立 Agent 各调用一次、逐镜看关键帧；调用量大，要便宜且能看图", data.catalog.llm],
         ["analysis", "竞品视频拆解", "逐条看封面、文案、字幕，拆出卖点、场景、钩子；量大要便宜、能看图", data.catalog.llm],
         ["report", "分析报告撰写", "把拆解结果汇总成洞察和建议，要会写", data.catalog.llm],
         ["storyboard", "分镜图", "按剧本画电影学院风格的简笔分镜，每镜一张", data.catalog.image],
+        ["keyframe", "定妆照与关键帧", "演员定妆照、场景图、每镜关键帧；要真实质感、能同时参考多张图", data.catalog.image],
+        ["qc", "视频质检", "看关键帧和成片抽帧，对照定妆照和商品实拍图逐项检查；必须能看图", data.catalog.llm],
         ["video", "视频生成（fal.ai）", "每个镜头生成 5 秒 9:16 视频，产品镜头用官方素材", data.catalog.video],
     ];
     return (

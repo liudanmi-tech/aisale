@@ -13,7 +13,7 @@ import hashlib
 import json
 import logging
 
-from app import agent, assets, canvas, config, settings_store, storyboard
+from app import agent, assets, canvas, config, qc, settings_store, storyboard
 from app.adapters import fal, llm, seedance
 from app.db import SessionLocal
 from app.events import emit
@@ -25,6 +25,7 @@ SIZE_ZH = {"WS": "全景", "MS": "中景", "CU": "特写", "ECU": "大特写"}
 MOVES = ["固定", "推", "拉", "摇", "跟拍", "手持"]
 GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子", "达人口播", "产品展示"]
 PRODUCT_SHOT = 2
+KF_RETRIES, CLIP_RETRIES = 2, 1  # 质检不合格时自动重做的次数
 VIDEO_STYLE = "vertical 9:16 smartphone ad shot, photorealistic, natural light, no on-screen text, no watermark"
 _slots = asyncio.Semaphore(2)
 
@@ -186,12 +187,17 @@ async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, fr
         if pimg:
             refs.append(pimg)
             notes.append(f"第 {len(refs)} 张参考图是商品实拍：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型")
-    text = (f"Photorealistic keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
+    text = (f"ONE photorealistic photograph of a single moment (never a collage, grid, split screen or before/after panels) — "
+            f"a keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
+            "如果画面描述里包含一段时间（如「从早到晚」「一边…一边…」），只挑其中最有代表性的一个瞬间来拍。\n"
             f"镜头：{SIZE_ZH.get(spec.get('size'), '中景')}，运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n"
             + ("\n".join(notes) + "\n" if notes else "") + (f"修改意见：{comment}\n" if comment else "")
             + "画面中不要出现任何文字、字幕、品牌标志。\n"
-            "Rules: the whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
-            "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters.")
+            f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
+            "The whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
+            "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters."
+            + (" The phone must copy the product photo exactly: same color, same camera module shape, same number and layout of lenses."
+               if spec.get("product") else ""))
     content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": r}} for r in refs)] if refs else text
     raw, mime = await llm.image(content, task="keyframe", aspect_ratio="9:16")
     return _save_keyframe(video_id, i, raw, mime)
@@ -225,6 +231,14 @@ def _set(video_id: str, **fields) -> None:
 
 
 async def run(video_id: str, comment: str = "", recast: bool = False, only: list[int] | None = None) -> None:
+    try:
+        await _run(video_id, comment, recast, only)
+    except Exception as e:  # noqa: BLE001  后台任务出错不能让节点一直停在「生成中」
+        log.exception("视频生成出错 %s", video_id)
+        _set(video_id, status="failed", sub=f"生成出错：{str(e)[:60]}，可重新生成")
+
+
+async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None) -> None:
     with SessionLocal() as db:
         v = db.get(Node, video_id)
         if not v:
@@ -278,21 +292,38 @@ async def run(video_id: str, comment: str = "", recast: bool = False, only: list
         if prev:
             return prev
         spec = specs[i] if i < len(specs) else {"size": "MS", "move": "固定", "roles": [], "scene": None, "product": i == PRODUCT_SHOT}
-        kf, err = None, ""
+        kf, err, kf_qc, fix, tries = None, "", None, "", 0
+        frame = (frames[i] or {}).get("url") if i < len(frames) and frames[i] else None
         if use_kf:
             async with sem:
-                try:
-                    kf = await keyframe(video_id, i, sh, spec, cast, (frames[i] or {}).get("url") if i < len(frames) and frames[i] else None, market, comment)
-                except Exception as e:  # noqa: BLE001
-                    err = str(e)[:200]
-                    log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
+                # 关键帧质检：不合格带着问题重画，最多重画 KF_RETRIES 次；仍不合格就用最后一张并标红
+                for tries in range(1, KF_RETRIES + 2):
+                    try:
+                        kf = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x))
+                    except Exception as e:  # noqa: BLE001
+                        err = str(e)[:200]
+                        log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
+                        break
+                    kf_qc = await qc.check_keyframe(kf, sh, spec, cast)
+                    if kf_qc["status"] != "fail":
+                        break
+                    fix = "上一张没通过质检，必须改正：" + "；".join(kf_qc["issues"])[:400]
         if spec.get("product") and not kf and not cast.get("product"):
             return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec}
         move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
         prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-        res = await clip(prompt, assets.media_data_url(kf) if kf else None)
+        # 成片质检：不合格重生成 CLIP_RETRIES 次
+        for clip_tries in range(1, CLIP_RETRIES + 2):
+            res = await clip(prompt, assets.media_data_url(kf) if kf else None)
+            if res.get("status") == "failed":
+                clip_qc = None
+                break
+            clip_qc = await qc.check_clip(res.get("video_url") or "", sh, spec, cast)
+            if clip_qc["status"] != "fail":
+                break
         return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
-                "url": res.get("video_url"), **res}
+                "url": res.get("video_url"), **res,
+                "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries if use_kf else 0, "clip": clip_tries})}
 
     tasks = list(await asyncio.gather(*(one(i, sh) for i, sh in enumerate(shots))))
     with SessionLocal() as db:
@@ -303,10 +334,11 @@ async def run(video_id: str, comment: str = "", recast: bool = False, only: list
         real = [t for t in tasks if t.get("provider") in ("fal", "byteplus")]
         urls = [t["url"] for t in tasks if (t.get("url") or "").startswith("http")]
         kfs = sum(1 for t in tasks if t.get("keyframe"))
+        report = qc.video_summary(tasks)
         v.data = {**(v.data or {}), "shots": shots, "tasks": tasks, "stage": "完成", "waiting_asset": None, "names": cast.get("names", {}),
                   "video_url": urls[0] if urls else f"mock://composed/{video_id}.mp4", "shot_urls": urls,
                   "engine": real[0].get("model", real[0]["provider"]) if real else "mock",
-                  "qc": {"画面崩坏": not failed, "人物一致": kfs > 0, "商品外观": bool(cast.get("product")), "时长与规格": True}}
+                  "qc": report}
         if failed:
             v.status, v.sub = "failed", f"{len(failed)} 个镜头生成失败，可重试"
             agent.say(db, v.project_id, f"{agent.ref(v)} 有 {len(failed)} 个镜头生成失败：{failed[0].get('error', '')[:120]}。可以在节点里单镜重新生成。")
@@ -314,9 +346,11 @@ async def run(video_id: str, comment: str = "", recast: bool = False, only: list
             emit(v.project_id, "canvas")
             emit(v.project_id, "chat")
             return
-        v.sub = f"{cast.get('genre', '')} · {len(shots)} 镜 · 关键帧 {kfs}/{len(shots)}"
+        v.sub = f"{cast.get('genre', '')} · {len(shots)} 镜 · 质检 {report['text']}"
         canvas.add_review(db, v, f"{'Seedance（' + v.data['engine'] + '）' if real else '模拟'}生成 {len(shots)} 镜；关键帧 {kfs} 张（参考分镜、演员、场景、商品）",
-                          f"剧情：{cast.get('genre')} · 角色 {len(cast['roles'])} · 场景 {len(cast['scenes'])} · 商品{'已用实拍图' if cast.get('product') else '未用'}")
+                          f"剧情：{cast.get('genre')} · 角色 {len(cast['roles'])} · 场景 {len(cast['scenes'])} · 商品{'已用实拍图' if cast.get('product') else '未用'}"
+                          f" · 质检 {report['text']}" + (f"；请重点看：{'；'.join(report['issues'][:3])}" if report["issues"] else "")
+                          + (f"；商品镜头（第 {'、'.join(map(str, report['manual']))} 镜）需要你人工确认外观" if report["manual"] else ""))
         db.commit()
         emit(v.project_id, "canvas")
         emit(v.project_id, "reviews")

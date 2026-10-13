@@ -157,7 +157,7 @@ export function VideoStudio() {
     if (!n) return null;
     const shots: string[][] = n.data.shots || [];
     const tasks: any[] = n.data.tasks || [];
-    const qc: Record<string, boolean> = n.data.qc || {};
+    const qc: { text?: string; issues?: string[] } = n.data.qc || {};
     return (
         <div className="pb-12">
             <ReviewBar node={n} extra={`引擎 ${n.data.engine || "—"} · 9:16 · 15s`} />
@@ -192,7 +192,8 @@ export function VideoStudio() {
                         : <Cover gradient={COVER_GRADIENTS[3]} className="mx-auto w-[200px] items-center justify-center">{n.status === "run" ? "生成中…" : <Play size={32} />}</Cover>}
                     {(n.data.shot_urls || []).length > 1 && <div className="mt-2 text-center text-xs text-ink2">共 {n.data.shot_urls.length} 个 AI 镜头，成片合成（拼接 + 配音 + 字幕）在下一版接入</div>}
                     <h4 className="mb-1 mt-3">自动质检</h4>
-                    {Object.entries(qc).map(([k, v]) => <div key={k} className="text-sm"><span className={v ? "text-good" : "text-bad"}>●</span> {k} {v ? "通过" : "未通过"}</div>)}
+                    <div className="text-sm">{qc.text || "未执行"}</div>
+                    {(qc.issues || []).map((x) => <div key={x} className="text-xs text-ink2">· {x}</div>)}
                 </Card>
             </div>
         </div>

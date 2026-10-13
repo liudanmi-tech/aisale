@@ -1,6 +1,7 @@
 """设置页密钥与模型：加密存储、免费校验、管理员口令；fal 视频生成与大模型 40 人评测走真实调用路径（用模拟 HTTP 响应）。"""
 import base64
 import json
+import re
 import os
 import time
 
@@ -19,7 +20,7 @@ from app.models import Secret  # noqa: E402
 
 FAL_KEY = "fal-test-key-1234abcd"
 OR_KEY = "sk-or-test-5678wxyz"
-calls = {"fal_submit": [], "llm": []}
+calls = {"fal_submit": [], "llm": [], "agents": []}
 
 
 def fal_handler(req: httpx.Request) -> httpx.Response:
@@ -50,9 +51,12 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": None,
                               "tool_calls": [{"id": "t1", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}}]})
     system = body["messages"][0]["content"]
-    if "TikTok 信息流" in system:
-        reactions = [{"persona": i, "drop_at": 15 if i % 2 else 3, "clicked": i % 5 == 1, "comment": f"第{i}个人的反应"} for i in range(40)]
-        content = json.dumps({"reactions": reactions, "scores": {"hook": 8, "clarity": 7, "trust": 7, "local": 9, "intent": 6}, "issue": "第 3 秒卖点太快"})
+    if "For You 信息流" in system:  # 40 个独立评测 Agent，每人一次调用
+        i = int(re.search(r"编号 (\d+)", system).group(1))
+        calls["agents"].append(i)
+        watch = [{"shot": k + 1, "keep": True, "thought": "继续看"} for k in range(4)] if i % 2 else [{"shot": 1, "keep": False, "thought": "开头没意思"}]
+        content = json.dumps({"watch": watch, "clicked": i % 5 == 1, "comment": f"第{i}个人的反应",
+                              "scores": {"hook": 8, "clarity": 7, "trust": 7, "local": 9, "intent": 6}}, ensure_ascii=False)
     else:
         content = json.dumps({"shots": [["0–3s", "停电夜", "Light don cut!", "停电了"], ["3–7s", "收款", "No charger.", "不用充电"],
                                         ["7–11s", "产品特写", "6000mAh.", "大电池"], ["11–15s", "CTA", "Buy am!", "快买"]]})
@@ -123,7 +127,9 @@ def test_settings_and_real_call_paths():
             wait_until(lambda: nodes("eval") and nodes("eval")[0]["status"] == "wait")
             ev = nodes("eval")[0]["data"]
             r0 = ev["results"][0]
-            assert ev["engine"] == "google/gemini-2.5-pro" and r0["vtr"] == 50 and r0["reactions"][1]["comment"] == "第1个人的反应"
+            assert ev["engine"] == "40 个独立 Agent · google/gemini-2.5-pro" and r0["vtr"] == 50 and r0["reactions"][1]["comment"] == "第1个人的反应"
+            assert sorted(calls["agents"]) == list(range(40)) and r0["agents"] == 40 and r0["calibrated"] is False
+            assert r0["retention"] == [100, 50, 50, 50] and r0["issue"].startswith("第 1 镜流失最多（20 人划走）") and r0["clicks"] == 4  # 只算看到最后的
             assert "google/gemini-2.5-pro" in calls["llm"] and "anthropic/claude-sonnet-5.5" in calls["llm"]
 
             # 管理员口令
