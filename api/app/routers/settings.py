@@ -31,7 +31,7 @@ def get_settings():
         "secrets": {k: {"label": v, **settings_store.secret_status(k)} for k, v in NAMES.items()},
         "models": settings_store.get_models(),
         "retries": settings_store.get_retries(),
-        "catalog": {"llm": settings_store.LLM_MODELS, "video": settings_store.VIDEO_MODELS, "image": settings_store.IMAGE_MODELS, "video_i2v": settings_store.VIDEO_I2V_MODELS, "resolutions": ["480p", "720p", "1080p"]},
+        "catalog": {"llm": settings_store.LLM_MODELS, "video": settings_store.VIDEO_MODELS, "image": settings_store.IMAGE_MODELS, "video_i2v": settings_store.VIDEO_I2V_MODELS, "video_ref": settings_store.VIDEO_REF_MODELS, "resolutions": ["480p", "720p", "1080p"]},
         "integrations": [
             {"name": "视频生成", "mode": {"fal": "fal.ai 真实调用", "byteplus": "BytePlus 直连", "mock": "模拟"}[vp], "ready": vp != "mock"},
             {"name": "大模型（Agent / 剧本 / 评测）", "mode": "OpenRouter 真实调用" if settings_store.llm_enabled() else "规则与模板", "ready": settings_store.llm_enabled()},

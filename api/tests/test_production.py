@@ -11,7 +11,7 @@ os.environ["LLM_ENABLED"] = "false"
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import config, qc  # noqa: E402
+from app import config, product, qc  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -54,20 +54,32 @@ def llm_handler(req: httpx.Request) -> httpx.Response:
 FAL_DOWN = {"on": False, "after": None}
 
 
+cuts: list[dict] = []
+kinds: dict[str, str] = {}
+
+
 def fal_handler(req: httpx.Request) -> httpx.Response:
-    if req.method == "POST" and FAL_DOWN["after"] is not None:
+    if req.method == "POST" and FAL_DOWN["after"] is not None and "birefnet" not in req.url.path:
         FAL_DOWN["after"] -= 1
         FAL_DOWN["on"] = FAL_DOWN["after"] < 0
-    if req.method == "POST" and FAL_DOWN["on"]:
+    if req.method == "POST" and FAL_DOWN["on"] and "birefnet" not in req.url.path:
         return httpx.Response(403, json={"detail": "User is locked. Reason: Exhausted balance."})
     if req.method == "POST":
         body = json.loads(req.content)
-        i2v.append({"path": req.url.path, **body})
-        rid = f"r{len(i2v)}"
+        if "birefnet" in req.url.path:  # 抠图
+            cuts.append(body)
+            rid = f"c{len(cuts)}"
+            kinds[rid] = "cut"
+        else:
+            i2v.append({"path": req.url.path, **body})
+            rid = f"r{len(i2v)}"
         return httpx.Response(200, json={"request_id": rid, "status_url": f"https://queue.fal.run/x/requests/{rid}/status", "response_url": f"https://queue.fal.run/x/requests/{rid}"})
     if req.url.path.endswith("/status"):
         return httpx.Response(200, json={"status": "COMPLETED"})
-    return httpx.Response(200, json={"video": {"url": f"https://v3.fal.media/files/{req.url.path.rsplit('/', 1)[1]}.mp4"}})
+    rid = req.url.path.rsplit("/", 1)[1]
+    if kinds.get(rid) == "cut":
+        return httpx.Response(200, json={"image": {"url": f"https://v3.fal.media/files/{rid}.png"}})
+    return httpx.Response(200, json={"video": {"url": f"https://v3.fal.media/files/{rid}.mp4"}})
 
 
 def wait_until(cond, timeout=15):
@@ -84,6 +96,7 @@ def test_production(tmp_path, monkeypatch):
     monkeypatch.setattr(qc, "_face", {"loaded": True, "det": None, "rec": None, "error": "测试环境不下载人脸模型"})
     monkeypatch.setattr(qc, "_ffmpeg_ok", lambda: False)
     llm.transport, fal.transport, fal.POLL_SECONDS = httpx.MockTransport(llm_handler), httpx.MockTransport(fal_handler), 0.01
+    product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=base64.b64decode(PNG.split(",", 1)[1])))
     with TestClient(app) as c:
         c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
         c.put("/api/v1/settings/secrets/fal", json={"value": "fal-test-key-1234abcd"})
@@ -101,7 +114,9 @@ def test_production(tmp_path, monkeypatch):
         v, s = of("video")[0], of("script")[0]
         cast = s["data"]["cast"]
         assert cast["genre"] == "情景剧" and set(cast["roles"]) == {"r1", "r2"} and cast["names"]["r1"] == "女摊主"
-        assert cast["specs"][3] == {"shot": 3, "size": "MS", "move": "固定", "roles": [], "scene": "s1", "product": False, "line": "Go TECNO"}
+        assert cast["specs"][3] == {"shot": 3, "size": "MS", "move": "固定", "roles": [], "scene": "s1", "product": False, "line": "Go TECNO",
+                                    "product_tier": None, "overlay": ""}
+        assert cast["specs"][2]["product_tier"] == "hero"  # 没写级别、没有人物的商品镜头 → 纯商品特写
         assert len(of("actor")) == 2 and len(of("scene")) == 1 and of("product")[0]["status"] == "input"
         lib = {a["name"]: a for a in c.get("/api/v1/library").json()}
         assert lib["女摊主"]["images"] and lib["雨夜市场"]["images"] and not lib["TECNO Spark 40"]["images"]
@@ -135,7 +150,13 @@ def test_production(tmp_path, monkeypatch):
         assert t0["phase"] == "完成" and t0["inputs"]["visual"] == "停电的夜市" and ["scene", "s1", alt["id"], alt["images"][0]] in t0["inputs"]["refs"]
         prod = next(b for b, t in zip(kf_calls, texts) if "产品特写" in t)
         assert "商品实拍" in prod["messages"][0]["content"][0]["text"]
-        assert len(i2v) == 4 and all(x["path"].endswith("/image-to-video") and x["image_url"].startswith("data:image/") for x in i2v)
+        # 没有商品的 3 镜走 Seedance 2.5 图生视频；商品镜头走全能参考：@Image1 关键帧 + 商品实拍，关掉模型自带声音
+        plain = [x for x in i2v if x["path"].endswith("/image-to-video")]
+        ref = [x for x in i2v if x["path"].endswith("/reference-to-video")]
+        assert len(plain) == 3 and all(x["path"] == "/bytedance/seedance-2.5/image-to-video" and x["image_url"].startswith("data:image/") for x in plain)
+        assert "aspect_ratio" not in plain[0] and plain[0]["generate_audio"] is False
+        assert len(ref) == 1 and ref[0]["path"] == "/bytedance/seedance-2.5/reference-to-video" and len(ref[0]["image_urls"]) == 2
+        assert ref[0]["prompt"].startswith("@Image1 is the opening frame") and "@Image2" in ref[0]["prompt"] and ref[0]["generate_audio"] is False
         assert v["data"]["engine"].endswith("image-to-video")
         # 质检：第 1 镜关键帧不合格 → 带着问题重画一次后通过；商品镜头要人工确认
         retry = [b for b, t in zip(kf_calls, texts) if "停电的夜市" in t]
@@ -251,8 +272,8 @@ def test_production(tmp_path, monkeypatch):
         assert kf.shape[:2] == (1920, 1080) and tuple(int(x) for x in kf[10, 10]) == (255, 255, 255)  # 背景取实拍图的底色
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/clip").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] == "wait")
-        assert "exact phone in the first frame" in i2v[-1]["prompt"] and of("video")[0]["data"]["tasks"][2]["kf_from"] == "product"
+        assert i2v[-1]["path"].endswith("/reference-to-video") and "Product hero shot" in i2v[-1]["prompt"] and of("video")[0]["data"]["tasks"][2]["kf_from"] == "product"
 
         for name in ("openrouter", "fal"):
             c.delete(f"/api/v1/settings/secrets/{name}")
-    llm.transport = fal.transport = None
+    llm.transport = fal.transport = product.media_transport = None

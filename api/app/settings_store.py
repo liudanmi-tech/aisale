@@ -36,8 +36,13 @@ IMAGE_MODELS = [
     {"id": "google/gemini-3-pro-image", "label": "Gemini 3 Pro Image", "hint": "最精细、最贵"},
 ]
 VIDEO_I2V_MODELS = [
-    {"id": "fal-ai/bytedance/seedance/v1/pro/image-to-video", "label": "Seedance 1.0 Pro 图生视频", "hint": "按关键帧生成，最高 1080p"},
+    {"id": "bytedance/seedance-2.5/image-to-video", "label": "Seedance 2.5 图生视频", "hint": "按关键帧生成，最高 1080p，4–30 秒（默认）"},
+    {"id": "fal-ai/bytedance/seedance/v1/pro/image-to-video", "label": "Seedance 1.0 Pro 图生视频", "hint": "按关键帧生成，最高 1080p，更便宜"},
     {"id": "fal-ai/bytedance/seedance/v1/lite/image-to-video", "label": "Seedance 1.0 Lite 图生视频", "hint": "更快更便宜"},
+]
+VIDEO_REF_MODELS = [
+    {"id": "bytedance/seedance-2.5/reference-to-video", "label": "Seedance 2.5 全能参考", "hint": "最多 30 张参考图，商品镜头全程看着商品图生成（默认）"},
+    {"id": "bytedance/seedance-2.0/reference-to-video", "label": "Seedance 2.0 全能参考", "hint": "最多 9 张参考图"},
 ]
 DEFAULT_MODELS = {
     "agent": "google/gemini-2.5-flash",  # 理解指令 → 画布工具调用，要快
@@ -50,7 +55,8 @@ DEFAULT_MODELS = {
     "storyboard": "google/gemini-3.1-flash-lite-image",  # 剧本分镜图（电影学院简笔分镜风格）
     "keyframe": "google/gemini-3.1-flash-image",  # 演员定妆照、场景图、每镜关键帧（真实质感，要能参考多张图）
     "qc": "google/gemini-2.5-flash",  # 质检：看关键帧和成片抽帧，对照定妆照和商品实拍图逐项检查
-    "video_i2v": "fal-ai/bytedance/seedance/v1/pro/image-to-video",  # 关键帧 → 视频（图生视频）
+    "video_i2v": "bytedance/seedance-2.5/image-to-video",  # 关键帧 → 视频（图生视频，没有商品的镜头）
+    "video_ref": "bytedance/seedance-2.5/reference-to-video",  # 商品镜头：关键帧 + 商品多视角图一起作参考，全程保持商品外观
     "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }
 
@@ -106,7 +112,21 @@ def secret_status(name: str) -> dict:
 def get_models() -> dict:
     with SessionLocal() as db:
         s = db.get(Setting, "models")
-        return {**DEFAULT_MODELS, **((s.value if s else {}) or {})}
+        return {**DEFAULT_MODELS, **{k: v for k, v in ((s.value if s else {}) or {}).items() if not k.startswith("_")}}
+
+
+def migrate_models() -> None:
+    """一次性迁移：图生视频默认改成 Seedance 2.5。设置页「保存」会把当时的默认值写进库，所以旧的 1.0 设置要在这里改掉。"""
+    with SessionLocal() as db:
+        s = db.get(Setting, "models")
+        if not s or (s.value or {}).get("_seedance25"):
+            return
+        v = dict(s.value or {})
+        if "seedance/v1" in (v.get("video_i2v") or ""):
+            v["video_i2v"] = DEFAULT_MODELS["video_i2v"]
+        v["_seedance25"] = True
+        s.value = v
+        db.commit()
 
 
 def set_models(values: dict) -> dict:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, assets, canvas, production, settings_store
+from app import agent, assets, canvas, product, production, settings_store
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
 from app.models import Asset, Node, Project
@@ -40,6 +40,7 @@ class AssetIn(BaseModel):
     image: str | None = None  # data URI，上传图片
     generate: bool = False  # 演员 / 场景：AI 生成图片
     consent: bool = False  # 演员上传真人照片：确认已取得本人肖像授权
+    view: str | None = None  # 商品图的视角（front / back / side / angle / detail / front_on），不填由模型判断
 
 
 CONSENT_TEXT = "我确认已取得照片中本人的书面授权，同意其肖像用于 AI 生成广告并在 TikTok 等平台投放"
@@ -69,6 +70,8 @@ def create_asset(body: AssetIn):
             raise HTTPException(400, str(e)) from None
         if a.kind == "actor" and settings_store.llm_enabled():
             spawn(assets.generate_turnaround(a.id))
+        if a.kind == "product":
+            spawn(product.process_upload(a.id, a.images[0], body.view))
     elif body.generate and body.kind != "product":
         if not settings_store.llm_enabled():
             raise HTTPException(400, "AI 生成图片需要 OpenRouter Key")
@@ -89,7 +92,46 @@ def patch_asset(aid: str, body: AssetPatch, db: Session = Depends(get_db)):
     if not a:
         raise HTTPException(404, "not found")
     for k, v in body.model_dump(exclude_none=True).items():
+        if k == "data" and "spec_card" in v:  # 人改过说明卡，之后上传新图不再自动覆盖
+            v = {**v, "spec_card": {f: str(t)[:200] for f, t in (v["spec_card"] or {}).items() if f in product.SPEC_FIELDS}, "spec_card_edited": True}
         setattr(a, k, {**(a.data or {}), **v} if k == "data" else v)
+    db.commit()
+    return assets.asset_dict(a)
+
+
+class ViewIn(BaseModel):
+    url: str
+    view: str
+
+
+@router.post("/library/{aid}/view")
+def set_view(aid: str, body: ViewIn, db: Session = Depends(get_db)):
+    """改商品图的视角标注（模型判断错了时）。"""
+    a = db.get(Asset, aid)
+    if not a or body.url not in (a.images or []):
+        raise HTTPException(404, "not found")
+    if body.view not in product.VIEWS:
+        raise HTTPException(400, "视角不对")
+    views = dict((a.data or {}).get("views") or {})
+    views[body.url] = {**views.get(body.url, {}), "view": body.view}
+    a.data = {**(a.data or {}), "views": views}
+    db.commit()
+    return assets.asset_dict(a)
+
+
+class ImageIn(BaseModel):
+    url: str
+
+
+@router.post("/library/{aid}/remove-image")
+def remove_image(aid: str, body: ImageIn, db: Session = Depends(get_db)):
+    """删掉素材里的一张图（比如拼图、旧款图）。"""
+    a = db.get(Asset, aid)
+    if not a or body.url not in (a.images or []):
+        raise HTTPException(404, "not found")
+    a.images = [u for u in a.images if u != body.url]
+    views = {u: v for u, v in ((a.data or {}).get("views") or {}).items() if u != body.url}
+    a.data = {**(a.data or {}), "views": views}
     db.commit()
     return assets.asset_dict(a)
 
@@ -97,6 +139,7 @@ def patch_asset(aid: str, body: AssetPatch, db: Session = Depends(get_db)):
 class UploadIn(BaseModel):
     image: str  # data URI
     consent: bool = False
+    view: str | None = None  # 商品图视角
 
 
 @router.post("/library/{aid}/upload")
@@ -125,6 +168,8 @@ def upload(aid: str, body: UploadIn, db: Session = Depends(get_db)):
         spawn(production.run(vid))
     if a.kind == "actor" and settings_store.llm_enabled():
         spawn(assets.generate_turnaround(aid))  # 换了定妆照，三视图跟着重画
+    if a.kind == "product":
+        spawn(product.process_upload(aid, a.images[0], body.view))
     _touch(db, aid)
     return {**assets.asset_dict(a), "resumed": resumed}
 

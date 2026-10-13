@@ -30,23 +30,7 @@ def _headers(key: str | None = None) -> dict:
     return {"Authorization": f"Key {key or settings_store.get_secret('fal')}", "Content-Type": "application/json"}
 
 
-async def submit(prompt: str, duration: int = 5, aspect_ratio: str = "9:16") -> dict:
-    models = settings_store.get_models()
-    model = models["video"]
-    body = {"prompt": prompt, "aspect_ratio": aspect_ratio, "resolution": models.get("video_resolution", "720p"), "duration": str(duration)}
-    async with httpx.AsyncClient(timeout=30, transport=transport) as c:
-        r = await c.post(f"{BASE}/{model}", headers=_headers(), json=body)
-        _check(r)
-        d = r.json()
-    return {"model": model, "request_id": d["request_id"], "status_url": d.get("status_url") or f"{BASE}/{model}/requests/{d['request_id']}/status",
-            "response_url": d.get("response_url") or f"{BASE}/{model}/requests/{d['request_id']}"}
-
-
-async def submit_i2v(prompt: str, image_url: str, duration: int = 5) -> dict:
-    """图生视频：image_url 可以是公网地址或 data URI（fal 支持 base64 data URI 作为文件输入）。"""
-    models = settings_store.get_models()
-    model = models["video_i2v"]
-    body = {"prompt": prompt, "image_url": image_url, "aspect_ratio": "9:16", "resolution": models.get("video_resolution", "720p"), "duration": str(duration)}
+async def _submit(model: str, body: dict) -> dict:
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
         r = await c.post(f"{BASE}/{model}", headers=_headers(), json=body)
         _check(r)
@@ -55,7 +39,44 @@ async def submit_i2v(prompt: str, image_url: str, duration: int = 5) -> dict:
             "response_url": d.get("response_url") or f"{BASE}/{model}/requests/{d['request_id']}"}
 
 
-async def wait(job: dict, timeout_seconds: float = 900) -> dict:
+def _is_v1(model: str) -> bool:
+    return "seedance/v1" in model
+
+
+def _video_body(prompt: str, duration: int, models: dict, model: str) -> dict:
+    res = models.get("video_resolution", "720p")
+    body = {"prompt": prompt, "resolution": res, "duration": str(duration)}
+    if not _is_v1(model):
+        body["generate_audio"] = False  # 配音、字幕后期统一做；模型自带的声音会和口播打架
+    return body
+
+
+async def submit(prompt: str, duration: int = 5, aspect_ratio: str = "9:16") -> dict:
+    """文生视频。"""
+    models = settings_store.get_models()
+    model = models["video"]
+    return await _submit(model, {**_video_body(prompt, duration, models, model), "aspect_ratio": aspect_ratio})
+
+
+async def submit_i2v(prompt: str, image_url: str, duration: int = 5) -> dict:
+    """图生视频：image_url 是首帧，可以是公网地址或 data URI。Seedance 2.5 的画幅跟随首帧（只能 auto）。"""
+    models = settings_store.get_models()
+    model = models["video_i2v"]
+    body = {**_video_body(prompt, duration, models, model), "image_url": image_url}
+    if _is_v1(model):
+        body["aspect_ratio"] = "9:16"
+    return await _submit(model, body)
+
+
+async def submit_ref(prompt: str, image_urls: list[str], duration: int = 5) -> dict:
+    """全能参考生视频（Seedance 2.x reference-to-video）：提示词里用 @Image1、@Image2 引用 image_urls 里的图。"""
+    models = settings_store.get_models()
+    model = models["video_ref"]
+    return await _submit(model, {**_video_body(prompt, duration, models, model), "image_urls": image_urls, "aspect_ratio": "9:16"})
+
+
+async def _result(job: dict, timeout_seconds: float = 900) -> dict:
+    """轮询队列任务，返回 {"status": "completed", "data": 原始结果} 或 {"status": "failed", "error": ...}。"""
     waited = 0.0
     async with httpx.AsyncClient(timeout=30, transport=transport) as c:
         while waited < timeout_seconds:
@@ -66,13 +87,32 @@ async def wait(job: dict, timeout_seconds: float = 900) -> dict:
                 out = await c.get(job["response_url"], headers=_headers())
                 if out.status_code >= 400:
                     return {"status": "failed", "error": f"{HINTS.get(out.status_code, '生成失败')}（HTTP {out.status_code}：{out.text[:240]}）"}
-                d = out.json()
-                return {"status": "completed", "video_url": (d.get("video") or {}).get("url", ""), "seed": d.get("seed")}
+                return {"status": "completed", "data": out.json()}
             if st in ("FAILED", "CANCELLED", "ERROR"):
                 return {"status": "failed", "error": f"fal 任务失败（{st}）：{str(r.json())[:200]}"}
             await asyncio.sleep(POLL_SECONDS)
             waited += POLL_SECONDS
     return {"status": "failed", "error": "timeout"}
+
+
+async def wait(job: dict, timeout_seconds: float = 900) -> dict:
+    res = await _result(job, timeout_seconds)
+    if res["status"] != "completed":
+        return res
+    d = res["data"]
+    return {"status": "completed", "video_url": (d.get("video") or {}).get("url", ""), "seed": d.get("seed")}
+
+
+CUTOUT_MODEL = "fal-ai/birefnet/v2"
+
+
+async def remove_background(image_url: str) -> str:
+    """抠图（BiRefNet），返回透明背景 PNG 的地址。"""
+    job = await _submit(CUTOUT_MODEL, {"image_url": image_url, "output_format": "png", "refine_foreground": True})
+    res = await _result(job, 180)
+    if res["status"] != "completed":
+        raise RuntimeError(res.get("error") or "抠图失败")
+    return (res["data"].get("image") or {}).get("url", "")
 
 
 async def check_key(key: str) -> tuple[bool, str]:

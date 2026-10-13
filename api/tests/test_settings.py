@@ -12,7 +12,7 @@ os.environ["LLM_ENABLED"] = "false"
 import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import settings_store  # noqa: E402
+from app import product, settings_store  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
@@ -75,6 +75,7 @@ def wait_until(cond, timeout=10):
 
 def test_settings_and_real_call_paths():
     fal.transport, llm.transport, fal.POLL_SECONDS = httpx.MockTransport(fal_handler), httpx.MockTransport(llm_handler), 0.01
+    product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=b"\x89PNG\r\n\x1a\n cut"))
     try:
         with TestClient(app) as c:
             s = c.get("/api/v1/settings").json()
@@ -123,7 +124,7 @@ def test_settings_and_real_call_paths():
             v = nodes("video")[0]
             assert v["data"]["engine"] == "fal-ai/bytedance/seedance/v1/pro/text-to-video"
             assert v["data"]["video_url"].startswith("https://v3.fal.media/") and len(v["data"]["shot_urls"]) == 4  # 上传了商品图，产品镜头也生成
-            path, body = calls["fal_submit"][0]
+            path, body = next(x for x in calls["fal_submit"] if "birefnet" not in x[0])
             assert path == "/fal-ai/bytedance/seedance/v1/pro/text-to-video" and body["aspect_ratio"] == "9:16" and body["duration"] == "5"
             approve()  # 视频通过后自动评测
 
@@ -147,4 +148,4 @@ def test_settings_and_real_call_paths():
             c.put("/api/v1/settings/models", json=settings_store.DEFAULT_MODELS)
             assert c.get("/api/v1/settings").json()["secrets"]["fal"]["configured"] is False
     finally:
-        fal.transport = llm.transport = None
+        fal.transport = llm.transport = product.media_transport = None

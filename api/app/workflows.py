@@ -67,7 +67,9 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                       "意见没涉及的镜头、画面和口播保持原样；时长写成秒数。") if comment and current else ""
             try:
                 out = await llm.chat_json(
-                    "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(尼日利亚皮钦英语), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写（官方素材）。",
+                    "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(尼日利亚皮钦英语), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写。"
+                    "画面描述只写人物动作、手机的角度和姿态、场景，不写屏幕上显示什么、不写画面里的文字（AI 画不准文字）；"
+                    "电池容量、价格、门店这类卖点数字放进口播，后期做成字幕贴片。",
                     f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：尼日利亚 {aud}；修改意见：{comment or '无'}{revise}")
                 if isinstance(out.get("shots"), list) and len(out["shots"]) >= 3:
                     shots = _normalize_shots(out["shots"])

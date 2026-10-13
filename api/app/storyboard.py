@@ -38,7 +38,7 @@ def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool) -> s
         f"画面：{s[1]}",
     ]
     if i == PRODUCT_SHOT:
-        parts.append("这一镜是产品特写：画手机本身的特写（可以有手持），突出电池 / 屏幕等卖点的示意，不要画品牌字样。")
+        parts.append("这一镜是产品特写：画手机本身的特写（可以有手持），画手机的角度和姿态即可。不要画屏幕上的界面、参数、数字或任何文字，不要画品牌字样。")
     if len(s) > 2 and s[2]:
         parts.append(f"这一镜的口播（只用来理解人物情绪，不要写进画面）：{s[2]}")
     if has_ref:

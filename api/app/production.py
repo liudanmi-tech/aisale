@@ -12,8 +12,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 
-from app import agent, assets, canvas, config, qc, settings_store, storyboard
+from app import agent, assets, canvas, config, product, qc, settings_store, storyboard
 from app.adapters import fal, llm, seedance
 from app.db import SessionLocal
 from app.events import emit
@@ -25,6 +26,7 @@ SIZE_ZH = {"WS": "全景", "MS": "中景", "CU": "特写", "ECU": "大特写"}
 MOVES = ["固定", "推", "拉", "摇", "跟拍", "手持"]
 GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子", "达人口播", "产品展示"]
 PRODUCT_SHOT = 2
+TEXTY = r"参数|标识|字样|数字|文字|界面|显示|mAh|价格|￥|\$|%|logo|Logo|LOGO"  # 画面描述里出现这些，说明在要求画文字
 VIDEO_STYLE = "vertical 9:16 smartphone ad shot, photorealistic, natural light, no on-screen text, no watermark"
 _slots = asyncio.Semaphore(2)
 
@@ -33,10 +35,13 @@ CAST_PROMPT = f"""你是短视频广告的制片和选角导演。根据剧本�
   "genre": "从这些里选 1 个：{'、'.join(GENRES)}",
   "roles": [{{"key": "r1", "name": "角色名，如 女摊主", "description": "外观：性别、年龄、肤色、发型、服装、气质（用于生成定妆照，具体、可视化）", "reuse": "可复用的已有演员 id，没有写 null"}}],
   "scenes": [{{"key": "s1", "name": "场景名，如 雨夜的街头市场", "description": "环境、时间、天气、光线、道具", "reuse": "可复用的已有场景 id，没有写 null"}}],
-  "specs": [{{"shot": 0, "size": "WS/MS/CU/ECU 之一", "move": "{'/'.join(MOVES)} 之一", "roles": ["r1"], "scene": "s1", "product": false, "line": "这一镜的话术（口播原文）"}}]
+  "specs": [{{"shot": 0, "size": "WS/MS/CU/ECU 之一", "move": "{'/'.join(MOVES)} 之一", "roles": ["r1"], "scene": "s1", "product": false,
+             "product_tier": "商品镜头填 hero（纯商品特写，没有人）或 hand（人物拿着 / 使用这台手机）；不是商品镜头填 null",
+             "line": "这一镜的话术（口播原文）", "overlay": "后期叠在画面上的卖点文字（如 6000mAh 大电池），没有写空字符串"}}]
 }}
 规则：specs 每镜一条、顺序与分镜一致；人物都是目标市场的当地人；第 {PRODUCT_SHOT + 1} 镜是产品特写，product 为 true；
-同一个人物在不同镜头用同一个 key；已有素材合适就复用（reuse 填它的 id），不要重复造人。"""
+同一个人物在不同镜头用同一个 key；已有素材合适就复用（reuse 填它的 id），不要重复造人。
+画面里不出现任何文字：屏幕上显示的参数、价格、卖点数字一律写进 overlay（后期做成字幕贴片），不要让画面去画。"""
 
 
 def _fallback_cast(shots: list) -> dict:
@@ -54,7 +59,12 @@ def _norm_specs(specs: list, shots: list, roles: set[str], scenes: set[str]) -> 
         out.append({"shot": i, "size": s.get("size") if s.get("size") in SIZES else "MS",
                     "move": s.get("move") if s.get("move") in MOVES else "固定",
                     "roles": [r for r in (s.get("roles") or []) if r in roles], "scene": s.get("scene") if s.get("scene") in scenes else next(iter(scenes), None),
-                    "product": bool(s.get("product", i == PRODUCT_SHOT)), "line": s.get("line") or (sh[2] if len(sh) > 2 else "")})
+                    "product": bool(s.get("product", i == PRODUCT_SHOT)), "line": s.get("line") or (sh[2] if len(sh) > 2 else ""),
+                    "product_tier": s.get("product_tier") if s.get("product_tier") in ("hero", "hand") else None,
+                    "overlay": str(s.get("overlay") or "")[:60]})
+    for x in out:  # 没写级别的商品镜头：没有人物就是纯商品特写，有人物就是手持
+        if x["product"] and not x["product_tier"]:
+            x["product_tier"] = "hand" if x["roles"] else "hero"
     return out
 
 
@@ -158,7 +168,7 @@ def inputs(sh: list, spec: dict, cast: dict) -> dict:
         for kind, key, aid in keys:
             a = db.get(Asset, aid) if aid else None
             refs.append([kind, key, aid, (a.images or [None])[0] if a else None])
-    return {"visual": sh[1] if len(sh) > 1 else "", "spec": {k: spec.get(k) for k in ("size", "move", "roles", "scene", "product", "kf_source")}, "refs": refs}
+    return {"visual": sh[1] if len(sh) > 1 else "", "spec": {k: spec.get(k) for k in ("size", "move", "roles", "scene", "product", "kf_source", "product_tier")}, "refs": refs}
 
 
 def _shot(video_id: str, i: int, **fields) -> None:
@@ -218,9 +228,11 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None) -> list[dict]:
     if _first_image(sid):
         name = cast["names"].get(spec.get("scene"), "")
         refs.append({"kind": "scene", "label": f"场景：{name}", "url": _first_image(sid), "note": f"场景「{name}」：环境与光线和它一致"})
-    if spec.get("product") and _first_image(cast.get("product")):
-        refs.append({"kind": "product", "label": "商品实拍图", "url": _first_image(cast.get("product")),
-                     "note": "商品实拍：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型"})
+    if spec.get("product"):
+        for v in product.good_views(cast.get("product"), spec.get("product_tier") or "hero", 2):
+            label = f"商品{product.VIEWS.get(v.get('view'), '')}图"
+            refs.append({"kind": "product", "label": label, "url": v["url"],
+                         "note": f"商品实拍（{product.VIEWS.get(v.get('view'), '实拍')}）：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型"})
     return refs
 
 
@@ -230,21 +242,31 @@ def keyframe_prompt(shot: list, spec: dict, market: str) -> str:
             f"a keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
             "如果画面描述里包含一段时间（如「从早到晚」「一边…一边…」），只挑其中最有代表性的一个瞬间来拍。\n"
             f"镜头：{SIZE_ZH.get(spec.get('size'), '中景')}，运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n"
-            "画面中不要出现任何文字、字幕、品牌标志。\n"
+            + ("画面描述里提到的参数、数字、标识和文字都不要画出来（后期做成字幕贴片），只画手机和人物本身。\n"
+               if re.search(TEXTY, shot[1] if len(shot) > 1 else "") else "")
+            + "画面中不要出现任何文字、字幕、品牌标志。\n"
             f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
             "The whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
             "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters."
             + (" The phone must copy the product photo exactly: same color, same camera module shape, same number and layout of lenses."
+               " If the screen is visible it is off or shows a plain dark wallpaper — never draw UI, numbers or text on the screen."
                if spec.get("product") else ""))
 
 
 async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, frame_url: str | None, market: str, comment: str,
-                   prompt: str | None = None, drop: set[str] | None = None) -> tuple[str, dict]:
+                   prompt: str | None = None, drop: set[str] | None = None, placeholder: bool = False) -> tuple[str, dict]:
     """画一镜的关键帧。prompt 传入时代替自动生成的提示词主体；drop 里的参考图不用。返回 (关键帧地址, 本次用的提示词和参考图)。"""
     refs = [r for r in keyframe_refs(spec, cast, frame_url) if r["url"] not in (drop or set())]
-    sent = [(r, assets.media_data_url(r["url"])) for r in refs]
+    if placeholder:  # 两步走第一步：先画占位手机，商品图不参与，第二步再换成真实商品
+        refs = [r for r in refs if r["kind"] != "product"]
+    sent = [(r, assets.jpeg_data_url(r["url"], max_w=1280)) for r in refs]
     sent = [(r, d) for r, d in sent if d]
     core = (prompt or "").strip() or keyframe_prompt(shot, spec, market)
+    if placeholder:
+        core += ("\nThe person holds a plain generic black smartphone with no logo and a dark screen (a placeholder that will be replaced "
+                 "by the real product later). Show the phone clearly and large enough, not hidden by fingers.")
+    elif spec.get("product") and product.spec_text(cast.get("product")):
+        core += f"\n商品说明卡（照着画）：{product.spec_text(cast.get('product'))}"
     notes = "\n".join(f"第 {k + 1} 张参考图是{r['note']}" for k, (r, _) in enumerate(sent))
     text = core + ("\n" + notes if notes else "") + (f"\n修改意见：{comment}" if comment else "")
     content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": d}} for _, d in sent)] if sent else text
@@ -254,12 +276,36 @@ async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, fr
     return _save_keyframe(video_id, i, raw, mime), meta
 
 
-async def clip(prompt: str, image: str | None) -> dict:
+PLACE_PROMPT = ("Edit image 1. Replace the placeholder phone in the person's hand with the exact phone shown in the product photos "
+                "(images 2{last}). {spec}Keep everything else in image 1 exactly unchanged: people, faces, hands, pose, clothes, background, "
+                "lighting and framing. Match the perspective, scale, lighting and reflections of the scene; the side of the phone facing the camera "
+                "must match how it is held. The screen, if visible, is off or a plain dark wallpaper. No text, no logos other than the phone's own, "
+                "no extra phones. Vertical 9:16 photorealistic photo.")
+
+
+async def place_product(video_id: str, i: int, base_url: str, spec: dict, cast: dict, comment: str = "") -> tuple[str, dict]:
+    """两步走第二步：用图像编辑把占位手机换成真实商品（参考商品多视角图），画面其余部分不动。"""
+    views = product.good_views(cast.get("product"), "hand", 2)
+    imgs = [assets.jpeg_data_url(base_url, max_w=1280)] + [assets.jpeg_data_url(v.get("cutout") or v["url"], max_w=1024) for v in views]
+    imgs = [x for x in imgs if x]
+    spec_line = product.spec_text(cast.get("product"))
+    text = PLACE_PROMPT.format(last=f"–{len(imgs)}" if len(imgs) > 2 else "", spec=f"The phone: {spec_line}. " if spec_line else "")
+    text += f"\n修改意见：{comment}" if comment else ""
+    raw, mime = await llm.image([{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": d}} for d in imgs)],
+                                task="keyframe", aspect_ratio="9:16")
+    return _save_keyframe(video_id, i, raw, mime), {"place_prompt": text, "place_refs": [{"kind": "product", "label": f"商品{product.VIEWS.get(v.get('view'), '')}图",
+                                                                                         "url": v.get("cutout") or v["url"], "note": "换入画面的真实商品"} for v in views]}
+
+
+async def clip(prompt: str, image: str | None, refs: list[str] | None = None) -> dict:
     provider = settings_store.video_provider()
     async with _slots:
         if provider == "fal":
             try:
-                job = await (fal.submit_i2v(prompt, image, duration=5) if image else fal.submit(prompt, duration=5))
+                if refs:  # 商品镜头：全能参考，关键帧 + 商品图一起给，生成全程看着商品
+                    job = await fal.submit_ref(prompt, refs, duration=5)
+                else:
+                    job = await (fal.submit_i2v(prompt, image, duration=5) if image else fal.submit(prompt, duration=5))
                 return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
             except Exception as e:  # noqa: BLE001
                 return {"provider": "fal", "status": "failed", "error": str(e)[:300]}
@@ -391,30 +437,58 @@ def _spec(specs: list, i: int) -> dict:
 
 
 def kf_source(spec: dict, cast: dict) -> str:
-    """关键帧来源：商品镜头有实拍图时默认直接用实拍图（AI 画不准具体机型），可在拍法里改成 AI 生成。"""
-    if not spec.get("product") or spec.get("kf_source") == "ai" or not cast.get("product"):
+    """商品镜头关键帧怎么做：
+    photo     纯商品特写：直接用实拍（抠图）合成，外观 100% 一致；
+    placement 人物手持：先画占位手机，再用图像编辑换成真实商品；
+    ai        AI 直接画（参考商品图），外观可能走样。
+    默认按级别：hero → photo，hand → placement。没有商品图时只能 ai。"""
+    if not spec.get("product"):
         return "ai"
-    with SessionLocal() as db:
-        a = db.get(Asset, cast["product"])
-        return "product" if a and a.images else "ai"
+    want = spec.get("kf_source") or "auto"
+    want = {"product": "photo"}.get(want, want)  # 旧值兼容
+    if want == "ai" or not product.good_views(cast.get("product"), "hero", 1):
+        return "ai"
+    if want in ("photo", "placement"):
+        return want
+    return "placement" if spec.get("product_tier") == "hand" or (spec.get("roles") and spec.get("product_tier") != "hero") else "photo"
 
 
 def product_keyframe(video_id: str, i: int, cast: dict) -> str:
-    """用商品实拍图合成 9:16 关键帧：背景取实拍图边缘的颜色（棚拍底色），商品居中放大。外观和实拍图完全一致。"""
+    """用商品实拍合成 9:16 关键帧。有抠图：放在柔和的棚拍渐变背景上，加一点投影；没有抠图：背景取实拍图边缘的底色。外观和实拍完全一致。"""
     import cv2
     import numpy as np
-    with SessionLocal() as db:
-        a = db.get(Asset, cast["product"])
-        path = config.MEDIA_DIR / a.images[0].split("/api/v1/media/", 1)[1]
-    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    v = (product.good_views(cast.get("product"), "hero", 1) or [{}])[0]
+    W, H = 1080, 1920
+    cut = v.get("cutout")
+    if cut:
+        rgba = cv2.imread(str(config.MEDIA_DIR / cut.split("/api/v1/media/", 1)[1]), cv2.IMREAD_UNCHANGED)
+        if rgba is not None and rgba.shape[2] == 4:
+            ys, xs = np.where(rgba[:, :, 3] > 10)
+            rgba = rgba[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+            h, w = rgba.shape[:2]
+            scale = min(W * 0.78 / w, H * 0.66 / h)
+            rgba = cv2.resize(rgba, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
+            h, w = rgba.shape[:2]
+            yy = np.linspace(0, 1, H, dtype=np.float32)[:, None, None]
+            bg = (np.array([236, 236, 238], np.float32) * (1 - yy) + np.array([196, 197, 202], np.float32) * yy) * np.ones((H, W, 3), np.float32)
+            x, y = (W - w) // 2, (H - h) // 2 - 40
+            shadow = np.zeros((H, W), np.float32)
+            cv2.ellipse(shadow, (W // 2, y + h + 18), (int(w * 0.42), 26), 0, 0, 360, 1.0, -1)
+            shadow = cv2.GaussianBlur(shadow, (0, 0), 18) * 0.35
+            bg *= (1 - shadow)[:, :, None]
+            alpha = rgba[:, :, 3:4].astype(np.float32) / 255
+            roi = bg[y:y + h, x:x + w]
+            bg[y:y + h, x:x + w] = roi * (1 - alpha) + rgba[:, :, :3].astype(np.float32) * alpha
+            ok, buf = cv2.imencode(".jpg", bg.clip(0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 92])
+            return _save_keyframe(video_id, i, buf.tobytes(), "image/jpeg")
+    url = v.get("url") or _first_image(cast.get("product"))
+    img = cv2.imread(str(config.MEDIA_DIR / url.split("/api/v1/media/", 1)[1]), cv2.IMREAD_COLOR)
     if img is None:
         raise ValueError("商品实拍图读不出来")
     h, w = img.shape[:2]
     edge = np.concatenate([img[:4].reshape(-1, 3), img[-4:].reshape(-1, 3), img[:, :4].reshape(-1, 3), img[:, -4:].reshape(-1, 3)])
-    bg = np.median(edge, axis=0).astype(np.uint8)
-    W, H = 1080, 1920
     canvas_ = np.empty((H, W, 3), np.uint8)
-    canvas_[:] = bg
+    canvas_[:] = np.median(edge, axis=0).astype(np.uint8)
     scale = min(W * 0.9 / w, H * 0.72 / h)
     nw, nh = int(w * scale), int(h * scale)
     small = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
@@ -427,22 +501,32 @@ def product_keyframe(video_id: str, i: int, cast: dict) -> str:
 async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict, frame: str | None, market: str,
                         comment: str, retries: int, prompt: str | None = None, drop: set[str] | None = None) -> tuple[str | None, dict | None, int, str]:
     """画一镜的关键帧并质检；不合格带着问题重画，最多重画 retries 次。返回 (关键帧, 质检, 画了几次, 错误)。"""
-    if kf_source(spec, cast) == "product":
+    mode = kf_source(spec, cast)
+    if mode == "photo":
         _shot(video_id, i, phase="用商品实拍图合成关键帧")
         try:
             kf = await asyncio.to_thread(product_keyframe, video_id, i, cast)
         except Exception as e:  # noqa: BLE001  合成失败就退回 AI 画
             log.warning("实拍图合成关键帧失败 %s #%d：%s", video_id, i, e)
         else:
-            _shot(video_id, i, kf_meta={"prompt": "", "refs": [{"kind": "product", "label": "商品实拍图", "url": _first_image(cast.get("product")),
-                                                               "note": "直接用实拍图合成关键帧（没有调用生图模型）"}], "composite": True})
+            v = (product.good_views(cast.get("product"), "hero", 1) or [{}])[0]
+            _shot(video_id, i, kf_meta={"prompt": "", "refs": [{"kind": "product", "label": "商品实拍图", "url": v.get("cutout") or v.get("url") or "",
+                                                               "note": "直接用实拍图合成关键帧（没有调用生图模型）"}], "composite": True, "mode": "photo"})
             res = qc.summarize({"product": {"status": "pass", "reason": "关键帧直接用商品实拍图，外观与实拍一致"}}, spec)
             return kf, {**res, "manual_confirm": False, "source": "product"}, 1, ""
     kf, kf_qc, err, fix, tries = None, None, "", "", 0
     for tries in range(1, retries + 2):
-        _shot(video_id, i, phase="画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）")
+        _shot(video_id, i, phase=("画关键帧" if tries == 1 else f"重画关键帧（第 {tries} 次）") + ("：先画占位手机" if mode == "placement" else ""))
         try:
-            kf, meta = await keyframe(video_id, i, sh, spec, cast, frame, market, "；".join(x for x in (comment, fix) if x), prompt, drop)
+            note = "；".join(x for x in (comment, fix) if x)
+            kf, meta = await keyframe(video_id, i, sh, spec, cast, frame, market, note, prompt, drop, placeholder=mode == "placement")
+            if mode == "placement":
+                _shot(video_id, i, keyframe=kf, phase="换入真实商品")
+                base = kf
+                kf, extra = await place_product(video_id, i, base, spec, cast, note)
+                meta = {**meta, **extra, "placeholder": base, "mode": "placement"}
+            else:
+                meta = {**meta, "mode": "ai"}
         except Exception as e:  # noqa: BLE001
             err = str(e)[:200]
             log.warning("关键帧失败 %s #%d: %s", video_id, i, e)
@@ -460,14 +544,25 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
     """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。"""
     move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
     prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-    if (kf_qc or {}).get("source") == "product":
-        prompt = (f"Product hero shot of the exact phone in the first frame. Camera: slow, subtle {move}; soft moving studio light. "
-                  "The phone must stay exactly as in the first frame: same shape, color, camera module and logo; no morphing, no extra phones, "
-                  f"no hands, no text. {VIDEO_STYLE}")
+    refs, ref_labels = None, []
+    if spec.get("product") and kf and cast.get("product") and settings_store.video_provider() == "fal":
+        # 商品镜头：全能参考。@Image1 = 关键帧（开场画面），@Image2/3 = 商品多视角实拍，生成全程看着商品图
+        views = product.good_views(cast.get("product"), spec.get("product_tier") or "hero", 2)
+        refs = [assets.jpeg_data_url(kf)] + [assets.jpeg_data_url(v["url"], max_w=1280) for v in views]
+        refs = [x for x in refs if x]
+        ref_labels = ["关键帧"] + [f"商品{product.VIEWS.get(v.get('view'), '')}图" for v in views]
+        phone = " and ".join(f"@Image{k + 2}" for k in range(len(refs) - 1))
+        spec_line = product.spec_text(cast.get("product"))
+        hero = (kf_qc or {}).get("source") == "product" or spec.get("product_tier") == "hero"
+        prompt = (f"@Image1 is the opening frame: start exactly from it and keep its composition, people and setting. "
+                  f"The phone is the one in {phone}{(' (' + spec_line + ')') if spec_line else ''}: keep its shape, colour, camera module and logo "
+                  "exactly unchanged in every frame — no morphing, no melting logo, no extra phones, no on-screen text. "
+                  + (f"Product hero shot: slow, subtle {move}; soft moving studio light; no hands. " if hero else f"{sh[1]}. Camera: gentle {move}. ")
+                  + VIDEO_STYLE)
     best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
     for clip_tries in range(1, retries + 2):
         _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
-        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None)
+        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs)
         if res.get("status") == "failed":
             if best:
                 retry_error = res.get("error") or "重新生成失败"
@@ -488,6 +583,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
             "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, **res,
             "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
             "kf_from": "product" if (kf_qc or {}).get("source") == "product" else "ai",
+            "video_mode": "reference" if refs else "image", "video_refs": ref_labels,
             **({"retry_error": f"质检不合格后自动重做失败，保留了第一条视频：{retry_error[:200]}"} if retry_error else {}),
             "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries, "clip": clip_tries})}
 

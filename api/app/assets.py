@@ -29,8 +29,12 @@ TURNAROUND = ("Character turnaround sheet of the SAME person as the reference ph
 
 
 def asset_dict(a: Asset) -> dict:
-    return {"id": a.id, "kind": a.kind, "name": a.name, "description": a.description, "images": a.images or [], "tags": a.tags or [],
-            "data": a.data or {}, "source": a.source, "status": a.status, "created_at": a.created_at.isoformat()}
+    d = {"id": a.id, "kind": a.kind, "name": a.name, "description": a.description, "images": a.images or [], "tags": a.tags or [],
+         "data": a.data or {}, "source": a.source, "status": a.status, "created_at": a.created_at.isoformat()}
+    if a.kind == "product":
+        from app import product  # product 依赖本模块
+        d["product"] = product.summary(a)
+    return d
 
 
 def save_image(raw: bytes, mime: str) -> str:
@@ -60,7 +64,12 @@ def jpeg_data_url(url: str | None, max_w: int = 1080, quality: int = 88) -> str 
     try:
         import cv2
         import numpy as np
-        img = cv2.imdecode(np.frombuffer(base64.b64decode(data.split(",", 1)[1]), np.uint8), cv2.IMREAD_COLOR)
+        img = cv2.imdecode(np.frombuffer(base64.b64decode(data.split(",", 1)[1]), np.uint8), cv2.IMREAD_UNCHANGED)
+        if img.ndim == 3 and img.shape[2] == 4:  # 抠图（透明背景）：铺在白底上，否则透明处会变黑
+            a = img[:, :, 3:4].astype(np.float32) / 255
+            img = (img[:, :, :3].astype(np.float32) * a + 255 * (1 - a)).astype(np.uint8)
+        elif img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         h, w = img.shape[:2]
         if w > max_w:
             img = cv2.resize(img, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
@@ -161,7 +170,7 @@ def add_upload(asset_id: str, data_url: str) -> Asset:
         a = db.get(Asset, asset_id)
         if not a:
             raise KeyError(asset_id)
-        a.images = [url, *[i for i in (a.images or []) if i != url]][:6]
+        a.images = [url, *[i for i in (a.images or []) if i != url]][:10 if a.kind == "product" else 6]
         a.source = "upload"
         a.status = "ready"
         db.commit()
