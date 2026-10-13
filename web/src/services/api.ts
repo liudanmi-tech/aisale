@@ -13,8 +13,25 @@ http.interceptors.request.use((cfg) => {
     return cfg;
 });
 
-export type NodeType = "ad" | "sp" | "aud" | "script" | "video" | "eval" | "deliver" | "data" | "opt";
-export type NodeStatus = "none" | "run" | "wait" | "pass" | "reject" | "live" | "failed";
+export type NodeType = "ad" | "sp" | "aud" | "script" | "actor" | "scene" | "product" | "video" | "eval" | "deliver" | "data" | "opt";
+export type NodeStatus = "none" | "run" | "input" | "wait" | "pass" | "reject" | "live" | "failed";
+export type AssetKind = "actor" | "scene" | "product";
+export interface LibraryAsset {
+    id: string;
+    kind: AssetKind;
+    name: string;
+    description: string;
+    images: string[];
+    tags: string[];
+    data: Record<string, any>;
+    source: "ai" | "upload";
+    status: "ready" | "generating" | "error";
+    created_at: string;
+    uses?: number;
+}
+/** 剧本拆解出的每镜拍法 */
+export interface ShotSpec { shot: number; size: string; move: string; roles: string[]; scene: string | null; product: boolean; line: string }
+export interface Cast { genre: string; roles: Record<string, string>; scenes: Record<string, string>; product: string | null; specs: ShotSpec[]; names: Record<string, string> }
 
 export interface CanvasNode {
     id: string;
@@ -267,6 +284,14 @@ export const api = {
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),
+    library: (kind?: AssetKind) => get<LibraryAsset[]>("/library", kind ? { kind } : {}),
+    createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean }) => post<LibraryAsset>("/library", body),
+    patchAsset: (id: string, body: Partial<Pick<LibraryAsset, "name" | "description" | "data" | "tags">>) => http.patch(`/library/${id}`, body).then((r) => r.data),
+    uploadAsset: (id: string, image: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image }),
+    generateAsset: (id: string) => post(`/library/${id}/generate`),
+    deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
+    swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
+    regenerateVideo: (nid: string, body: { comment?: string; recast?: boolean } = {}) => post(`/nodes/${nid}/regenerate`, body),
     rejectNode: (node_id: string, comment: string) => post("/reviews/reject-node", { node_id, comment }),
     passNodes: (node_ids: string[]) => post<{ passed: number }>("/reviews/pass-nodes", { node_ids }),
     decide: (rid: string, decision: "pass" | "reject" | "edit_pass", comment = "") => post(`/reviews/${rid}/decide`, { decision, comment }),

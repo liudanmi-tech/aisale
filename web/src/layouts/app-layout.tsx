@@ -38,7 +38,7 @@ export function AppLayout() {
             { to: "/projects", label: "项目", icon: <FolderKanban size={17} /> },
             { to: "/ads", label: "爆款库", icon: <Flame size={17} /> },
             { to: "/watch", label: "账号监控", icon: <Radar size={17} /> },
-            { to: "/assets", label: "资产", icon: <Layers size={17} /> },
+            { to: "/assets", label: "素材库", icon: <Layers size={17} /> },
         ] },
         { title: "创作", items: [
             { to: `/p/${pid}`, label: "投放画布", icon: <Workflow size={17} />, match: (p) => p.startsWith("/p/") },

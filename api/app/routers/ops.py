@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, canvas, config, monitor, settings_store, storyboard, workflows
+from app import agent, canvas, config, monitor, production, settings_store, storyboard, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -112,33 +112,35 @@ def draw_storyboard(nid: str, body: StoryboardIn, db: Session = Depends(get_db))
 
 @router.post("/nodes/{nid}/shots/{i}/regenerate")
 def regenerate_shot(nid: str, i: int, db: Session = Depends(get_db)):
+    """重新生成视频的某一镜（关键帧 + 视频），其余镜头保留。"""
     n = db.get(Node, nid)
     if not n or n.type != "video":
         raise HTTPException(404, "video not found")
-    tasks = [t.copy() for t in (n.data or {}).get("tasks", [])]
-    if not 0 <= i < len(tasks) or tasks[i].get("source") == "official":
-        raise HTTPException(400, "该镜头不能重生成")
-    tasks[i] = {**tasks[i], "status": "processing", "error": None}
-    n.data = {**n.data, "tasks": tasks}
-    db.commit()
-    spawn(_regen(nid, i, tasks[i].get("prompt") or f"{n.data['shots'][i][1]}。{workflows.VIDEO_STYLE}"))
+    if not 0 <= i < len((n.data or {}).get("shots", [])):
+        raise HTTPException(400, "bad shot index")
+    if n.status in ("run", "input"):
+        raise HTTPException(409, "视频还在生成或等待上传，稍后再试")
+    spawn(production.run(nid, only=[i]))
     return {"ok": True}
 
 
-async def _regen(nid: str, i: int, prompt: str) -> None:
-    res = await workflows._gen_shot(prompt)
-    with SessionLocal() as db:
-        n = db.get(Node, nid)
-        if not n:
-            return
-        tasks = [t.copy() for t in n.data.get("tasks", [])]
-        tasks[i] = {**tasks[i], **res, "url": res.get("video_url"), "prompt": prompt}
-        urls = [t["url"] for t in tasks if (t.get("url") or "").startswith("http")]
-        n.data = {**n.data, "tasks": tasks, "shot_urls": urls, "video_url": urls[0] if urls else n.data.get("video_url")}
-        if n.status == "failed" and all(t.get("status") == "completed" for t in tasks):
-            n.status = "wait"
-        db.commit()
-        emit(n.project_id, "canvas")
+class RegenIn(BaseModel):
+    comment: str = ""
+    recast: bool = False  # 重新选角置景（换演员 / 场景后不需要，直接重生成即可）
+
+
+@router.post("/nodes/{nid}/regenerate")
+def regenerate_video(nid: str, body: RegenIn, db: Session = Depends(get_db)):
+    """整条视频重新生成：换了演员 / 场景 / 商品图后用。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    if n.status in ("run",):
+        raise HTTPException(409, "视频还在生成，稍后再试")
+    canvas.audit(db, n.project_id, "user", "regenerate_video", {"node_id": nid, **body.model_dump()})
+    db.commit()
+    spawn(production.run(nid, body.comment, recast=body.recast))
+    return {"ok": True}
 
 
 @router.get("/reviews")

@@ -30,6 +30,19 @@ async def submit(prompt: str, duration: int = 5, aspect_ratio: str = "9:16") -> 
             "response_url": d.get("response_url") or f"{BASE}/{model}/requests/{d['request_id']}"}
 
 
+async def submit_i2v(prompt: str, image_url: str, duration: int = 5) -> dict:
+    """图生视频：image_url 可以是公网地址或 data URI（fal 支持 base64 data URI 作为文件输入）。"""
+    models = settings_store.get_models()
+    model = models["video_i2v"]
+    body = {"prompt": prompt, "image_url": image_url, "resolution": models.get("video_resolution", "720p"), "duration": str(duration)}
+    async with httpx.AsyncClient(timeout=60, transport=transport) as c:
+        r = await c.post(f"{BASE}/{model}", headers=_headers(), json=body)
+        r.raise_for_status()
+        d = r.json()
+    return {"model": model, "request_id": d["request_id"], "status_url": d.get("status_url") or f"{BASE}/{model}/requests/{d['request_id']}/status",
+            "response_url": d.get("response_url") or f"{BASE}/{model}/requests/{d['request_id']}"}
+
+
 async def wait(job: dict, timeout_seconds: float = 900) -> dict:
     waited = 0.0
     async with httpx.AsyncClient(timeout=30, transport=transport) as c:

@@ -35,6 +35,10 @@ IMAGE_MODELS = [
     {"id": "google/gemini-3.1-flash-image", "label": "Gemini 3.1 Flash Image", "hint": "更精细，约 10 秒、$0.067 / 张"},
     {"id": "google/gemini-3-pro-image", "label": "Gemini 3 Pro Image", "hint": "最精细、最贵"},
 ]
+VIDEO_I2V_MODELS = [
+    {"id": "fal-ai/bytedance/seedance/v1/pro/image-to-video", "label": "Seedance 1.0 Pro 图生视频", "hint": "按关键帧生成，最高 1080p"},
+    {"id": "fal-ai/bytedance/seedance/v1/lite/image-to-video", "label": "Seedance 1.0 Lite 图生视频", "hint": "更快更便宜"},
+]
 DEFAULT_MODELS = {
     "agent": "google/gemini-2.5-flash",  # 理解指令 → 画布工具调用，要快
     "script": "anthropic/claude-sonnet-5.5",  # 剧本与皮钦语 / 乌尔都语口播，要自然
@@ -44,6 +48,8 @@ DEFAULT_MODELS = {
     "analysis": "google/gemini-2.5-flash",  # 竞品视频逐条拆解（看封面 + 文案 + 字幕），量大要便宜、能看图
     "report": "anthropic/claude-sonnet-5.5",  # 汇总成分析报告，要会写洞察
     "storyboard": "google/gemini-3.1-flash-lite-image",  # 剧本分镜图（电影学院简笔分镜风格）
+    "keyframe": "google/gemini-3.1-flash-image",  # 演员定妆照、场景图、每镜关键帧（真实质感，要能参考多张图）
+    "video_i2v": "fal-ai/bytedance/seedance/v1/pro/image-to-video",  # 关键帧 → 视频（图生视频）
     "tiktok_actor": "clockworks~tiktok-scraper",  # Apify 上抓 TikTok 账号视频的 Actor
 }
 

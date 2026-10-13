@@ -5,6 +5,9 @@ export const NODE_META: Record<NodeType, { label: string; ch: string; color: str
     sp: { label: "卖点", ch: "卖", color: "#36cfc9" },
     aud: { label: "人群包", ch: "群", color: "#9254de" },
     script: { label: "剧本", ch: "剧", color: "#7c5cff" },
+    actor: { label: "演员", ch: "演", color: "#f25f5c" },
+    scene: { label: "场景", ch: "景", color: "#2bc48a" },
+    product: { label: "商品", ch: "品", color: "#f5a524" },
     video: { label: "视频", ch: "视", color: "#3e8bff" },
     eval: { label: "评测", ch: "评", color: "#f5a524" },
     deliver: { label: "投放", ch: "投", color: "#2bc48a" },
@@ -15,6 +18,7 @@ export const NODE_META: Record<NodeType, { label: string; ch: string; color: str
 export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: string }> = {
     none: { label: "未开始", cls: "bg-elev text-ink2" },
     run: { label: "生成中", cls: "bg-brand/20 text-[#b5a3ff]" },
+    input: { label: "待上传", cls: "bg-warn/25 text-warn" },
     wait: { label: "待审核", cls: "bg-warn/15 text-warn" },
     pass: { label: "已通过", cls: "bg-good/15 text-good" },
     reject: { label: "已驳回", cls: "bg-bad/15 text-bad" },
@@ -26,7 +30,10 @@ export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: s
 export const NODE_W = 220;
 export const NODE_H = 84;
 /** 默认展开、内容平铺在画布上的节点类型，以及展开后的宽度（与后端 canvas.NODE_SIZE 一致） */
-export const EXPANDED_W: Partial<Record<NodeType, number>> = { script: 660, video: 620, eval: 480, deliver: 400, data: 400, opt: 400 };
+export const EXPANDED_W: Partial<Record<NodeType, number>> = { script: 660, actor: 260, scene: 260, product: 260, video: 660, eval: 480, deliver: 400, data: 400, opt: 400 };
+export const SIZE_ZH: Record<string, string> = { WS: "全景", MS: "中景", CU: "特写", ECU: "大特写" };
+export const MOVES = ["固定", "推", "拉", "摇", "跟拍", "手持"];
+export const GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子", "达人口播", "产品展示"];
 
 export const COVER_GRADIENTS = [
     "linear-gradient(160deg,#ff7a45,#7c5cff)",

@@ -11,7 +11,7 @@ from app import canvas, config, monitor
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
 from app.routers import monitor as monitor_router
-from app.routers import ops, projects, settings
+from app.routers import library, ops, projects, settings
 from app.seed import seed
 
 
@@ -32,6 +32,7 @@ app.add_middleware(CORSMiddleware, allow_origins=config.CORS_ORIGINS, allow_meth
 app.include_router(projects.router)
 app.include_router(ops.router)
 app.include_router(settings.router)
+app.include_router(library.router)
 app.include_router(monitor_router.router)
 
 

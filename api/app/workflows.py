@@ -9,8 +9,8 @@ import json
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, config, settings_store, storyboard
-from app.adapters import fal, llm, seedance, tiktok
+from app import agent, canvas, config, production, settings_store, storyboard
+from app.adapters import llm, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
 from app.models import MetricDaily, Node, Project, RefAd
@@ -82,62 +82,9 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         spawn(storyboard.run(node_id))
 
 
-VIDEO_STYLE = "竖屏 9:16 手机广告镜头，真实质感，自然光，本地人物，画面中不要出现文字和品牌标志"
-_video_slots = asyncio.Semaphore(2)  # 同时最多 2 个镜头在生成，避免触发平台并发限制
-
-
-async def _gen_shot(prompt: str) -> dict:
-    provider = settings_store.video_provider()
-    async with _video_slots:
-        if provider == "fal":
-            try:
-                job = await fal.submit(prompt, duration=5)
-                return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
-            except Exception as e:  # 网络 / 鉴权 / 参数错误都按失败处理，节点标红可重试
-                return {"provider": "fal", "status": "failed", "error": str(e)[:300]}
-        tid = await seedance.create_task(prompt)
-        return {"provider": "byteplus" if provider == "byteplus" else "mock", "task_id": tid, **await seedance.wait_task(tid)}
-
-
 async def generate_video(node_id: str, comment: str = "") -> None:
-    with SessionLocal() as db:
-        n = db.get(Node, node_id)
-        if not n:
-            return
-        project = db.get(Project, n.project_id)
-        src = db.get(Node, (n.data or {}).get("script_id")) or next(iter(canvas.upstream(db, n.id)), None)
-        shots = (src.data or {}).get("shots", []) if src else []
-        market = project.market
-
-    async def one(i: int, s: list[str]) -> dict:
-        if i == 2:  # 产品镜头只用官方素材，不让模型生成
-            return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/camon-product.mp4"}
-        prompt = f"{market}，{s[1]}。{VIDEO_STYLE}" + (f"。修改意见：{comment}" if comment else "")
-        res = await _gen_shot(prompt)
-        return {"shot": i + 1, "source": "seedance", "prompt": prompt, "url": res.get("video_url"), **res}
-
-    tasks = list(await asyncio.gather(*(one(i, s) for i, s in enumerate(shots))))
-    with SessionLocal() as db:
-        n = db.get(Node, node_id)
-        if not n:
-            return
-        failed = [t for t in tasks if t.get("status") == "failed"]
-        real = [t for t in tasks if t.get("provider") in ("fal", "byteplus")]
-        urls = [t["url"] for t in tasks if t.get("url", "").startswith("http")]
-        n.data = {**(n.data or {}), "shots": shots, "tasks": tasks, "video_url": urls[0] if urls else f"mock://composed/{node_id}.mp4",
-                  "shot_urls": urls, "engine": real[0].get("model", real[0]["provider"]) if real else "mock",
-                  "qc": {"画面崩坏": not failed, "产品形态": True, "字幕错字": True, "时长与规格": True}}
-        if failed:
-            n.status = "failed"
-            n.sub = f"{len(failed)} 个镜头生成失败，可重试"
-            agent.say(db, n.project_id, f"{agent.ref(n)} 有 {len(failed)} 个镜头生成失败：{failed[0].get('error', '')[:120]}。可以在视频工作室单独重生成。")
-            db.commit()
-            emit(n.project_id, "canvas")
-            emit(n.project_id, "chat")
-            return
-        engine = n.data["engine"]
-        _done(db, n, f"{'Seedance（' + engine + '）' if real else '模拟'}生成 {len(tasks) - 1} 镜 + 官方产品镜头 1 镜，质检 4/4 通过",
-              f"引擎：{engine} · 画面崩坏 0 · 产品形态与官方素材一致 · 字幕错字 0 · 9:16")
+    """分镜 → 选角置景 → 关键帧 → 每镜视频，见 app/production.py。"""
+    await production.run(node_id, comment)
 
 
 NAMES = {"尼日利亚": ["Ada", "Musa", "Chidi", "Bola", "Femi", "Ngozi", "Tunde", "Zainab"],

@@ -248,3 +248,19 @@ class Report(Base):
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Asset(Base):
+    """素材库：演员（定妆照）、场景（场景图）、商品（用户上传的实拍图）。跨项目复用。"""
+
+    __tablename__ = "asset"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    kind: Mapped[str] = mapped_column(String, index=True)  # actor | scene | product
+    name: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(Text, default="")  # 外观 / 场景描述，生成关键帧时用
+    images: Mapped[list] = mapped_column(JSON, default=list)  # 图片地址，第一张为主图
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)  # 商品：brand / model_sku / selling_points；演员：gender / age 等
+    source: Mapped[str] = mapped_column(String, default="ai")  # ai | upload
+    status: Mapped[str] = mapped_column(String, default="ready")  # ready | generating | error
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

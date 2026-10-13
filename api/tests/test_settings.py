@@ -1,4 +1,5 @@
 """设置页密钥与模型：加密存储、免费校验、管理员口令；fal 视频生成与大模型 40 人评测走真实调用路径（用模拟 HTTP 响应）。"""
+import base64
 import json
 import os
 import time
@@ -103,12 +104,18 @@ def test_settings_and_real_call_paths():
             wait_until(lambda: nodes("script") and nodes("script")[0]["status"] == "wait")
             assert nodes("script")[0]["data"]["shots"][0][2] == "Light don cut!"
             approve = lambda: [c.post(f"/api/v1/reviews/{r['id']}/decide", json={"decision": "pass"}) for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["project_id"] == pid]  # noqa: E731
-            approve()  # 剧本通过后自动生成视频
+            approve()  # 剧本通过后自动生成视频：先选角置景；有商品镜头时等用户上传商品实拍图
 
-            wait_until(lambda: nodes("video") and nodes("video")[0]["status"] == "wait")
+            wait_until(lambda: nodes("video") and nodes("video")[0]["status"] in ("input", "wait"), timeout=20)
+            if nodes("video")[0]["status"] == "input":
+                aid = nodes("video")[0]["data"]["waiting_asset"]
+                png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n product").decode()
+                assert c.post(f"/api/v1/library/{aid}/upload", json={"image": png}).json()["resumed"]
+            wait_until(lambda: nodes("video") and nodes("video")[0]["status"] == "wait", timeout=20)
+            assert {n["type"] for n in c.get(f"{P}/canvas").json()["nodes"]} >= {"actor", "scene", "product"}
             v = nodes("video")[0]
             assert v["data"]["engine"] == "fal-ai/bytedance/seedance/v1/pro/text-to-video"
-            assert v["data"]["video_url"].startswith("https://v3.fal.media/") and len(v["data"]["shot_urls"]) == 3
+            assert v["data"]["video_url"].startswith("https://v3.fal.media/") and len(v["data"]["shot_urls"]) == 4  # 上传了商品图，产品镜头也生成
             path, body = calls["fal_submit"][0]
             assert path == "/fal-ai/bytedance/seedance/v1/pro/text-to-video" and body["aspect_ratio"] == "9:16" and body["duration"] == "5"
             approve()  # 视频通过后自动评测

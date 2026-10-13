@@ -225,27 +225,23 @@ export function ReviewCenter() {
     );
 }
 
-export function Assets() {
+/** 卖点库与人群包（素材库页的「卖点与人群」标签页） */
+export function Assets({ embedded = false }: { embedded?: boolean }) {
     const { data } = useQuery({ queryKey: ["assets"], queryFn: api.assets });
-    return (
-        <div className={page}>
-            <PageTitle title="资产库" desc="卖点、人群包、角色资产、产品素材与本土化词库；Agent 写剧本时从这里取数" />
-            <div className="grid grid-cols-2 gap-4 max-[1000px]:grid-cols-1">
-                <Card title="卖点库 · TECNO Camon">
-                    <Table size="small" pagination={false} rowKey="id" dataSource={data?.selling_points || []} columns={[
-                        { title: "卖点", dataIndex: "title" }, { title: "参数", dataIndex: "specs" }, { title: "合规表述", dataIndex: "compliant_copy" }, { title: "优先级", dataIndex: "priority" },
-                    ]} />
-                </Card>
-                <Card title="人群包">
-                    <Table size="small" pagination={false} rowKey="id" dataSource={data?.audiences || []} columns={[
-                        { title: "市场", dataIndex: "market" }, { title: "名称", dataIndex: "name" },
-                        { title: "标签", render: (_, a: any) => Object.entries(a.tags).map(([k, v]) => <Tag key={k}>{k}：{Array.isArray(v) ? v.join("/") : String(v)}</Tag>) },
-                    ]} />
-                </Card>
-            </div>
-            <Card title="角色资产 / 产品素材 / 本土化词库" className="mt-4">
-                <div className="text-sm text-ink2">角色 6 个（本地面孔，已授权）· 官方产品素材 12 段 · 皮钦语 / 豪萨语 / 乌尔都语词库（二期接入上传与管理）</div>
+    const body = (
+        <div className="grid grid-cols-2 gap-4 max-[1000px]:grid-cols-1">
+            <Card title="卖点库 · TECNO Camon">
+                <Table size="small" pagination={false} rowKey="id" dataSource={data?.selling_points || []} columns={[
+                    { title: "卖点", dataIndex: "title" }, { title: "参数", dataIndex: "specs" }, { title: "合规表述", dataIndex: "compliant_copy" }, { title: "优先级", dataIndex: "priority" },
+                ]} />
+            </Card>
+            <Card title="人群包">
+                <Table size="small" pagination={false} rowKey="id" dataSource={data?.audiences || []} columns={[
+                    { title: "市场", dataIndex: "market" }, { title: "名称", dataIndex: "name" },
+                    { title: "标签", render: (_, a: any) => Object.entries(a.tags).map(([k, v]) => <Tag key={k}>{k}：{Array.isArray(v) ? v.join("/") : String(v)}</Tag>) },
+                ]} />
             </Card>
         </div>
     );
+    return embedded ? body : <div className={page}><PageTitle title="卖点与人群" desc="Agent 写剧本时从这里取数" />{body}</div>;
 }

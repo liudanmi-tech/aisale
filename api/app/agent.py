@@ -230,8 +230,8 @@ def compile_videos(db: Session, project: Project, intent: dict, selection: list[
         ops += [_ghost_create(db, project.id, tid, "video", k, f"来自 {s.title} · 15s", {"script_id": s.id}),
                 {"op": "connect", "from": s.id, "to": tid}, {"op": "run_node", "node_id": tid, "action": "generate_video"}]
     seconds = len(ok) * 15
-    steps = [f"为 {len(ok)} 个已通过的剧本各新增 1 个视频节点", "按镜调用 Seedance（9:16 · 1080p），产品镜头使用官方素材",
-             "TTS 配音 + 字幕 + BGM 合成，自动质检", "完成后逐个提交审核"]
+    steps = [f"为 {len(ok)} 个已通过的剧本各新增 1 个视频节点", "选角置景：按剧本拆出演员、场景、商品，优先复用素材库，画布上可换",
+             "每镜生成关键帧（参考分镜、演员定妆照、场景图、商品实拍图）", "关键帧走 Seedance 图生视频，完成后提交审核"]
     return _propose(db, project, {"name": "generate_videos", "script_node_ids": [s.id for s in ok]}, "生成视频", steps,
                     f"约 {seconds} 秒 Seedance 生成（按实际单价计费，确认后才会调用）", ops)
 

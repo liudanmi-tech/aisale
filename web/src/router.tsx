@@ -28,7 +28,7 @@ const page = (load: () => Promise<{ default: ComponentType }>) => {
     );
 };
 const node = (name: "ScriptEditor" | "VideoStudio" | "EvalPage") => page(() => import("@/pages/node-pages").then((m) => ({ default: m[name] })));
-const ops = (name: "Assets" | "DataPage" | "Delivery" | "ReviewCenter") => page(() => import("@/pages/ops-pages").then((m) => ({ default: m[name] })));
+const ops = (name: "DataPage" | "Delivery" | "ReviewCenter") => page(() => import("@/pages/ops-pages").then((m) => ({ default: m[name] })));
 
 export const router = createBrowserRouter([
     {
@@ -47,7 +47,7 @@ export const router = createBrowserRouter([
             { path: "/delivery", element: ops("Delivery") },
             { path: "/data", element: ops("DataPage") },
             { path: "/review", element: ops("ReviewCenter") },
-            { path: "/assets", element: ops("Assets") },
+            { path: "/assets", element: page(() => import("@/pages/library")) },
             { path: "/settings", element: page(() => import("@/pages/settings")) },
         ],
     },
