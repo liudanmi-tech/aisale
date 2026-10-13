@@ -11,7 +11,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import textwrap
 from pathlib import Path
 
 import httpx
@@ -82,53 +81,105 @@ def plan(video: Node, script: Node | None) -> list[dict]:
     return out
 
 
-def _wrap(text: str, width: int = 26) -> str:
-    return "\n".join(textwrap.wrap(text, width)[:3])
+def _wrap(text: str, font, width: int) -> list[str]:
+    """按像素宽度换行：英文按词，中文按字；最多 3 行。"""
+    tokens = re.findall(r"[\u3000-\u9fff\uff00-\uffef]|\S+\s*|\s+", text)
+    lines, cur = [], ""
+    for t in tokens:
+        if cur and font.getlength((cur + t).rstrip()) > width:
+            lines.append(cur.rstrip())
+            cur = t.lstrip()
+        else:
+            cur += t
+    if cur.strip():
+        lines.append(cur.rstrip())
+    return lines[:3]
 
 
-def _filters(parts: list[dict], tmp: Path, captions: bool, fonts: dict) -> str:
-    chains = []
-    for k, p in enumerate(parts):
-        f = (f"[{k}:v]trim=0:{p['dur']:.2f},setpts=PTS-STARTPTS,scale={W}:{H}:force_original_aspect_ratio=increase,"
-             f"crop={W}:{H},fps={FPS},format=yuv420p,setsar=1")
-        if captions:
-            # 文字放进文件再引用，避免 drawtext 的转义问题
-            font = _font_for(p["line"], fonts)
-            if p["line"] and font:
-                tf = tmp / f"line{k}.txt"
-                tf.write_text(_wrap(p["line"]), encoding="utf-8")
-                f += (f",drawtext=fontfile='{font}':textfile='{tf}':fontsize=40:fontcolor=white:line_spacing=8:"
-                      f"box=1:boxcolor=black@0.45:boxborderw=14:x=(w-text_w)/2:y=h-text_h-150")
-            font = _font_for(p["overlay"], fonts)
-            if p["overlay"] and font:
-                of = tmp / f"ov{k}.txt"
-                of.write_text(_wrap(p["overlay"], 18), encoding="utf-8")
-                f += (f",drawtext=fontfile='{font}':textfile='{of}':fontsize=58:fontcolor=white:borderw=4:bordercolor=black@0.7:"
-                      f"x=(w-text_w)/2:y=170")
-        chains.append(f + f"[v{k}]")
-    return ";".join(chains) + ";" + "".join(f"[v{k}]" for k in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0[out]"
+def caption_png(p: dict, fonts: dict, out: Path) -> bool:
+    """把这一镜的字幕（底部、半透明底）和贴片（顶部、描边大字）画成透明 PNG，合成时叠在画面上。
+    用 Pillow 画而不用 ffmpeg 的 drawtext：很多 ffmpeg（包括 Homebrew 和 imageio-ffmpeg 的）没编进 drawtext。"""
+    from PIL import Image, ImageDraw, ImageFont
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    drew = False
+    if p["overlay"] and (f := _font_for(p["overlay"], fonts)):
+        font = ImageFont.truetype(f, 58)
+        y = 170
+        for ln in _wrap(p["overlay"], font, W - 100):
+            w = font.getlength(ln)
+            d.text(((W - w) / 2, y), ln, font=font, fill="white", stroke_width=4, stroke_fill=(0, 0, 0, 180))
+            y += 72
+        drew = True
+    if p["line"] and (f := _font_for(p["line"], fonts)):
+        font = ImageFont.truetype(f, 40)
+        lines = _wrap(p["line"], font, W - 120)
+        lh = 52
+        top = H - 150 - lh * len(lines)
+        bw = max(font.getlength(ln) for ln in lines) + 40
+        d.rounded_rectangle(((W - bw) / 2, top - 14, (W + bw) / 2, top + lh * len(lines) + 6), radius=12, fill=(0, 0, 0, 115))
+        for k, ln in enumerate(lines):
+            d.text(((W - font.getlength(ln)) / 2, top + k * lh), ln, font=font, fill="white")
+        drew = True
+    if drew:
+        img.save(out)
+    return drew
 
 
 def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions: bool) -> dict:
+    """files[k] 是第 k 镜的视频片段，或者（这一镜还没出视频时）它的关键帧图片，按剧本时长停留。"""
     exe = ffmpeg_exe()
     if not exe:
         raise RuntimeError("没有 ffmpeg：在 api 目录运行 pip install -r requirements.txt（会装上 imageio-ffmpeg），或 brew install ffmpeg")
     fonts = {"latin": font_file(), "cjk": font_file(cjk=True)}
     font = fonts["latin"] or fonts["cjk"]
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        font = None
     tried = []
     for use_caps in ([True, False] if captions and font else [False]):
         cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"]
-        for f in files:
+        for p, f in zip(parts, files):
+            if p.get("still"):
+                cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{p['dur']:.2f}"]
             cmd += ["-i", str(f)]
-        cmd += ["-filter_complex", _filters(parts, tmp, use_caps, fonts), "-map", "[out]", "-c:v", "libx264", "-preset", "veryfast",
+        chains, n_in = [], len(files)
+        for k, p in enumerate(parts):
+            c = (f"[{k}:v]trim=0:{p['dur']:.2f},setpts=PTS-STARTPTS,scale={W}:{H}:force_original_aspect_ratio=increase,"
+                 f"crop={W}:{H},fps={FPS},format=yuv420p,setsar=1")
+            png = tmp / f"cap{k}.png"
+            if use_caps and caption_png(p, fonts, png):
+                cmd += ["-i", str(png)]
+                c += f"[b{k}];[b{k}][{n_in}:v]overlay=0:0,format=yuv420p"
+                n_in += 1
+            chains.append(c + f"[v{k}]")
+        graph = ";".join(chains) + ";" + "".join(f"[v{k}]" for k in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0[out]"
+        cmd += ["-filter_complex", graph, "-map", "[out]", "-c:v", "libx264", "-preset", "veryfast",
                 "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(out)]
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        if p.returncode == 0 and out.exists():
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if r.returncode == 0 and out.exists():
             skipped = [p["shot"] for p in parts if use_caps and any(t and not _font_for(t, fonts) for t in (p["line"], p["overlay"]))]
             return {"captions": use_caps, "font": font if use_caps else None, "skipped_text": skipped}
-        tried.append(p.stderr[-300:])
-        log.warning("合成失败（字幕=%s）：%s", use_caps, p.stderr[-300:])
+        tried.append(r.stderr[-300:])
+        log.warning("合成失败（字幕=%s）：%s", use_caps, r.stderr[-300:])
     raise RuntimeError("ffmpeg 合成失败：" + (tried[-1] if tried else ""))
+
+
+async def _fetch(c: httpx.AsyncClient, url: str) -> bytes:
+    """片段 / 关键帧：远程地址下载；本平台自己存的（/api/v1/media/...）直接读文件。"""
+    if url.startswith("/api/v1/media/"):
+        return (config.MEDIA_DIR / url.removeprefix("/api/v1/media/")).read_bytes()
+    if url.startswith("data:"):
+        import base64
+        return base64.b64decode(url.split(",", 1)[1])
+    r = await c.get(url)
+    r.raise_for_status()
+    return r.content
+
+
+def _real(p: dict) -> bool:
+    return p["src"].startswith(("http", "/api/v1/media/"))
 
 
 def _set(cut_id: str, **fields) -> None:
@@ -161,27 +212,28 @@ async def run(cut_id: str, comment: str = "") -> None:
         _set(cut_id, status="failed", sub="没有找到视频片段")
         return
     _set(cut_id, status="run", sub="合成中…", data={"video_id": vid, "parts": parts, "stage": "下载片段", "error": None})
-    real = [p for p in parts if p["src"].startswith("http")]
+    real = [p for p in parts if _real(p)]
     total = round(sum(p["dur"] for p in parts), 1)
     sig = hashlib.sha1("|".join(p["src"] for p in parts).encode()).hexdigest()[:10]
     try:
-        if len(real) < len(parts):
-            # 演示模式 / 有镜头没出视频：只记录拼接方案
-            missing = [p["shot"] for p in parts if not p["src"].startswith("http")]
-            if real:
-                raise RuntimeError(f"第 {'、'.join(map(str, missing))} 镜还没有视频片段，先把这些镜头生成出来")
+        if not real:
+            # 演示模式：没有真实片段，只记录拼接方案
             _set(cut_id, data={"video_url": None, "mock": True, "duration": total, "source_sig": sig, "stage": "完成"},
                  sub=f"模拟成片 · {len(parts)} 镜 · {total:g} 秒")
         else:
+            # 有镜头还没出视频（例如商品镜头等人工确认）：先用它的关键帧静帧占位，保证能看完整条
+            for p in parts:
+                p["still"] = not _real(p)
+            missing = [p["shot"] for p in parts if p["still"] and not p.get("keyframe")]
+            if missing:
+                raise RuntimeError(f"第 {'、'.join(map(str, missing))} 镜既没有视频也没有关键帧，先把这些镜头生成出来")
             with tempfile.TemporaryDirectory() as d:
                 tmp = Path(d)
                 files = []
                 async with httpx.AsyncClient(timeout=180, transport=transport, follow_redirects=True) as c:
                     for k, p in enumerate(parts):
-                        r = await c.get(p["src"])
-                        r.raise_for_status()
-                        f = tmp / f"s{k}.mp4"
-                        f.write_bytes(r.content)
+                        f = tmp / (f"s{k}.png" if p["still"] else f"s{k}.mp4")
+                        f.write_bytes(await _fetch(c, p["keyframe"] if p["still"] else p["src"]))
                         files.append(f)
                 _set(cut_id, data={"stage": "拼接与字幕"})
                 outdir = config.MEDIA_DIR / "cuts"
@@ -189,9 +241,21 @@ async def run(cut_id: str, comment: str = "") -> None:
                 out = outdir / f"{cut_id}-{sig}.mp4"
                 info = await asyncio.to_thread(render, parts, files, out, tmp, captions)
             url = f"/api/v1/media/cuts/{out.name}"
-            _set(cut_id, data={"video_url": url, "mock": False, "duration": total, "source_sig": sig, "stage": "完成",
-                               "burned": info["captions"], "font": info["font"], "skipped_text": info["skipped_text"]},
-                 sub=f"{len(parts)} 镜 · {total:g} 秒 · 9:16" + (" · 已加字幕" if info["captions"] else ""))
+            stills = [p["shot"] for p in parts if p["still"]]
+            _set(cut_id, data={"video_url": url, "mock": False, "duration": total, "source_sig": sig, "stage": "完成", "parts": parts,
+                               "stills": stills, "burned": info["captions"], "font": info["font"], "skipped_text": info["skipped_text"]},
+                 sub=f"{len(parts)} 镜 · {total:g} 秒 · 9:16" + (" · 已加字幕" if info["captions"] else "")
+                 + (f" · 镜 {'、'.join(map(str, stills))} 暂用关键帧" if stills else ""))
+            if stills:
+                # 还缺视频的成片不进评测：等这些镜头生成好、视频再次通过后会自动重新合成
+                _set(cut_id, status="pass")
+                from app import agent  # 避免循环导入
+                with SessionLocal() as db:
+                    agent.say(db, pid, f"成片已合成，镜 {'、'.join(map(str, stills))} 还没有视频，先用关键帧静帧占位；"
+                                       "这些镜头生成好、视频再次通过后会自动重新合成，再进入评测。")
+                    db.commit()
+                emit(pid, "chat")
+                return
     except Exception as e:  # noqa: BLE001
         log.exception("成片合成失败 %s", cut_id)
         _set(cut_id, status="failed", sub="合成失败，可重新合成", data={"stage": "失败", "error": str(e)[:300]})

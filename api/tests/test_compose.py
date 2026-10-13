@@ -86,6 +86,23 @@ def test_compose_real_clips(tmp_path, monkeypatch):
             n = db.get(Node, cid)
             assert n.status == "failed" and "第 2 镜" in n.data["error"]
 
+        # 有关键帧、没视频的镜头（例如商品镜头等人工确认）：用关键帧静帧占位，照样出完整成片，但不自动进评测
+        import cv2
+        import numpy as np
+        kdir = config.MEDIA_DIR / "keyframes"
+        kdir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(kdir / "test-kf.png"), np.full((1280, 720, 3), 200, np.uint8))
+        advanced.clear()
+        with SessionLocal() as db:
+            v = db.get(Node, (db.get(Node, cid).data or {})["video_id"])
+            v.data = {**v.data, "tasks": [{"url": list(clips)[0]}, {"url": "", "keyframe": "/api/v1/media/keyframes/test-kf.png"}, {"url": list(clips)[2]}]}
+            db.commit()
+        asyncio.run(compose.run(cid))
+        with SessionLocal() as db:
+            n = db.get(Node, cid)
+            assert n.status == "pass" and n.data["stills"] == [2] and "暂用关键帧" in n.sub and advanced == []
+            assert abs(_probe(config.MEDIA_DIR / "cuts" / n.data["video_url"].rsplit("/", 1)[1])["duration"] - 7.5) < 0.3
+
 
 def test_compose_endpoint_guards():
     with TestClient(app) as c:

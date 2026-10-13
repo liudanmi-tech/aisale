@@ -573,7 +573,7 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const refresh = useRefresh(n);
     const { data: snap } = useQuery({ queryKey: ["canvas", pid], queryFn: () => api.canvas(pid) });
     const video = snap?.nodes.find((x) => x.id === n.data.video_id);
-    const parts: { shot: number; src: string; dur: number; line: string; overlay: string; keyframe?: string }[] = n.data.parts || [];
+    const parts: { shot: number; src: string; dur: number; line: string; overlay: string; keyframe?: string; still?: boolean }[] = n.data.parts || [];
     const captions = n.data.captions !== false;
     const running = n.status === "run";
     const stale = !running && parts.length > 0 && !!video && (video.data.tasks || []).some((t: any, i: number) => (t?.url || "") !== (parts[i]?.src || ""));
@@ -607,7 +607,7 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {p.keyframe ? <img src={p.keyframe} alt="" className="h-9 w-5 shrink-0 rounded-sm object-cover" /> : <div className="h-9 w-5 shrink-0 rounded-sm bg-elev" />}
                                 <div className="min-w-0 flex-1">
                                     <span className="text-ink">镜 {p.shot}</span><span className="text-ink2"> · {p.dur}s</span>
-                                    {!p.src && <span className="text-bad"> · 没有片段</span>}
+                                    {!p.src && (p.still ? <span className="text-warn"> · 还没出视频，暂用关键帧静帧</span> : <span className="text-bad"> · 没有片段</span>)}
                                     {p.line && <div className="truncate text-ink2" title={p.line}>字幕：{p.line}</div>}
                                     {p.overlay && <div className="truncate text-[#b5a3ff]" title={p.overlay}>贴片：{p.overlay}</div>}
                                 </div>
