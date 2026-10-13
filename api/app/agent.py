@@ -248,7 +248,7 @@ def compile_eval(db: Session, project: Project, intent: dict, selection: list[st
     ops = [_ghost_create(db, project.id, "e0", "eval", 0, f"40 Agent · {len(ok)} 个视频", {"video_ids": [v.id for v in ok]})]
     ops += [{"op": "connect", "from": v.id, "to": "e0"} for v in ok] + [{"op": "run_node", "node_id": "e0", "action": "evaluate"}]
     steps = [f"新增 1 个评测节点，覆盖 {len(ok)} 个视频", f"按「{project.market}」目标人群抽取 40 个虚拟用户画像",
-             "逐秒记录划走 / 看完 / 点击，预测 CTR 与完播率", "输出入选名单与建议人群，提交审核"]
+             "40 个独立 Agent 逐镜看关键帧、对比平时的广告打分，按基准流失率换算留存、完播和点击意向（CTR 未校准）", "输出入选名单与建议人群，提交审核"]
     return _propose(db, project, {"name": "run_evaluation", "video_node_ids": [v.id for v in ok]}, "40 Agent 评测", steps,
                     "约 1.5 积分（多模态模型）", ops)
 

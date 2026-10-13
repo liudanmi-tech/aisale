@@ -337,9 +337,13 @@ function EvalBody({ n }: { n: CanvasNode }) {
                 )}
             </div>
             {best?.retention && (
-                <div className="mt-2 flex items-center gap-1 text-[10px] text-ink2" title="每一镜开始时还在看的人数占比">
-                    留存{best.retention.map((p: number, i: number) => (
-                        <span key={i} className="flex items-center gap-0.5">镜{i + 1}<span className="inline-block h-1.5 w-10 overflow-hidden rounded bg-elev"><span className="block h-full bg-brand" style={{ width: `${p}%` }} /></span><span className="text-ink">{p}%</span></span>
+                <div className="mt-2 grid grid-cols-4 gap-2 text-[10px] text-ink2" title="每一镜开始时还在看的人数占比；括号里是比平时刷到的手机广告好还是差（-2 … +2）">
+                    {best.retention.map((p: number, i: number) => (
+                        <div key={i}>
+                            <div className="flex justify-between"><span>镜{i + 1} 留存 <span className="text-ink">{p}%</span></span>
+                                {best.shot_rel && <span className={best.shot_rel[i] < 0 ? "text-bad" : ""}>{best.shot_rel[i] > 0 ? "+" : ""}{best.shot_rel[i]}</span>}</div>
+                            <div className="mt-0.5 h-1.5 overflow-hidden rounded bg-elev"><div className="h-full bg-brand" style={{ width: `${p}%` }} /></div>
+                        </div>
                     ))}
                 </div>
             )}
