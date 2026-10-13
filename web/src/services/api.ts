@@ -279,7 +279,8 @@ export const api = {
     canvas: (pid: string) => get<CanvasSnapshot>(`/projects/${pid}/canvas`),
     chat: (pid: string) => get<ChatMsg[]>(`/projects/${pid}/chat`),
     send: (pid: string, text: string, selection: string[]) =>
-        post<{ effects: { type: string; node_ids: string[] }[] }>(`/projects/${pid}/agent/chat`, { text, selection }),
+        post<{ effects: { type: string; node_ids: string[] }[]; reply?: string; pending_patch?: string | null }>(`/projects/${pid}/agent/chat`, { text, selection }),
+    deleteNodes: (pid: string, ids: string[]) => post<{ ok: boolean; deleted: string[] }>(`/projects/${pid}/nodes/delete`, { ids }),
     applyPatch: (pid: string, id: string) => post(`/projects/${pid}/patches/${id}/apply`),
     cancelPatch: (pid: string, id: string) => post(`/projects/${pid}/patches/${id}/cancel`),
     adjustPatch: (pid: string, id: string, count: number) => post(`/projects/${pid}/patches/${id}/adjust`, { count }),

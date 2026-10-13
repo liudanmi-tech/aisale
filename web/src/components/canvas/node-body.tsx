@@ -624,7 +624,7 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
                 <span className="flex-1" />
                 {n.data.video_url && <a data-ui href={n.data.video_url} download className="text-[11px] text-brand2">下载</a>}
             </div>
-            {n.data.video_url && captions && n.data.burned === false && <div className="mt-1 text-[10px] text-ink2">没找到可用字体，这版没烧字幕</div>}
+            {n.data.video_url && captions && n.data.burned === false && <div className="mt-1 text-[10px] leading-[14px] text-warn">{n.data.caption_note || "没找到可用字体，这版没烧字幕"}</div>}
             {n.data.video_url && captions && n.data.skipped_text?.length > 0 && <div className="mt-1 text-[10px] text-ink2">镜 {n.data.skipped_text.join("、")} 的文字含中文，这台电脑没有中文字体，没有烧上</div>}
         </div>
     );

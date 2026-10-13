@@ -313,7 +313,9 @@ def _eval_sources(db: Session, project: Project) -> list[Node]:
 
 def compile_eval(db: Session, project: Project, intent: dict, selection: list[str]) -> Patch | str:
     videos = _eval_sources(db, project)
-    ids = intent.get("video_node_ids") or [i for i in selection if any(v.id == i for v in videos)]
+    want = set(intent.get("video_node_ids") or selection)
+    # 选中 / 点名的是视频节点时，换成它的成片
+    ids = [v.id for v in videos if v.id in want or (v.data or {}).get("video_id") in want]
     pool = [v for v in videos if not ids or v.id in ids]
     ok = [v for v in pool if v.status == "pass" and not _has_child(db, v.id, "eval")]
     if not ok:

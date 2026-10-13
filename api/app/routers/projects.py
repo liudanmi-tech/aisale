@@ -99,7 +99,29 @@ async def agent_chat(pid: str, body: ChatIn, db: Session = Depends(get_db)):
     res = await agent.handle(db, project, body.text.strip(), body.selection)
     emit(pid, "canvas")
     emit(pid, "chat")
-    return res
+    last = db.query(ChatMessage).filter(ChatMessage.project_id == pid, ChatMessage.role == "agent").order_by(ChatMessage.id.desc()).first()
+    pending = db.query(Patch).filter(Patch.project_id == pid, Patch.status == "proposed").first()
+    # 画布上的按钮发的指令：前端用 reply 弹提示（左侧对话收起时也能看到结果）
+    return {**res, "reply": (last.content or {}).get("text", "") if last else "", "pending_patch": pending.summary if pending else None}
+
+
+class DeleteIn(BaseModel):
+    ids: list[str]
+
+
+@router.post("/projects/{pid}/nodes/delete")
+def delete_nodes(pid: str, body: DeleteIn, db: Session = Depends(get_db)):
+    """删除画布节点，可撤销（⌘Z 或「撤销上一步」）。"""
+    project = get_project(db, pid)
+    p = canvas.delete_nodes(db, project, body.ids)
+    if not p:
+        raise HTTPException(404, "没有可删除的节点")
+    agent.say(db, pid, f"已{p.summary}。需要恢复就点「撤销上一步」或按 ⌘Z。")
+    db.commit()
+    emit(pid, "canvas")
+    emit(pid, "chat")
+    emit(pid, "reviews")
+    return {"ok": True, "deleted": p.ops[0]["ids"]}
 
 
 @router.post("/projects/{pid}/patches/{patch_id}/apply")

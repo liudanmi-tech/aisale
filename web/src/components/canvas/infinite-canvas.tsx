@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import {
-    Bot, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Undo2, Users, Wand2,
+    Bot, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Clapperboard, Copy, ExternalLink, Flame, GitBranch, Hand, Maximize, Minus, MousePointer2, PenLine, Plus, Rocket, Trash2, Undo2, Users, Wand2,
 } from "lucide-react";
 import { Popover } from "antd";
 import { motion } from "motion/react";
@@ -28,6 +28,8 @@ export interface CanvasActions {
     onReject: (node: CanvasNode) => void;
     /** 选中节点并在左侧 Agent 输入框里继续改 */
     onRevise: (node: CanvasNode) => void;
+    /** 删除节点（可撤销） */
+    onDelete: (ids: string[]) => void;
 }
 
 /** 节点是否展开显示内容（默认展开，计划预览不展开） */
@@ -65,6 +67,8 @@ export function InfiniteCanvas({ pid, nodes, edges, patch, actions }: { pid: str
     const byId = useMemo(() => Object.fromEntries(all.map((n) => [n.id, n])), [all]);
     const selected = selection.map((id) => byId[id]).filter((n): n is ViewNode => !!n && !n.ghost);
 
+    const selectedRef = useRef<string[]>([]);
+    selectedRef.current = selected.map((n) => n.id);
     useEffect(() => setLive({}), [nodes]);
     useEffect(() => {
         if (!focusRequest || !box.current || Date.now() - focusRequest.ts > 10_000) return;
@@ -79,6 +83,7 @@ export function InfiniteCanvas({ pid, nodes, edges, patch, actions }: { pid: str
             if (/INPUT|TEXTAREA/.test((document.activeElement as HTMLElement)?.tagName)) return;
             if (e.key === "Escape") { setMenu(null); select([]); }
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); actions.onCommand("撤销上一步", []); }
+            if ((e.key === "Delete" || e.key === "Backspace") && selectedRef.current.length) { e.preventDefault(); actions.onDelete(selectedRef.current); }
             if (e.key.toLowerCase() === "h") setMode("pan");
             if (e.key.toLowerCase() === "v") setMode("select");
         };
@@ -229,7 +234,7 @@ export function InfiniteCanvas({ pid, nodes, edges, patch, actions }: { pid: str
                 <DockButton tip="新建节点" onClick={() => { const r = box.current!.getBoundingClientRect(); setMenu({ kind: "create", x: r.width / 2 - 130, y: r.height / 2 - 160 }); }}><Plus size={16} /></DockButton>
                 <DockButton tip="从爆款库添加" onClick={actions.onPickAd}><Flame size={16} /></DockButton>
                 <DockButton tip="整理画布" onClick={() => actions.onCommand("整理画布", [])}><Wand2 size={16} /></DockButton>
-                <DockButton tip="撤销 Agent 上一步 (⌘Z)" onClick={() => actions.onCommand("撤销上一步", [])}><Undo2 size={16} /></DockButton>
+                <DockButton tip="撤销上一步（Agent 操作或删除，⌘Z）" onClick={() => actions.onCommand("撤销上一步", [])}><Undo2 size={16} /></DockButton>
                 <div className="mx-1.5 my-0.5 border-t border-line" />
                 <Popover placement="right" content={<div className="max-w-[260px] text-xs leading-6">双击空白处：新建节点　双击节点：展开 / 收起<br />选中节点后在左侧对 Agent 说怎么改<br />右键节点：问 Agent、选中上下游<br />Shift + 单击：多选　V / H：选择 / 抓手<br />实线 = 已放行　灰虚线 = 上游待审核<br />紫虚线框 = Agent 计划预览，确认后才落地</div>}>
                     <span className="flex h-8 w-8 cursor-help items-center justify-center rounded-lg text-ink2 hover:bg-elev"><CircleHelp size={16} /></span>
@@ -359,6 +364,7 @@ function SelectionActions({ nodes, actions }: { nodes: ViewNode[]; actions: Canv
     if (one?.type === "ad") items.push([<ExternalLink size={14} />, "在爆款库查看", () => actions.onOpen(one)]);
     if (one) items.push([<Bot size={14} />, "问 Agent", () => actions.onAsk(one)]);
     if (!one) items.push([<Bot size={14} />, `问 Agent（已选 ${nodes.length}）`, () => actions.onDraft("")]);
+    items.push([<Trash2 size={14} />, nodes.length > 1 ? `删除（${nodes.length}）` : "删除", () => actions.onDelete(ids)]);
     return (
         <>
             {items.map(([icon, label, fn]) => (

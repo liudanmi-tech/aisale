@@ -1,7 +1,7 @@
 """画布模型与 Agent 画布工具：节点、连线、补丁（预览 → 应用 → 撤销）、布局、审核单。"""
 from datetime import datetime
 
-from sqlalchemy import or_
+from sqlalchemy import DateTime, or_
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Edge, Node, Patch, Project, ReviewTask, new_id
@@ -195,6 +195,45 @@ def layout(db: Session, project: Project) -> Patch:
     return p
 
 
+def _row(obj) -> dict:
+    out = {}
+    for c in obj.__table__.columns:
+        v = getattr(obj, c.name)
+        out[c.name] = v.isoformat() if isinstance(v, datetime) else v
+    return out
+
+
+def _unrow(cls, d: dict):
+    vals = {}
+    for c in cls.__table__.columns:
+        v = d.get(c.name)
+        if isinstance(v, str) and isinstance(c.type, DateTime):
+            v = datetime.fromisoformat(v)
+        vals[c.name] = v
+    return cls(**vals)
+
+
+def delete_nodes(db: Session, project: Project, ids: list[str]) -> Patch | None:
+    """删除节点（连同它们的连线和待审核任务）；整行存进补丁，撤销时原样恢复。"""
+    nodes = [n for n in (db.get(Node, i) for i in ids) if n and n.project_id == project.id]
+    if not nodes:
+        return None
+    nid = [n.id for n in nodes]
+    edges = db.query(Edge).filter(or_(Edge.source.in_(nid), Edge.target.in_(nid))).all()
+    reviews = db.query(ReviewTask).filter(ReviewTask.node_id.in_(nid)).all()
+    snap = {"nodes": [_row(n) for n in nodes], "edges": [_row(e) for e in edges], "reviews": [_row(r) for r in reviews]}
+    for obj in [*reviews, *edges, *nodes]:
+        db.delete(obj)
+    names = "、".join(n.title for n in nodes[:3]) + (f" 等 {len(nodes)} 个" if len(nodes) > 3 else "")
+    p = Patch(id=new_id("pt"), project_id=project.id, base_version=project.version, intent={"name": "delete"},
+              summary=f"删除 {names}", steps=[f"删除 {len(nodes)} 个节点和 {len(edges)} 条连线"], ops=[{"op": "delete", "ids": nid}],
+              status="applied", needs_review=False, undo={"deleted": snap})
+    db.add(p)
+    bump(project)
+    audit(db, project.id, "user", "delete_nodes", {"ids": nid})
+    return p
+
+
 def undo_last(db: Session, project: Project) -> Patch | None:
     p = db.query(Patch).filter(Patch.project_id == project.id, Patch.status == "applied").order_by(Patch.created_at.desc()).first()
     if not p:
@@ -211,6 +250,12 @@ def undo_last(db: Session, project: Project) -> Patch | None:
         db.query(Node).filter(Node.id.in_(node_ids)).delete(synchronize_session=False)
     if u.get("edges"):
         db.query(Edge).filter(Edge.id.in_(u["edges"])).delete(synchronize_session=False)
+    gone = u.get("deleted") or {}
+    for cls, key in ((Node, "nodes"), (Edge, "edges"), (ReviewTask, "reviews")):
+        for d in gone.get(key, []):
+            if not db.get(cls, d["id"]):
+                db.add(_unrow(cls, d))
+        db.flush()
     p.status = "undone"
     bump(project)
     audit(db, project.id, "user", "undo", {"patch_id": p.id})

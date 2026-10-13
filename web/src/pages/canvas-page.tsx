@@ -37,8 +37,10 @@ export default function CanvasPage() {
             qc.setQueryData<CanvasSnapshot>(["canvas", pid], (s) => s && { ...s, nodes: s.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)) }),
     });
     const command = useMutation({
-        mutationFn: ({ text, selection }: { text: string; selection: string[] }) => api.send(pid, text, selection),
-        onSuccess: (res) => {
+        mutationFn: ({ text, selection }: { text: string; selection: string[]; fromCanvas?: boolean }) => api.send(pid, text, selection),
+        onSuccess: (res, v) => {
+            // 画布按钮发的指令：在画布上直接提示结果（左侧对话可能收起了）
+            if (v.fromCanvas && res.reply) (res.pending_patch ? message.info : message.success)(res.pending_patch ? `「${res.pending_patch}」已生成预览（紫色虚线框），在左侧对话里点确认执行` : res.reply.slice(0, 120), 5);
             const ids = res.effects.flatMap((e) => (e.type === "highlight" ? e.node_ids : []));
             if (ids.length) { focus(ids[0]); setHighlight(ids); setTimeout(() => setHighlight([]), 2500); }
         },
@@ -66,6 +68,12 @@ export default function CanvasPage() {
         onSettled: (_r, _e, _v, before) => { if (before) followNew(before); },
         onSuccess: (r) => { message.success(`已通过${r.passed > 1 ? ` ${r.passed} 个节点` : ""}，自动进入下一步（进度见左侧对话）`); qc.invalidateQueries({ queryKey: ["reviews"] }); refresh(); },
     });
+    const del = useMutation({
+        mutationFn: (ids: string[]) => api.deleteNodes(pid, ids),
+        onSuccess: (r) => { select([]); message.success(`已删除 ${r.deleted.length} 个节点，⌘Z 或「撤销上一步」可恢复`); qc.invalidateQueries({ queryKey: ["reviews"] }); },
+        onError: (e: any) => message.error(e?.response?.data?.detail || "删除失败"),
+        onSettled: refresh,
+    });
     const waiting = data?.nodes.filter((n) => n.status === "wait") ?? [];
     const [rejecting, setRejecting] = useState<CanvasNode | null>(null);
     const [reason, setReason] = useState("");
@@ -84,7 +92,8 @@ export default function CanvasPage() {
         onMove: (id, x, y) => move.mutate({ id, x, y }),
         onOpen: open,
         onAsk: (n) => { select([n.id]); setAskNonce(Date.now()); },
-        onCommand: (text, selection) => command.mutate({ text, selection: selection ?? useCanvasStore.getState().selection }),
+        onCommand: (text, selection) => command.mutate({ text, selection: selection ?? useCanvasStore.getState().selection, fromCanvas: true }),
+        onDelete: (ids) => del.mutate(ids),
         onDraft: (text) => { setDraft(text); setAskNonce(Date.now()); },
         onPickAd: () => setPicking(true),
         onPass: (ids) => pass.mutate(ids),

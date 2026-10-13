@@ -133,10 +133,11 @@ def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions:
         raise RuntimeError("没有 ffmpeg：在 api 目录运行 pip install -r requirements.txt（会装上 imageio-ffmpeg），或 brew install ffmpeg")
     fonts = {"latin": font_file(), "cjk": font_file(cjk=True)}
     font = fonts["latin"] or fonts["cjk"]
+    note = None if font else "没找到可用字体"
     try:
         import PIL  # noqa: F401
     except ImportError:
-        font = None
+        font, note = None, "没装 Pillow：在 api 目录运行 python3 -m pip install -r requirements.txt 后重新合成"
     tried = []
     for use_caps in ([True, False] if captions and font else [False]):
         cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"]
@@ -160,7 +161,9 @@ def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if r.returncode == 0 and out.exists():
             skipped = [p["shot"] for p in parts if use_caps and any(t and not _font_for(t, fonts) for t in (p["line"], p["overlay"]))]
-            return {"captions": use_caps, "font": font if use_caps else None, "skipped_text": skipped}
+            if captions and not use_caps and not note:
+                note = "加字幕时 ffmpeg 出错，这版没烧字幕：" + tried[-1][-120:]
+            return {"captions": use_caps, "font": font if use_caps else None, "skipped_text": skipped, "caption_note": note if captions else None}
         tried.append(r.stderr[-300:])
         log.warning("合成失败（字幕=%s）：%s", use_caps, r.stderr[-300:])
     raise RuntimeError("ffmpeg 合成失败：" + (tried[-1] if tried else ""))
@@ -243,7 +246,7 @@ async def run(cut_id: str, comment: str = "") -> None:
             url = f"/api/v1/media/cuts/{out.name}"
             stills = [p["shot"] for p in parts if p["still"]]
             _set(cut_id, data={"video_url": url, "mock": False, "duration": total, "source_sig": sig, "stage": "完成", "parts": parts,
-                               "stills": stills, "burned": info["captions"], "font": info["font"], "skipped_text": info["skipped_text"]},
+                               "stills": stills, "burned": info["captions"], "font": info["font"], "skipped_text": info["skipped_text"], "caption_note": info["caption_note"]},
                  sub=f"{len(parts)} 镜 · {total:g} 秒 · 9:16" + (" · 已加字幕" if info["captions"] else "")
                  + (f" · 镜 {'、'.join(map(str, stills))} 暂用关键帧" if stills else ""))
             if stills:

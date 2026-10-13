@@ -139,3 +139,23 @@ def test_backfill_old_projects():
         P = f"/api/v1/projects/{pid}"
         c.post(P + "/agent/chat", json={"text": "合成成片"})
         assert "开始合成" in c.get(P + "/chat").json()[-1]["text"]
+
+
+def test_delete_and_undo():
+    """画布上任何节点都能删，删掉的节点、连线、待审核任务撤销后原样恢复。"""
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "删除"}).json()["id"]
+        P = f"/api/v1/projects/{pid}"
+        canvas_ = lambda: c.get(P + "/canvas").json()  # noqa: E731
+        before = canvas_()
+        sp = next(n for n in before["nodes"] if n["type"] == "sp")
+        n_edges = len(before["edges"])
+        r = c.post(P + "/nodes/delete", json={"ids": [sp["id"]]}).json()
+        assert r["deleted"] == [sp["id"]]
+        after = canvas_()
+        assert all(n["id"] != sp["id"] for n in after["nodes"]) and all(sp["id"] not in (e["source"], e["target"]) for e in after["edges"])
+        assert c.post(P + "/undo").json()["ok"]
+        back = canvas_()
+        n = next(n for n in back["nodes"] if n["id"] == sp["id"])
+        assert (n["title"], n["x"], n["y"], n["data"]) == (sp["title"], sp["x"], sp["y"], sp["data"]) and len(back["edges"]) == n_edges
+        assert c.post(P + "/nodes/delete", json={"ids": ["nope"]}).status_code == 404
