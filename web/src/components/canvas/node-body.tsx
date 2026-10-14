@@ -464,6 +464,9 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const shots: string[][] = script?.data.shots || n.data.shots || [];
     const frames: ({ url: string } | null)[] = script?.data.frames || [];
     const cast: Cast | undefined = script?.data.cast;
+    // 看剧本里现在用的这款商品有没有图（换过商品后 need_product 里记的还是旧的那款）
+    const productId: string | undefined = (cast?.product as string | undefined) || n.data.need_product;
+    const productMissing = libReady && !!productId && (cast?.specs || []).some((sp: ShotSpec) => sp.product) && !lib[productId]?.images.length;
     const tasks: any[] = n.data.tasks || [];
     const stage: string | undefined = n.data.stage;
     const running = n.status === "run";
@@ -510,8 +513,8 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
             </div>
             {confirming && (
                 <div className="mb-2 flex items-center gap-2 rounded-md bg-brand/15 px-2 py-1.5 text-[11px] text-ink">
-                    <span className="flex-1">选角完成：检查演员（定妆照 + 三视图）、场景、每镜拍法和口播，不合适就换、重画或上传。{n.data.need_product && !(cast?.product && lib[cast.product]?.images.length) ? <b className="text-warn">还需要商品图：在商品卡片上点「从商品库选」或上传实拍。</b> : ""}确认后开始画关键帧（按张计费）。</span>
-                    <Btn primary disabled={!!n.data.need_product && !lib[n.data.need_product]?.images.length || confirm.isPending} onClick={() => confirm.mutate()}>确认选角，开始生成</Btn>
+                    <span className="flex-1">选角完成：检查演员（定妆照 + 三视图）、场景、每镜拍法和口播，不合适就换、重画或上传。{productMissing ? <b className="text-warn">还需要商品图：在商品卡片上点「从商品库选」或上传实拍。</b> : ""}确认后开始画关键帧（按张计费）。</span>
+                    <Btn primary disabled={productMissing || confirm.isPending} onClick={() => confirm.mutate()}>确认选角，开始生成</Btn>
                 </div>
             )}
             {stage === "等待商品图" && n.status === "input" && <div className="mb-2 rounded-md bg-warn/15 px-2 py-1 text-[11px] text-warn">有商品镜头：请在下面的商品卡里上传商品实拍图，上传后自动继续。</div>}

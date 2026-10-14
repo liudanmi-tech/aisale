@@ -184,8 +184,8 @@ def set_cast(nid: str, body: CastIn, db: Session = Depends(get_db)):
         raise HTTPException(400, str(e)) from None
     db.expire_all()
     n = db.get(Node, nid)
-    if body.key == "product" and production.has_images(body.asset_id) and "还需要上传商品图" in (n.sub or ""):
-        n.sub = n.sub.replace("（还需要上传商品图）", "")
+    if body.key == "product" and production.has_images(body.asset_id) and (n.data or {}).get("need_product"):
+        n.sub = (n.sub or "").replace("（还需要上传商品图）", "")
         n.data = {**(n.data or {}), "need_product": False}
         db.commit()
     # 视频在等商品图、换成了一个已经有图的商品：直接继续
