@@ -27,6 +27,9 @@ export interface LibraryAsset {
     source: "ai" | "upload";
     status: "ready" | "generating" | "error";
     product?: { missing: string[]; bad: number; checking: boolean };
+    /** 演员 / 场景重画用的提示词（改过的或默认的）和默认提示词 */
+    gen_prompt?: string;
+    default_prompt?: string;
     created_at: string;
     uses?: number;
 }
@@ -303,7 +306,7 @@ export const api = {
     uploadAsset: (id: string, image: string, consent = false, view?: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent, view }),
     setAssetView: (id: string, url: string, view: string) => post<LibraryAsset>(`/library/${id}/view`, { url, view }),
     removeAssetImage: (id: string, url: string) => post<LibraryAsset>(`/library/${id}/remove-image`, { url }),
-    generateAsset: (id: string) => post(`/library/${id}/generate`),
+    generateAsset: (id: string, prompt?: string) => post(`/library/${id}/generate`, prompt === undefined ? {} : { prompt }),
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
     buildStatus: () => get<{ stale: boolean }>("/build-status"),

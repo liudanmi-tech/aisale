@@ -80,3 +80,31 @@ def test_openrouter_errors_are_readable():
     with pytest.raises(RuntimeError, match="Key 无效"):
         llm._check(httpx.Response(401, json={"error": {"message": "No auth"}}, request=req))
     llm._check(httpx.Response(200, json={}, request=req))
+
+
+def test_redraw_with_custom_prompt_and_find_product(monkeypatch):
+    """重画演员 / 场景时可以改提示词（存下来，下次沿用，可恢复默认）；视频找商品时认得「Infinix Hot 60」和「Hot 60」是同一款。"""
+    from app import assets, production
+    from app.models import Asset
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    calls = []
+
+    async def fake_gen(aid):
+        calls.append(aid)
+    monkeypatch.setattr(assets, "generate_image", fake_gen)
+    with TestClient(app) as c:
+        a = c.post("/api/v1/library", json={"kind": "scene", "name": "简洁产品展示台", "description": "深灰背景"}).json()
+        assert a["gen_prompt"] == a["default_prompt"] and "简洁产品展示台" in a["gen_prompt"]
+        assert c.post(f"/api/v1/library/{a['id']}/generate", json={"prompt": "木纹桌面，暖光，没有手机"}).status_code == 200
+        b = next(x for x in c.get("/api/v1/library").json() if x["id"] == a["id"])
+        assert b["gen_prompt"] == "木纹桌面，暖光，没有手机" and b["data"]["prompt"] == "木纹桌面，暖光，没有手机"
+        c.post(f"/api/v1/library/{a['id']}/generate", json={"prompt": ""})  # 恢复默认
+        assert next(x for x in c.get("/api/v1/library").json() if x["id"] == a["id"])["gen_prompt"] == b["default_prompt"]
+        assert len(calls) == 2
+        with SessionLocal() as db:
+            p = Asset(id="as_hot60test", kind="product", name="Infinix Hot 60", description="", images=["/x.png"], tags=[],
+                      data={"brand": "Infinix", "model_sku": "Hot 60"}, source="upload", status="ready")
+            db.add(p)
+            db.commit()
+        assert production._find_product("Infinix", "Infinix Hot 60") == "as_hot60test"
+        assert production._find_product("Infinix", "hot60") == "as_hot60test"

@@ -28,9 +28,21 @@ TURNAROUND = ("Character turnaround sheet of the SAME person as the reference ph
               "No text, no labels, no logo. Character: {name}. {description}")
 
 
+def default_prompt(a: Asset) -> str:
+    return PROMPTS[a.kind].format(name=a.name, description=a.description) if a.kind in PROMPTS else ""
+
+
+def prompt_for(a: Asset) -> str:
+    """重画用的提示词：用户改过就用改过的（data.prompt），否则按名称和描述拼默认的。"""
+    return ((a.data or {}).get("prompt") or "").strip() or default_prompt(a)
+
+
 def asset_dict(a: Asset) -> dict:
     d = {"id": a.id, "kind": a.kind, "name": a.name, "description": a.description, "images": a.images or [], "tags": a.tags or [],
          "data": a.data or {}, "source": a.source, "status": a.status, "created_at": a.created_at.isoformat()}
+    if a.kind in PROMPTS:
+        d["gen_prompt"] = prompt_for(a)
+        d["default_prompt"] = default_prompt(a)
     if a.kind == "product":
         from app import product  # product 依赖本模块
         d["product"] = product.summary(a)
@@ -109,7 +121,7 @@ async def generate_image(asset_id: str) -> bool:
         a = db.get(Asset, asset_id)
         if not a or a.kind not in PROMPTS or not settings_store.llm_enabled():
             return False
-        prompt = PROMPTS[a.kind].format(name=a.name, description=a.description)
+        prompt = prompt_for(a)
         aspect = "3:4" if a.kind == "actor" else "9:16"
         a.status = "generating"
         db.commit()
@@ -130,7 +142,7 @@ async def generate_image(asset_id: str) -> bool:
         if a:
             a.images = [url, *(a.images or [])][:6]
             a.status = "generating" if a.kind == "actor" else "ready"
-            a.data = {**{k: v for k, v in (a.data or {}).items() if k != "error"}, **({"gen_step": "三视图"} if a.kind == "actor" else {})}
+            a.data = {**{k: v for k, v in (a.data or {}).items() if k != "error"}, "last_prompt": prompt, **({"gen_step": "三视图"} if a.kind == "actor" else {})}
             db.commit()
     if a and a.kind == "actor":
         await generate_turnaround(asset_id)

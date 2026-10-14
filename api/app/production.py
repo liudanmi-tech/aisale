@@ -17,7 +17,7 @@ import re
 from app import agent, assets, canvas, config, product, qc, settings_store, storyboard
 from app.adapters import fal, llm, seedance
 from app.db import SessionLocal
-from app.events import emit
+from app.events import emit, spawn
 from app.models import Asset, Edge, Node, Project, ReviewTask
 
 log = logging.getLogger(__name__)
@@ -117,13 +117,33 @@ def _name(asset_id: str) -> str:
         return a.name if a else ""
 
 
+def _norm_sku(brand: str, sku: str) -> str:
+    """「Infinix Hot 60」「hot60」→「hot 60」：去掉品牌前缀、统一大小写和空格。"""
+    s = re.sub(rf"^\s*{re.escape(brand or '')}\s*", "", sku or "", flags=re.I) if brand else (sku or "")
+    s = re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _find_product(brand: str, sku: str) -> str:
-    """素材库里同品牌同机型的商品；没有就建一个空的（等用户上传实拍图）。"""
+    """素材库里同品牌同机型的商品（有图的优先）；素材库没有、传音机型库里有就自动导入官方图；都没有才建空的等上传。"""
+    want = _norm_sku(brand, sku)
     with SessionLocal() as db:
+        hits = []
         for a in db.query(Asset).filter(Asset.kind == "product"):
             d = a.data or {}
-            if (d.get("brand") or "").lower() == (brand or "").lower() and (d.get("model_sku") or "").lower() == (sku or "").lower():
-                return a.id
+            same_brand = not d.get("brand") or (d.get("brand") or "").lower() == (brand or "").lower()
+            if same_brand and want and want in (_norm_sku(brand, d.get("model_sku") or ""), _norm_sku(brand, a.name)):
+                hits.append(a)
+        if hits:
+            return max(hits, key=lambda a: len(a.images or [])).id
+    from app import catalog  # 避免循环导入
+    m = next((m for m in catalog.load() if m["brand"].lower() == (brand or "").lower() and _norm_sku(brand, m["model_sku"]) == want), None)
+    if m:
+        made = catalog.start([m["id"]])
+        if made:
+            spawn(catalog.run_import(made[0]["asset_id"], m["id"]))
+            return made[0]["asset_id"]
+    sku = re.sub(rf"^\s*{re.escape(brand or '')}\s*", "", sku or "", flags=re.I) if brand else sku
     return assets.create("product", f"{brand} {sku}", f"{brand} {sku} 手机实拍", data={"brand": brand, "model_sku": sku}).id
 
 
@@ -704,6 +724,12 @@ async def redo_clip(video_id: str, i: int) -> None:
         log.exception("生成视频出错 %s #%d", video_id, i)
         _shot(video_id, i, phase="失败", status="failed", error=f"生成视频出错：{str(e)[:200]}")
     _settle(video_id)
+
+
+def has_images(asset_id: str) -> bool:
+    with SessionLocal() as db:
+        a = db.get(Asset, asset_id)
+        return bool(a and a.images)
 
 
 def resume_waiting(asset_id: str) -> list[str]:

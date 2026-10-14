@@ -7,6 +7,7 @@ import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Upload, Wand2 } from "l
 import { useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
+import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
 import { api, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
@@ -228,27 +229,22 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
     const file = useRef<HTMLInputElement>(null);
     const [picking, setPicking] = useState(false);
     const [detail, setDetail] = useState(false);
+    const [importing, setImporting] = useState(false);
     const after = () => { qc.invalidateQueries({ queryKey: ["library"] }); refresh(); };
     const swap = useMutation({ mutationFn: (id: string) => api.setCast(n.id, k, id), onSuccess: () => { setPicking(false); message.success("已替换，用到它的镜头会标「已修改」"); after(); }, onError: (e) => message.error(errMsg(e)) });
-    const gen = useMutation({ mutationFn: () => api.generateAsset(a!.id), onSuccess: after, onError: (e) => message.error(errMsg(e)) });
     const upload = useMutation({ mutationFn: async (f: File) => api.uploadAsset(a!.id, await readFile(f), slot === "actor"), onSuccess: after, onError: (e) => message.error(errMsg(e)) });
     const img = a?.images[0];
     const turn: string | undefined = a?.data?.turnaround;
     const busy = a?.status === "generating";
     const missing = slot === "product" && !img;
-    const pick = (
-        <div data-ui className="w-[220px]" onPointerDown={(e) => e.stopPropagation()}>
-            <Select size="small" showSearch autoFocus className="w-full" placeholder={`从素材库选${KIND_ZH[slot]}`} optionFilterProp="label" value={a?.id}
-                options={lib.filter((x) => x.kind === slot).map((x) => ({ value: x.id, label: x.name }))} onChange={(id) => id !== a?.id && swap.mutate(id)} />
-            <div className="mt-1 text-[11px] text-ink2">素材库里没有合适的，可以去「素材库」新建</div>
-        </div>
-    );
+    const pick = <AssetPicker slot={slot} current={a?.id} lib={lib} busy={swap.isPending} onPick={(id) => id !== a?.id && swap.mutate(id)} onImport={() => { setPicking(false); setImporting(true); }} />;
     return (
         <div className={clsx("w-[112px] shrink-0 overflow-hidden rounded-lg border bg-elev text-[11px]", missing ? "border-warn" : "border-line")}>
             {slot === "product" && a && <ProductEditor assetId={a.id} open={detail} onClose={() => setDetail(false)} />}
+            {slot === "product" && <CatalogImport open={importing} onClose={() => { setImporting(false); qc.invalidateQueries({ queryKey: ["library"] }); }} />}
             <div className="relative h-[120px]" style={{ background: img ? "#111" : COVER_GRADIENTS[k.length % COVER_GRADIENTS.length] }}>
                 {img && <Image src={img} alt={a?.name} preview={{ mask: false }} rootClassName="!block h-full" className={clsx("!h-[120px] !w-[112px]", slot === "product" ? "object-contain" : "object-cover object-top")} />}
-                {!img && <span className="absolute inset-0 flex items-center justify-center px-2 text-center text-white/90">{busy ? "定妆照生成中…" : missing ? "请上传商品实拍图" : "还没有图"}</span>}
+                {!img && <span className="absolute inset-0 flex items-center justify-center px-2 text-center text-white/90">{busy ? "定妆照生成中…" : missing ? "从商品库选一款，或上传实拍图" : "还没有图"}</span>}
                 <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white">{KIND_ZH[slot]}</span>
                 {busy && img && <span className="absolute inset-x-1 bottom-1 rounded bg-black/70 px-1 text-center text-[10px] text-white">{a?.data?.gen_step || "图片"}生成中…</span>}
             </div>
@@ -265,15 +261,87 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 {editable && a && (
                     <div className="mt-0.5 flex gap-0.5" data-ui>
-                        <Popover open={picking} onOpenChange={setPicking} trigger="click" content={pick} title={`换${KIND_ZH[slot]}`}>
-                            <button data-ui className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand">换</button>
+                        <Popover open={picking} onOpenChange={setPicking} trigger="click" content={pick} title={slot === "product" ? "从商品库选商品" : `换${KIND_ZH[slot]}`}>
+                            <button data-ui className={clsx("cursor-pointer rounded border bg-transparent px-1 text-[10px] hover:border-brand", missing ? "border-warn text-warn" : "border-line text-ink")}>
+                                {missing ? "从商品库选" : "换"}</button>
                         </Popover>
-                        {slot !== "product" && <button data-ui disabled={busy || gen.isPending} onClick={() => gen.mutate()} className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand disabled:opacity-50">重画</button>}
+                        {slot !== "product" && (
+                            <RedrawPrompt a={a} onDone={after}>
+                                <button data-ui disabled={busy} className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand disabled:opacity-50">重画</button>
+                            </RedrawPrompt>
+                        )}
                         {slot === "product" && <button data-ui onClick={() => setDetail(true)} className="cursor-pointer rounded border border-brand/60 bg-transparent px-1 text-[10px] text-ink hover:border-brand">详情</button>}
                         <button data-ui disabled={upload.isPending} onClick={() => (slot === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}
-                            className={clsx("cursor-pointer rounded border bg-transparent px-1 text-[10px] hover:border-brand disabled:opacity-50", missing ? "border-warn text-warn" : "border-line text-ink")}>上传</button>
+                            className="cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-brand disabled:opacity-50">上传</button>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+}
+
+/** 重画演员 / 场景：先看上一版的提示词，可以改（或恢复默认）再画；改过的提示词存在素材上，下次沿用 */
+function RedrawPrompt({ a, onDone, children }: { a: LibraryAsset; onDone: () => void; children: ReactNode }) {
+    const { message } = App.useApp();
+    const [open, setOpen] = useState(false);
+    const [prompt, setPrompt] = useState("");
+    const gen = useMutation({ mutationFn: (p: string) => api.generateAsset(a.id, p), onSuccess: () => { setOpen(false); message.success("重画中"); onDone(); }, onError: (e) => message.error(errMsg(e)) });
+    const img = a.images[0];
+    const body = (
+        <div data-ui className="flex w-[340px] flex-col gap-1.5 text-xs" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="flex gap-2">
+                {img && <img src={img} alt="" className="h-16 w-12 shrink-0 rounded object-cover object-top" />}
+                <div className="text-[11px] leading-4 text-ink2">{a.data?.prompt ? "上一版用的是你改过的提示词" : "上一版用的是默认提示词（按名称和描述拼的）"}，改哪里就会按改过的画；
+                    {a.kind === "actor" ? "定妆照画好后三视图也会跟着重画。" : "场景图里不要出现人物。"}</div>
+            </div>
+            <Input.TextArea autoFocus rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+            <div className="flex items-center gap-1">
+                <button data-ui disabled={!a.default_prompt || prompt === a.default_prompt} onClick={() => setPrompt(a.default_prompt || "")}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-brand2 disabled:cursor-default disabled:text-ink2">恢复默认提示词</button>
+                <span className="flex-1" />
+                <Btn onClick={() => setOpen(false)}>取消</Btn>
+                <Btn primary disabled={!prompt.trim() || gen.isPending} onClick={() => gen.mutate(prompt.trim())}>按这个重画</Btn>
+            </div>
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={(v) => { if (v) setPrompt(a.gen_prompt || ""); setOpen(v); }} trigger="click" title={`重画${KIND_ZH[a.kind]}`} content={body}>
+            {children}
+        </Popover>
+    );
+}
+
+/** 从素材库换演员 / 场景 / 商品：带缩略图和搜索；商品显示品牌、图片数和缺的视角，可以直接导入传音机型 */
+function AssetPicker({ slot, current, lib, busy, onPick, onImport }: { slot: AssetKind; current?: string; lib: LibraryAsset[]; busy: boolean; onPick: (id: string) => void; onImport: () => void }) {
+    const [q, setQ] = useState("");
+    const all = lib.filter((x) => x.kind === slot);
+    const list = all.filter((x) => !q.trim() || `${x.name} ${x.data?.brand || ""} ${x.description}`.toLowerCase().includes(q.trim().toLowerCase()))
+        .sort((a, b) => Number(!!b.images.length) - Number(!!a.images.length));
+    return (
+        <div data-ui className="w-[340px]" onPointerDown={(e) => e.stopPropagation()}>
+            <Input size="small" autoFocus allowClear placeholder={slot === "product" ? "搜机型，如 Hot 60、Camon" : `搜${KIND_ZH[slot]}`} value={q} onChange={(e) => setQ(e.target.value)} />
+            <div className="mt-1.5 grid max-h-[300px] grid-cols-3 gap-1.5 overflow-y-auto pr-0.5">
+                {list.map((x) => {
+                    const pic = x.data?.views?.[x.images[0]]?.cutout || x.images[0];
+                    return (
+                        <button key={x.id} data-ui disabled={busy} onClick={() => onPick(x.id)} title={x.description}
+                            className={clsx("flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-elev p-0 text-left disabled:opacity-60", x.id === current ? "border-brand" : "border-line hover:border-[#4a4a52]")}>
+                            <div className="flex h-[78px] w-full items-center justify-center bg-[#111]">
+                                {pic ? <img src={pic} alt="" className={clsx("h-full w-full", slot === "product" ? "object-contain" : "object-cover object-top")} /> : <span className="text-[10px] text-ink2">没有图</span>}
+                            </div>
+                            <div className="w-full px-1 py-0.5">
+                                <div className="truncate text-[10px] text-ink">{x.name}</div>
+                                <div className="truncate text-[9px] text-ink2">
+                                    {x.id === current ? "当前" : slot === "product" ? `${x.data?.brand ? x.data.brand + " · " : ""}${x.images.length} 张图${x.product?.missing?.length ? ` · 缺${x.product.missing.length}个视角` : ""}` : x.source === "upload" ? "实拍" : "AI 生成"}
+                                </div>
+                            </div>
+                        </button>
+                    );
+                })}
+                {!list.length && <div className="col-span-3 py-4 text-center text-[11px] text-ink2">{all.length ? "没有搜到" : `素材库里还没有${KIND_ZH[slot]}`}</div>}
+            </div>
+            <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ink2">
+                {slot === "product" ? <><span className="flex-1">没有这款？</span><Btn primary onClick={onImport}>导入传音机型</Btn></> : <span>素材库里没有合适的，可以去「素材库」新建</span>}
             </div>
         </div>
     );
@@ -539,7 +607,6 @@ function AssetBody({ n }: { n: CanvasNode }) {
         onSuccess: (r) => { message.success(r.resumed?.length ? "已上传，视频继续生成" : "已上传"); after(); },
         onError: (e) => message.error(errMsg(e)),
     });
-    const gen = useMutation({ mutationFn: () => api.generateAsset(n.data.asset_id), onSuccess: after, onError: (e) => message.error(errMsg(e)) });
     const swap = useMutation({ mutationFn: (id: string) => api.swapAsset(n.id, id), onSuccess: () => { message.success("已替换，视频节点点「全部重新生成」后生效"); after(); }, onError: (e) => message.error(errMsg(e)) });
     if (!a) return <div className="py-4 text-center text-xs text-ink2">素材加载中…</div>;
     const img = a.images[0];
@@ -561,7 +628,11 @@ function AssetBody({ n }: { n: CanvasNode }) {
                     onClick={() => (kind === "actor" ? modal.confirm(consentDialog(() => file.current?.click())) : file.current?.click())}>
                     {kind === "product" ? "上传商品图" : "上传图片"}
                 </Btn>
-                {kind !== "product" && <Btn icon={<Wand2 size={11} />} disabled={gen.isPending || a.status === "generating"} onClick={() => gen.mutate()}>AI 重新生成</Btn>}
+                {kind !== "product" && (
+                    <RedrawPrompt a={a} onDone={after}>
+                        <span><Btn icon={<Wand2 size={11} />} disabled={a.status === "generating"} onClick={() => {}}>AI 重新生成</Btn></span>
+                    </RedrawPrompt>
+                )}
             </div>
             <div data-ui className="mt-1.5">
                 <Select size="small" className="w-full" placeholder={`换成素材库里的${KIND_ZH[kind]}`} value={null} loading={swap.isPending}

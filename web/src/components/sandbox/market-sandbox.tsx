@@ -314,7 +314,7 @@ function AgentRun({ m, tags, model, from, open, onClose, onDone }: { m: Market; 
     const toCanvas = async () => {
         setBusy(true);
         try {
-            const r = await api.createProject({ name: `${m.name} · ${labels.slice(0, 2).join("×")}`, market: m.name, brand: model.startsWith("Infinix") ? "Infinix" : model.startsWith("itel") ? "itel" : "TECNO", model_sku: model, selling_point: "续航" });
+            const r = await api.createProject({ name: `${m.name} · ${labels.slice(0, 2).join("×")}`, market: m.name, brand: model.startsWith("Infinix") ? "Infinix" : model.startsWith("itel") ? "itel" : "TECNO", model_sku: model.replace(/^(TECNO|Infinix|itel)\s+/i, ""), selling_point: "续航" });
             nav(`/p/${r.id}`, { state: { prompt: `给${m.name}的「${labels.join("、")}」人群写 3 个 ${model} 的剧本，用${m.langs[0]}口播` } });
         } catch (e: any) { message.error(e?.message || "创建失败"); } finally { setBusy(false); }
     };

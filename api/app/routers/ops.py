@@ -182,6 +182,14 @@ def set_cast(nid: str, body: CastIn, db: Session = Depends(get_db)):
         raise HTTPException(404, "没有这个角色或素材") from None
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
+    db.expire_all()
+    n = db.get(Node, nid)
+    # 视频在等商品图、换成了一个已经有图的商品：直接继续
+    if body.key == "product" and n.status == "input" and (n.data or {}).get("stage") == "等待商品图" and production.has_images(body.asset_id):
+        n.data = {**(n.data or {}), "waiting_asset": body.asset_id}
+        db.commit()
+        for vid in production.resume_waiting(body.asset_id):
+            spawn(production.run(vid))
     emit(n.project_id, "canvas")
     return {"cast": cast}
 

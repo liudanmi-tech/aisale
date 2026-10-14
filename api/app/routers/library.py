@@ -196,11 +196,18 @@ def upload(aid: str, body: UploadIn, db: Session = Depends(get_db)):
     return {**assets.asset_dict(a), "resumed": resumed}
 
 
+class GenerateIn(BaseModel):
+    prompt: str | None = None  # 改过的提示词；空字符串表示恢复默认；不传就沿用上一次的
+
+
 @router.post("/library/{aid}/generate")
-def generate(aid: str, db: Session = Depends(get_db)):
+def generate(aid: str, body: GenerateIn | None = None, db: Session = Depends(get_db)):
     a = db.get(Asset, aid)
     if not a:
         raise HTTPException(404, "not found")
+    if body and body.prompt is not None and a.kind != "product":
+        p = body.prompt.strip()
+        a.data = {**{k: v for k, v in (a.data or {}).items() if k != "prompt"}, **({"prompt": p[:3000]} if p and p != assets.default_prompt(a) else {})}
     if a.kind == "product":
         raise HTTPException(400, "商品图需要上传实拍图，不能 AI 生成")
     if not settings_store.llm_enabled():

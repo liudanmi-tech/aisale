@@ -121,6 +121,14 @@ def _set(asset_id: str, **data) -> None:
             db.commit()
 
 
+def _resume(asset_id: str) -> None:
+    """第一张官方图到了：等这款商品图的视频继续生成。"""
+    from app import production  # 避免循环导入
+    from app.events import spawn
+    for vid in production.resume_waiting(asset_id):
+        spawn(production.run(vid))
+
+
 def start(ids: list[str]) -> list[dict]:
     """建好商品（同一款已导入过就跳过），返回 [{catalog_id, asset_id, created}]；图片在后台下载处理。"""
     by = {m["id"]: m for m in load()}
@@ -166,6 +174,8 @@ async def run_import(asset_id: str, catalog_id: str) -> None:
                     _set(asset_id, import_step=f"检查和抠图第 {k + 1}/{len(m['images'])} 张")
                     await product.process_upload(asset_id, url, img["view"])
                     n += 1
+                    if n == 1:
+                        _resume(asset_id)
             _set(asset_id, import_step="完成", import_error=None)
         except Exception as e:  # noqa: BLE001
             log.warning("导入 %s 失败：%s", catalog_id, e)
