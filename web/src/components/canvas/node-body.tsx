@@ -378,12 +378,14 @@ function ShotEditor({ shot, onSave, disabled }: { shot: string[]; onSave: (visua
 }
 
 type KfRef = { kind: string; label: string; url: string; note: string };
+/** 和后端 production.PHONE_WORDS 一致：画面 / 口播里提到这些，画面里就有手机，要用我们的商品 */
+const PHONE_RE = /手机|屏幕|拍|合影|照片|相片|录像|录视频|直播|视频通话|刷|扫码|收款|付款|转账|导航|打电话|来电|发消息|回消息|whatsapp|tiktok|phone|selfie|photo|picture|camera|video call|scroll|screen/i;
 type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string; custom_prompt?: boolean; composite?: boolean; dropped?: string[];
     mode?: "photo" | "placement" | "ai"; placeholder?: string; place_refs?: KfRef[] };
 type KfRedo = { comment: string; prompt?: string; drop_refs: string[] };
 
 /** 回到关键帧：看上一版用了哪些参考图、什么提示词，去掉有问题的参考图 / 改提示词 / 写修改意见，重画后停下等确认 */
-function KeyframeRedo({ meta, onRedo, disabled, primary }: { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean }) {
+function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [] }: { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean; addProduct?: string[] }) {
     const [open, setOpen] = useState(false);
     const [comment, setComment] = useState("");
     const [prompt, setPrompt] = useState("");
@@ -411,6 +413,12 @@ function KeyframeRedo({ meta, onRedo, disabled, primary }: { meta?: KfMeta; onRe
                             );
                         })}
                     </div>
+                </div>
+            )}
+            {addProduct.length > 0 && (
+                <div className="rounded border border-brand/50 bg-brand/10 px-2 py-1.5">
+                    <div className="mb-1 text-ink">这一镜画面里有手机，上一版没带商品图：重画时会加上商品实拍，先画占位手机再换成这台</div>
+                    <div className="flex gap-1.5">{addProduct.map((u) => <Image key={u} src={u} alt="商品" width={56} height={56} className="rounded bg-white object-contain" preview={{ mask: false }} />)}</div>
                 </div>
             )}
             {meta?.mode === "placement" && (
@@ -590,7 +598,9 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     <div className="mt-1 flex flex-wrap gap-1">
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
                                         {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || redoClip.isPending} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
-                                        {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })} />}
+                                        {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })}
+                                            addProduct={cast?.product && (spec?.product || (spec?.roles?.length && PHONE_RE.test(`${s[1]} ${spec?.line || ""}`)))
+                                                && !(t.kf_meta?.refs || []).some((r: KfRef) => r.kind === "product") ? (lib[cast.product]?.images || []).slice(0, 2) : []} />}
                                         <Btn icon={<RefreshCw size={10} />} disabled={locked || regen.isPending} onClick={() => regen.mutate(i)}>{t.keyframe ? "全部重做" : "重新生成"}</Btn>
                                     </div>
                                 )}

@@ -235,18 +235,20 @@ def _turnaround_url(asset_id: str | None) -> str | None:
         return (a.data or {}).get("turnaround") if a else None
 
 
-PHONE_WORDS = r"手机|phone|屏幕|自拍|拍照|视频通话|刷视频|刷手机|WhatsApp|TikTok|收款|扫码|导航|打电话|来电"
+# 手机广告里，画面或口播提到这些，画面里基本就有手机
+PHONE_WORDS = (r"手机|屏幕|拍|合影|照片|相片|录像|录视频|直播|视频通话|刷|扫码|收款|付款|转账|导航|打电话|来电|发消息|回消息|"
+               r"WhatsApp|TikTok|phone|selfie|photo|picture|camera|video call|scroll|screen")
 
 
 def shows_phone(spec: dict, visual: str = "") -> bool:
-    """这一镜画面里有没有手机：商品镜头，或者画面描述里有人在用手机。画面里出现的手机都必须是我们的商品。"""
-    return bool(spec.get("product") or re.search(PHONE_WORDS, visual or "", re.I))
+    """这一镜画面里有没有手机：商品镜头，或者画面描述 / 口播里有人在用手机。画面里出现的手机都必须是我们的商品。"""
+    return bool(spec.get("product") or re.search(PHONE_WORDS, f"{visual or ''} {spec.get('line') or ''}", re.I))
 
 
 def phone_spec(spec: dict, visual: str) -> dict:
     """画面里有人拿着 / 用着手机（自拍、刷手机、视频通话……）但没标成商品镜头：升级成手持商品镜头，
     走「先画占位手机、再换成真实商品」和多图参考，保证画面里的手机就是我们的商品。"""
-    if spec.get("product") or not spec.get("roles") or not re.search(PHONE_WORDS, visual or "", re.I):
+    if spec.get("product") or not spec.get("roles") or not shows_phone(spec, visual):
         return spec
     return {**spec, "product": True, "product_tier": "hand", "auto_product": True}
 
@@ -770,6 +772,25 @@ def _context(video_id: str) -> dict:
                 "cast": (s.data or {}).get("cast") or {}, "market": project.market, "script_id": s.id}
 
 
+def _upgrade_spec(video_id: str, cast: dict, i: int, sh: list) -> dict:
+    """单镜重做时：画面里有人用手机的镜头补成手持商品镜头，并存回剧本（画布上显示「商品 · 手持」，质检也按商品镜头查）。"""
+    spec = _spec(cast.get("specs") or [], i)
+    if not cast.get("product"):
+        return spec
+    up = phone_spec(spec, sh[1] if len(sh) > 1 else "")
+    if up is not spec and i < len(cast.get("specs") or []):
+        with SessionLocal() as db:
+            v = db.get(Node, video_id)
+            s = db.get(Node, (v.data or {}).get("script_id")) if v else None
+            if s and (s.data or {}).get("cast"):
+                c = dict(s.data["cast"])
+                c["specs"] = [up if k == i else x for k, x in enumerate(c.get("specs") or [])]
+                s.data = {**s.data, "cast": c}
+                db.commit()
+                emit(s.project_id, "canvas")
+    return up
+
+
 def _begin_shot(video_id: str, i: int, what: str) -> None:
     """单镜修改开始：视频节点进入「生成中」，旧审核单作废（改完重新提交）。"""
     with SessionLocal() as db:
@@ -804,7 +825,7 @@ async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str |
     try:
         ctx = _context(video_id)
         sh, cast = ctx["shots"][i], ctx["cast"]
-        spec = phone_spec(_spec(cast.get("specs") or [], i), sh[1] if len(sh) > 1 else "") if cast.get("product") else _spec(cast.get("specs") or [], i)
+        spec = _upgrade_spec(video_id, cast, i, sh)
         frame = (ctx["frames"][i] or {}).get("url") if i < len(ctx["frames"]) and ctx["frames"][i] else None
         kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, ctx["market"], comment,
                                                     settings_store.get_retries()["keyframe"], prompt, set(drop or []))
@@ -831,7 +852,7 @@ async def _redo_clip(video_id: str, i: int) -> None:
         with SessionLocal() as db:
             t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i]
         sh, cast = ctx["shots"][i], ctx["cast"]
-        spec = phone_spec(_spec(cast.get("specs") or [], i), sh[1] if len(sh) > 1 else "") if cast.get("product") else _spec(cast.get("specs") or [], i)
+        spec = _upgrade_spec(video_id, cast, i, sh)
         kf_qc = t.get("qc")
         if t.get("kf_from") == "product":  # 实拍图合成的关键帧，视频提示词要求商品保持不变
             kf_qc = {**(kf_qc or {}), "source": "product"}

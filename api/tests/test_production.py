@@ -141,7 +141,8 @@ def test_production(tmp_path, monkeypatch):
         wait_until(lambda: of("video")[0]["status"] == "wait")
         v = of("video")[0]
         kf_calls = images[n_img:]
-        assert len(kf_calls) == 5 and all(t["keyframe"].startswith("/api/v1/media/keyframes/") for t in v["data"]["tasks"])
+        # 4 镜 + 1：第 2 镜口播「Phone still dey」里有手机，自动升级成手持商品镜头，先画占位手机再换真机（多一次调用）
+        assert len(kf_calls) == 6 and all(t["keyframe"].startswith("/api/v1/media/keyframes/") for t in v["data"]["tasks"])
         refs = lambda b: len(b["messages"][0]["content"]) - 1 if isinstance(b["messages"][0]["content"], list) else 0  # noqa: E731
         texts = [b["messages"][0]["content"][0]["text"] for b in kf_calls]
         shot0 = next(b for b, t in zip(kf_calls, texts) if "停电的夜市" in t)
@@ -150,12 +151,12 @@ def test_production(tmp_path, monkeypatch):
         assert t0["phase"] == "完成" and t0["inputs"]["visual"] == "停电的夜市" and ["scene", "s1", alt["id"], alt["images"][0]] in t0["inputs"]["refs"]
         prod = next(b for b, t in zip(kf_calls, texts) if "产品特写" in t)
         assert "商品实拍" in prod["messages"][0]["content"][0]["text"]
-        # 没有商品的 3 镜走 Seedance 2.5 图生视频；商品镜头走全能参考：@Image1 关键帧 + 商品实拍，关掉模型自带声音
+        # 没有手机的 2 镜走 Seedance 2.5 图生视频；商品镜头（第 3 镜特写 + 第 2 镜手持）走全能参考：@Image1 关键帧 + 商品实拍，关掉模型自带声音
         plain = [x for x in i2v if x["path"].endswith("/image-to-video")]
         ref = [x for x in i2v if x["path"].endswith("/reference-to-video")]
-        assert len(plain) == 3 and all(x["path"] == "/bytedance/seedance-2.5/image-to-video" and x["image_url"].startswith("data:image/") for x in plain)
+        assert len(plain) == 2 and all(x["path"] == "/bytedance/seedance-2.5/image-to-video" and x["image_url"].startswith("data:image/") for x in plain)
         assert "aspect_ratio" not in plain[0] and plain[0]["generate_audio"] is False
-        assert len(ref) == 1 and ref[0]["path"] == "/bytedance/seedance-2.5/reference-to-video" and len(ref[0]["image_urls"]) == 2
+        assert len(ref) == 2 and all(x["path"] == "/bytedance/seedance-2.5/reference-to-video" and len(x["image_urls"]) >= 2 for x in ref)
         assert ref[0]["prompt"].startswith("@Image1 is the opening frame") and "@Image2" in ref[0]["prompt"] and ref[0]["generate_audio"] is False
         assert v["data"]["engine"].endswith("image-to-video")
         # 质检：第 1 镜关键帧不合格 → 带着问题重画一次后通过；商品镜头要人工确认
@@ -164,7 +165,7 @@ def test_production(tmp_path, monkeypatch):
         t0 = v["data"]["tasks"][0]["qc"]
         assert t0["status"] == "pass" and t0["attempts"]["keyframe"] == 2 and t0["checks"]["face"]["status"] == "skip"
         rep = v["data"]["qc"]
-        assert rep["retried"] == 1 and rep["manual"] == [3] and rep["pass"] + rep["warn"] == 4
+        assert rep["retried"] == 1 and 3 in rep["manual"] and rep["pass"] + rep["warn"] == 4
         assert "质检" in v["sub"]
 
         # 换演员：画布上的演员节点换成素材库里另一个，剧本选角同步
