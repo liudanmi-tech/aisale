@@ -557,7 +557,10 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
         return await make_clip(video_id, i, sh, spec, cast, kf, kf_qc, tries if use_kf else 0, err, comment, clip_retries)
 
+    seqs = [(old[k] or {}).get("redo_seq") if k < len(old) else None for k in range(len(shots))]
     tasks = list(await asyncio.gather(*(one(i, sh) for i, sh in enumerate(shots))))
+    # 带上开始时这一镜的重做序号：收尾时只有「这一轮开始之后又单独重做过」的镜头才以数据库为准
+    tasks = [{**t, "redo_seq": seqs[k]} if seqs[k] and t else t for k, t in enumerate(tasks)]
     _finalize(video_id, cast, shots, tasks)
 
 
@@ -690,7 +693,8 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
                   + VIDEO_STYLE)
     best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
     for clip_tries in range(1, retries + 2):
-        _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}))
+        _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}),
+              fallback=None, error=None)  # 上一轮「改用备用模型」的记录作废，免得和这一轮混在一起
         res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs)
         if res.get("status") == "failed":
             if best:
@@ -709,7 +713,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
     if best:
         res, clip_qc, clip_tries = best
     return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
-            "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, **res,
+            "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, "fallback": None, **res,
             "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
             "kf_from": "product" if (kf_qc or {}).get("source") == "product" else "ai",
             "video_mode": "reference" if refs else "image", "video_refs": ref_labels,

@@ -309,7 +309,7 @@ export const api = {
     generateAsset: (id: string, prompt?: string) => post(`/library/${id}/generate`, prompt === undefined ? {} : { prompt }),
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
-    buildStatus: () => get<{ stale: boolean }>("/build-status"),
+    buildStatus: () => get<{ stale: boolean; backend_stale?: boolean }>("/build-status"),
     redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     stopVideo: (nid: string) => post<{ ok: boolean; cancelled: number }>(`/nodes/${nid}/stop`),
     redoClip: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/clip`),

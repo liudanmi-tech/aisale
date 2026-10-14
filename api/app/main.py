@@ -53,15 +53,26 @@ WEB_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 WEB_SRC = Path(__file__).resolve().parents[2] / "web"
 
 
+API_SRC = Path(__file__).resolve().parent
+
+
+def _newest(root: Path, pattern: str) -> float:
+    return max((p.stat().st_mtime for p in root.rglob(pattern) if p.is_file()), default=0)
+
+
+STARTED_CODE = _newest(API_SRC, "*.py")  # 启动时后端代码的最新修改时间
+
+
 @app.get("/api/v1/build-status")
 def build_status():
-    """前端打包产物是不是比前端源码旧（拉了新代码没重新 npm run build）。页面据此提示重新打包。"""
+    """前端打包产物是不是比前端源码旧（拉了新代码没重新 npm run build）；后端是不是还在跑旧代码（拉了新代码没重启）。"""
+    backend = _newest(API_SRC, "*.py") > STARTED_CODE + 1
     index = WEB_DIST / "index.html"
     if not index.exists() or not (WEB_SRC / "src").exists():
-        return {"stale": False}
+        return {"stale": False, "backend_stale": backend}
     files = [p for p in (WEB_SRC / "src").rglob("*") if p.is_file()] + [WEB_SRC / "index.html", WEB_SRC / "package.json"]
     newest = max((p.stat().st_mtime for p in files if p.exists()), default=0)
-    return {"stale": newest > index.stat().st_mtime + 1}
+    return {"stale": newest > index.stat().st_mtime + 1, "backend_stale": backend}
 
 if WEB_DIST.exists():
     app.mount("/static", StaticFiles(directory=WEB_DIST / "static"), name="static")

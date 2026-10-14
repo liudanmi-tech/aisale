@@ -35,6 +35,7 @@ export function AppLayout() {
     // 打包版才检查（开发模式 npm run dev 本来就是最新代码）
     const { data: build } = useQuery({ queryKey: ["build-status"], queryFn: api.buildStatus, enabled: import.meta.env.PROD, refetchInterval: 60_000 });
     const stale = !!build?.stale;
+    const backendStale = !!build?.backend_stale;
     const groups: { title?: string; items: Item[] }[] = [
         { items: [
             { to: "/", label: "首页", icon: <House size={17} />, match: (p) => p === "/" },
@@ -106,6 +107,11 @@ export function AppLayout() {
                     {stale && (
                         <div className="sticky top-0 z-50 bg-warn px-4 py-1.5 text-center text-[13px] font-medium text-black">
                             页面是旧版本：代码已更新，但前端还没重新打包。请在项目的 web 目录运行 <code className="rounded bg-black/15 px-1">npm run build</code>，然后刷新页面。
+                        </div>
+                    )}
+                    {backendStale && (
+                        <div className="sticky top-0 z-50 bg-warn px-4 py-1.5 text-center text-[13px] font-medium text-black">
+                            后端还在跑旧代码：拉了新代码后要重启后端（在运行后端的终端按 Ctrl+C，再运行 <code className="rounded bg-black/15 px-1">python3 -m uvicorn app.main:app --port 8000</code>），刷新页面不够。
                         </div>
                     )}
                     <Outlet />
