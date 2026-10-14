@@ -64,6 +64,7 @@ def _norm_specs(specs: list, shots: list, roles: set[str], scenes: set[str]) -> 
                     "product": bool(s.get("product", i == PRODUCT_SHOT)), "line": s.get("line") or (sh[2] if len(sh) > 2 else ""),
                     "product_tier": s.get("product_tier") if s.get("product_tier") in ("hero", "hand") else None,
                     "overlay": str(s.get("overlay") or "")[:60]})
+    out = [phone_spec(x, sh[1] if len(sh) > 1 else "") for x, sh in zip(out, shots)]
     for x in out:  # 没写级别的商品镜头：没有人物就是纯商品特写，有人物就是手持
         if x["product"] and not x["product_tier"]:
             x["product_tier"] = "hand" if x["roles"] else "hero"
@@ -241,6 +242,14 @@ def shows_phone(spec: dict, visual: str = "") -> bool:
     return bool(spec.get("product") or re.search(PHONE_WORDS, visual or "", re.I))
 
 
+def phone_spec(spec: dict, visual: str) -> dict:
+    """画面里有人拿着 / 用着手机（自拍、刷手机、视频通话……）但没标成商品镜头：升级成手持商品镜头，
+    走「先画占位手机、再换成真实商品」和多图参考，保证画面里的手机就是我们的商品。"""
+    if spec.get("product") or not spec.get("roles") or not re.search(PHONE_WORDS, visual or "", re.I):
+        return spec
+    return {**spec, "product": True, "product_tier": "hand", "auto_product": True}
+
+
 def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "") -> list[dict]:
     """这一镜关键帧用的参考图（本地地址 + 用途说明），顺序：分镜草图 → 演员定妆照 / 三视图 → 场景 → 商品。"""
     refs = []
@@ -365,9 +374,59 @@ def _set(video_id: str, **fields) -> None:
         emit(n.project_id, "canvas")
 
 
+_active: dict[str, set] = {}  # 正在跑的后台任务（整条生成、单镜重画 / 重做），「停止生成」时取消
+
+
+class _track:
+    """登记当前任务，停止时能取消它。"""
+    def __init__(self, video_id: str):
+        self.vid = video_id
+
+    def __enter__(self):
+        t = asyncio.current_task()
+        if t:
+            _active.setdefault(self.vid, set()).add(t)
+        return self
+
+    def __exit__(self, *exc):
+        t = asyncio.current_task()
+        _active.get(self.vid, set()).discard(t)
+        return False
+
+
+def stop(video_id: str) -> int:
+    """停止这条视频正在进行的生成：取消后台任务；已经画好的关键帧和视频保留，正在做的镜头标为「已停止」。"""
+    tasks = list(_active.pop(video_id, set()))
+    for t in tasks:
+        t.cancel()
+    _mark_stopped(video_id)
+    return len(tasks)
+
+
+def _mark_stopped(video_id: str) -> None:
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        if not v:
+            return
+        tasks = []
+        for t in (v.data or {}).get("tasks") or []:
+            if t and t.get("phase") not in IDLE and t.get("phase") != "已停止":
+                t = {**t, "phase": "已停止", "status": "failed", "error": "你手动停止了生成"}
+            tasks.append(t)
+        v.data = {**(v.data or {}), "tasks": tasks}
+        if v.status == "run":
+            v.status, v.sub = "failed", "已停止：可以改选角 / 提示词后重新生成，已做好的镜头保留"
+        db.commit()
+        emit(v.project_id, "canvas")
+
+
 async def run(video_id: str, comment: str = "", recast: bool = False, only: list[int] | None = None) -> None:
     try:
-        await _run(video_id, comment, recast, only)
+        with _track(video_id):
+            await _run(video_id, comment, recast, only)
+    except asyncio.CancelledError:
+        _mark_stopped(video_id)
+        raise
     except Exception as e:  # noqa: BLE001  后台任务出错不能让节点一直停在「生成中」
         log.exception("视频生成出错 %s", video_id)
         _set(video_id, status="failed", sub=f"生成出错：{str(e)[:60]}，可重新生成")
@@ -439,6 +498,15 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
 
     _set(video_id, data={"stage": "关键帧", "shots": shots, "need_product": None})
     specs = cast.get("specs") or []
+    if cast.get("product"):
+        up = [phone_spec(sp, shots[k][1] if k < len(shots) and len(shots[k]) > 1 else "") for k, sp in enumerate(specs)]
+        if up != specs:  # 旧剧本：有人用手机的镜头补成手持商品镜头，存回剧本（画布上能看到「商品 · 手持」）
+            specs = up
+            cast = {**cast, "specs": specs}
+            with SessionLocal() as db:
+                s = db.get(Node, script_id)
+                s.data = {**(s.data or {}), "cast": cast}
+                db.commit()
     for i in range(len(shots)):
         if only is None or i in only:
             _shot(video_id, i, phase="排队中", status=None)
@@ -548,7 +616,7 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
             log.warning("实拍图合成关键帧失败 %s #%d：%s", video_id, i, e)
         else:
             v = (product.good_views(cast.get("product"), "hero", 1) or [{}])[0]
-            _shot(video_id, i, kf_meta={"prompt": "", "refs": [{"kind": "product", "label": "商品实拍图", "url": v.get("cutout") or v.get("url") or "",
+            _shot(video_id, i, keyframe=kf, kf_meta={"prompt": "", "refs": [{"kind": "product", "label": "商品实拍图", "url": v.get("cutout") or v.get("url") or "",
                                                                "note": "直接用实拍图合成关键帧（没有调用生图模型）"}], "composite": True, "mode": "photo"})
             res = qc.summarize({"product": {"status": "pass", "reason": "关键帧直接用商品实拍图，外观与实拍一致"}}, spec)
             return kf, {**res, "manual_confirm": False, "source": "product"}, 1, ""
@@ -626,7 +694,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
             "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries, "clip": clip_tries})}
 
 
-IDLE = ("完成", "失败", "关键帧待确认", None)
+IDLE = ("完成", "失败", "已停止", "关键帧待确认", None)
 QC_TIMEOUT = 300  # 视频质检最长 5 分钟（下载视频 + 抽帧 + 模型看图）
 
 
@@ -700,12 +768,13 @@ def _settle(video_id: str) -> None:
     _finalize(video_id, ctx["cast"], ctx["shots"], tasks)
 
 
-async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
+async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
     """只重画第 i 镜的关键帧（可带修改意见），画完停下等人看；满意了再 redo_clip 生成视频。"""
     _begin_shot(video_id, i, "重画关键帧")
     try:
         ctx = _context(video_id)
-        sh, spec, cast = ctx["shots"][i], _spec(ctx["cast"].get("specs") or [], i), ctx["cast"]
+        sh, cast = ctx["shots"][i], ctx["cast"]
+        spec = phone_spec(_spec(cast.get("specs") or [], i), sh[1] if len(sh) > 1 else "") if cast.get("product") else _spec(cast.get("specs") or [], i)
         frame = (ctx["frames"][i] or {}).get("url") if i < len(ctx["frames"]) and ctx["frames"][i] else None
         kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, ctx["market"], comment,
                                                     settings_store.get_retries()["keyframe"], prompt, set(drop or []))
@@ -724,14 +793,15 @@ async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | 
     _settle(video_id)
 
 
-async def redo_clip(video_id: str, i: int) -> None:
+async def _redo_clip(video_id: str, i: int) -> None:
     """用第 i 镜现在的关键帧生成视频（关键帧确认后、或只有视频失败时）。"""
     _begin_shot(video_id, i, "生成视频")
     try:
         ctx = _context(video_id)
         with SessionLocal() as db:
             t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i]
-        sh, spec, cast = ctx["shots"][i], _spec(ctx["cast"].get("specs") or [], i), ctx["cast"]
+        sh, cast = ctx["shots"][i], ctx["cast"]
+        spec = phone_spec(_spec(cast.get("specs") or [], i), sh[1] if len(sh) > 1 else "") if cast.get("product") else _spec(cast.get("specs") or [], i)
         kf_qc = t.get("qc")
         if t.get("kf_from") == "product":  # 实拍图合成的关键帧，视频提示词要求商品保持不变
             kf_qc = {**(kf_qc or {}), "source": "product"}
@@ -742,6 +812,26 @@ async def redo_clip(video_id: str, i: int) -> None:
         log.exception("生成视频出错 %s #%d", video_id, i)
         _shot(video_id, i, phase="失败", status="failed", error=f"生成视频出错：{str(e)[:200]}")
     _settle(video_id)
+
+
+async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
+    try:
+        with _track(video_id):
+            await _redo_keyframe(video_id, i, comment, prompt, drop)
+    except asyncio.CancelledError:
+        _mark_stopped(video_id)
+        _settle(video_id)
+        raise
+
+
+async def redo_clip(video_id: str, i: int) -> None:
+    try:
+        with _track(video_id):
+            await _redo_clip(video_id, i)
+    except asyncio.CancelledError:
+        _mark_stopped(video_id)
+        _settle(video_id)
+        raise
 
 
 def has_images(asset_id: str) -> bool:

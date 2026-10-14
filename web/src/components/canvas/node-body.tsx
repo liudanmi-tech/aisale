@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Image, Input, Popover, Select, Switch } from "antd";
 import clsx from "clsx";
-import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Upload, Wand2 } from "lucide-react";
+import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
@@ -486,6 +486,8 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const dirty = shots.map((s, i) => libReady && shotDirty(tasks[i], s[1], cast?.specs?.[i], cast, lib));
     const dirtyIdx = dirty.flatMap((d, i) => (d ? [i] : []));
     const done = tasks.filter((t) => t?.phase === "完成").length;
+    const busyShots = tasks.some((t) => t?.phase && !["完成", "失败", "已停止", "关键帧待确认"].includes(t.phase));
+    const stop = useMutation({ mutationFn: () => api.stopVideo(n.id), onSuccess: () => { message.success("已停止，做好的镜头保留"); refresh(); }, onError: onErr });
     const saveShot = (i: number, visual: string, line: string) => script && cast && saveScript.mutate({
         shots: shots.map((s, k) => (k === i ? [s[0], visual, line, s[3] ?? ""] : s)),
         cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? { ...x, line } : x)) },
@@ -509,6 +511,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                 <span className="ml-auto" />
                 {pendingKf.length > 0 && <Btn primary icon={<Rocket size={11} />} disabled={redoClip.isPending} onClick={() => pendingKf.forEach((i) => redoClip.mutate(i))}>为 {pendingKf.length} 镜生成视频</Btn>}
                 {dirtyIdx.length > 0 && editable && !confirming && <Btn primary icon={<RefreshCw size={11} />} disabled={regenSome.isPending} onClick={() => regenSome.mutate(dirtyIdx)}>重新生成改过的 {dirtyIdx.length} 镜</Btn>}
+                {(running || busyShots) && <Btn icon={<Square size={10} />} disabled={stop.isPending} onClick={() => stop.mutate()}>停止生成</Btn>}
                 <Btn icon={<RefreshCw size={11} />} disabled={running || confirming || regenAll.isPending} onClick={() => regenAll.mutate()}>全部重新生成</Btn>
             </div>
             {confirming && (
@@ -554,7 +557,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     </span>
                                     {(live || phase === "失败" || t.status === "failed") && (
                                         <span className={clsx("absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded px-1 py-0.5 text-[10px]", phase === "失败" || t.status === "failed" ? "bg-bad text-white" : "bg-black/75 text-white")}>
-                                            {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />}{phase === "失败" || t.status === "failed" ? "生成失败" : phase}
+                                            {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand" />}{phase === "已停止" ? "已停止" : phase === "失败" || t.status === "failed" ? "生成失败" : phase}
                                         </span>
                                     )}
                                     {dirty[i] && !live && !waitingKf && <span className="absolute right-1 top-1 rounded bg-warn px-1 text-[10px] text-black">已修改</span>}

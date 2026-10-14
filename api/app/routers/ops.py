@@ -143,6 +143,21 @@ def regenerate_video(nid: str, body: RegenIn, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/nodes/{nid}/stop")
+def stop_video(nid: str, db: Session = Depends(get_db)):
+    """停止视频生成（整条或正在做的单镜）。已做好的关键帧和视频保留。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    k = production.stop(nid)
+    canvas.audit(db, n.project_id, "user", "stop_video", {"node_id": nid, "tasks": k})
+    agent.say(db, n.project_id, f"已停止 {agent.ref(n)} 的生成。已做好的镜头保留；改好选角、场景或提示词后，可以单镜重画，或点「全部重新生成」。")
+    db.commit()
+    emit(n.project_id, "canvas")
+    emit(n.project_id, "chat")
+    return {"ok": True, "cancelled": k}
+
+
 @router.post("/nodes/{nid}/confirm-cast")
 def confirm_cast(nid: str, db: Session = Depends(get_db)):
     """选角确认：人看过演员、场景、每镜拍法和口播后，继续画关键帧和生成视频。"""

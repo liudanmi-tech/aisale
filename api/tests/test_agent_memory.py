@@ -108,3 +108,38 @@ def test_redraw_with_custom_prompt_and_find_product(monkeypatch):
             db.commit()
         assert production._find_product("Infinix", "Infinix Hot 60") == "as_hot60test"
         assert production._find_product("Infinix", "hot60") == "as_hot60test"
+
+
+def test_stop_video_and_phone_shots(monkeypatch):
+    """停止生成：后台任务取消，正在做的镜头标「已停止」、做好的保留，之后能单镜重做；有人用手机的镜头升级成手持商品镜头。"""
+    import asyncio
+
+    from app import canvas, production
+    from app.models import Node, Project
+    assert production.phone_spec({"roles": ["r1"], "product": False}, "朋友聚会，女生举起手机自拍")["product_tier"] == "hand"
+    assert production.phone_spec({"roles": [], "product": False}, "城市夜景空镜") == {"roles": [], "product": False}
+    assert production.phone_spec({"roles": ["r1"], "product": False}, "两人在街上聊天")["product"] is False
+
+    async def slow_run(video_id, *a):
+        production._shot(video_id, 0, phase="完成", keyframe="/kf0.png")
+        production._shot(video_id, 1, phase="生成视频", keyframe="/kf1.png")
+        await asyncio.sleep(30)
+    monkeypatch.setattr(production, "_run", slow_run)
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "停止"}).json()["id"]
+        with SessionLocal() as db:
+            v = canvas.create_node(db, db.get(Project, pid), "video", status="run", data={"tasks": []})
+            db.commit()
+            vid = v.id
+
+        async def go():
+            t = asyncio.create_task(production.run(vid))
+            await asyncio.sleep(0.05)
+            assert production.stop(vid) == 1
+            await asyncio.gather(t, return_exceptions=True)
+        asyncio.run(go())
+        with SessionLocal() as db:
+            n = db.get(Node, vid)
+            ph = [t["phase"] for t in n.data["tasks"]]
+            assert n.status == "failed" and "已停止" in n.sub and ph == ["完成", "已停止"] and n.data["tasks"][1]["keyframe"] == "/kf1.png"
+        assert c.post(f"/api/v1/nodes/{vid}/stop").json()["ok"]  # 没有在跑的任务也能点，不报错

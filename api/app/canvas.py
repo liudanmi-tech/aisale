@@ -269,7 +269,7 @@ def now() -> datetime:
 def recover_interrupted(db: Session) -> int:
     """服务重启时进程内的后台任务都没了：停在「生成中」的节点改成失败，让用户可以重新生成。"""
     n = 0
-    idle = ("完成", "失败", "关键帧待确认", None)
+    idle = ("完成", "失败", "已停止", "关键帧待确认", None)
     for node in db.query(Node).filter(Node.status == "run"):
         node.status, node.sub = "failed", "服务重启，生成中断，可重新生成"
         n += 1
