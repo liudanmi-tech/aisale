@@ -143,3 +143,52 @@ def test_stop_video_and_phone_shots(monkeypatch):
             ph = [t["phase"] for t in n.data["tasks"]]
             assert n.status == "failed" and "已停止" in n.sub and ph == ["完成", "已停止"] and n.data["tasks"][1]["keyframe"] == "/kf1.png"
         assert c.post(f"/api/v1/nodes/{vid}/stop").json()["ok"]  # 没有在跑的任务也能点，不报错
+
+
+def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
+    """Seedance 2.5 拒收（如含真人脸）→ 用关键帧自动改走 Seedance 1 Pro；整条生成收尾不覆盖期间单独重做过的镜头。"""
+    import asyncio
+
+    import httpx
+
+    from app import canvas, production
+    from app.adapters import fal
+    from app.models import Node, Project
+    req = httpx.Request("GET", "https://queue.fal.run/x")
+    r = httpx.Response(422, json={"detail": [{"loc": ["body", "image_url"], "msg": "The image contains a real human face"}]}, request=req)
+    assert "真人脸" in fal._message(r) and "image_url" in fal._message(r)
+
+    calls = []
+
+    async def ref(prompt, urls, duration=5):
+        calls.append(("ref", prompt))
+        return {"model": "bytedance/seedance-2.5/reference-to-video", "request_id": "r1"}
+
+    async def i2v(prompt, image, duration=5, model=None):
+        calls.append(("i2v", model, prompt))
+        return {"model": model, "request_id": "r2"}
+
+    async def wait(job, timeout_seconds=900):
+        if job["request_id"] == "r1":
+            return {"status": "failed", "error": "模型不接受含真人脸的图片（image_url：The image contains a real human face）", "rejected": True}
+        return {"status": "completed", "video_url": "https://v.fal.media/ok.mp4"}
+    monkeypatch.setattr(fal, "submit_ref", ref)
+    monkeypatch.setattr(fal, "submit_i2v", i2v)
+    monkeypatch.setattr(fal, "wait", wait)
+    monkeypatch.setattr(settings_store, "video_provider", lambda: "fal")
+    res = asyncio.run(production.clip("@Image1 is the opening frame. The phone is the one in @Image2 and @Image3.", "data:image/jpeg;base64,xx", ["a", "b"]))
+    assert res["video_url"] == "https://v.fal.media/ok.mp4" and "Seedance 1 Pro" in res["fallback"]
+    assert calls[1][1] == fal.FALLBACK_I2V and "@Image" not in calls[1][2]
+
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "并行"}).json()["id"]
+        with SessionLocal() as db:
+            v = canvas.create_node(db, db.get(Project, pid), "video", status="run", data={"stage": "单镜修改", "tasks": [
+                {"shot": 1, "phase": "关键帧待确认", "keyframe": "/new.png", "redo_seq": 5.0}, {"shot": 2, "phase": "完成", "url": "https://x/2.mp4"}]})
+            db.commit()
+            vid = v.id
+        # 整条生成算出来的结果（第 1 镜是旧的失败结果）
+        production._finalize(vid, {}, [["3", "a"], ["4", "b"]], [{"shot": 1, "phase": "失败", "status": "failed"}, {"shot": 2, "phase": "完成", "url": "https://x/2.mp4"}])
+        with SessionLocal() as db:
+            n = db.get(Node, vid)
+            assert n.data["tasks"][0]["keyframe"] == "/new.png" and n.status == "input"

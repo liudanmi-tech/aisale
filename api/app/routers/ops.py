@@ -221,8 +221,9 @@ def _shot_guard(db: Session, nid: str, i: int) -> Node:
     d = n.data or {}
     if not 0 <= i < len(d.get("shots", [])):
         raise HTTPException(400, "bad shot index")
-    if (n.status == "run" and d.get("stage") != "单镜修改") or d.get("stage") in ("确认选角", "等待商品图"):
-        raise HTTPException(409, "视频还在生成或等待确认，稍后再试")
+    # 整条生成在画关键帧 / 生成视频时，已经做完或失败的镜头可以先单独重做；分镜、选角阶段和等确认时不行
+    if (n.status == "run" and d.get("stage") not in ("关键帧", "单镜修改")) or d.get("stage") in ("确认选角", "等待商品图"):
+        raise HTTPException(409, "视频还在拆分镜 / 选角或等待确认，稍后再试")
     t = (d.get("tasks") or [])[i] if i < len(d.get("tasks") or []) else {}
     if t.get("phase") not in production.IDLE:
         raise HTTPException(409, f"第 {i + 1} 镜正在{t.get('phase')}，稍后再试")

@@ -536,8 +536,10 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                         const phase: string | undefined = t.phase && t.phase !== "完成" ? t.phase : undefined;
                         const waitingKf = phase === "关键帧待确认";
                         const live = running && phase && phase !== "失败" && !waitingKf;
-                        const shotBusy = !!phase && !["失败", "关键帧待确认"].includes(phase);
-                        const locked = fullRun || confirming || shotBusy || stage === "等待商品图";
+                        // 已经失败 / 做完的镜头，整条视频还在跑别的镜头时也可以单独重做（拆分镜、选角阶段除外）
+                        const shotBusy = !!phase && !["失败", "已停止", "关键帧待确认"].includes(phase) && t.status !== "failed";
+                        const blockedByRun = running && !["关键帧", "单镜修改", "关键帧待确认"].includes(stage || "");
+                        const locked = blockedByRun || confirming || shotBusy || stage === "等待商品图";
                         const hasVideo = (t.url || "").startsWith("http");
                         const spec = cast?.specs?.[i];
                         return (
@@ -574,13 +576,14 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     {t.kf_meta?.composite && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2">实拍合成</span>}
                                 </div>
                                 {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有返回原因），可以点「重做视频」"}</div>}
+                                {t.fallback && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-elev px-1 text-[10px] leading-[14px] text-ink2" title={t.fallback}>已改用 Seedance 1 Pro：2.5 不接受这一镜的输入</div>}
                                 {t.retry_error && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.retry_error}>{t.retry_error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5"><ShotEditor shot={s} disabled={!editable} onSave={(v, l) => saveShot(i, v, l)} /></div>
                                 {!confirming && locked && (
                                     <div className="mt-1 text-[10px] text-ink2">
-                                        {shotBusy ? `这一镜正在${phase}，做完后可以重画关键帧或重做` : fullRun ? "整条视频生成中，完成后可以单镜修改" : "等商品图上传后可以修改"}
+                                        {shotBusy ? `这一镜正在${phase}，做完后可以重画关键帧或重做` : blockedByRun ? "正在拆分镜 / 选角，完成后可以单镜修改" : "等商品图上传后可以修改"}
                                     </div>
                                 )}
                                 {!confirming && (

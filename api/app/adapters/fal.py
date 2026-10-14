@@ -4,6 +4,7 @@
 返回 request_id、status_url、response_url；轮询 status_url 到 COMPLETED 后读 response_url，视频地址在 video.url。
 """
 import asyncio
+import re
 
 import httpx
 
@@ -18,12 +19,33 @@ HINTS = {401: "fal Key 无效", 403: "fal 拒绝请求（常见原因：账户�
          404: "模型不存在（检查设置页里的图生视频模型 ID）", 413: "上传的图片太大", 422: "模型不接受这些参数", 429: "请求太频繁，被限流"}
 
 
+class InputRejected(RuntimeError):
+    """模型拒收输入（HTTP 422）：参数不对，或者图片内容不被接受（例如 Seedance 2.x 不收含真人脸的图）。"""
+
+
+def _reason(r: httpx.Response) -> str:
+    """把 fal 的报错（{"detail": [{"loc": [...], "msg": "..."}]}）整理成一句话。"""
+    try:
+        d = r.json().get("detail")
+    except Exception:  # noqa: BLE001
+        return r.text[:300]
+    if isinstance(d, list):
+        return "；".join(f"{'.'.join(str(x) for x in (e.get('loc') or [])[1:]) or '请求'}：{e.get('msg')}" for e in d if isinstance(e, dict))[:400]
+    return str(d or r.text)[:300]
+
+
+def _message(r: httpx.Response) -> str:
+    why = _reason(r)
+    if r.status_code == 422 and re.search(r"face|person|people|human|portrait|real", why, re.I):
+        return f"模型不接受含真人脸的图片（{why}）"
+    return f"{HINTS.get(r.status_code, 'fal 返回错误')}（HTTP {r.status_code}：{why}）"
+
+
 def _check(r: httpx.Response) -> None:
     """失败时带上 fal 返回的原因（raise_for_status 只有状态码，看不出为什么）。"""
     if r.status_code < 400:
         return
-    hint = HINTS.get(r.status_code, "fal 返回错误")
-    raise RuntimeError(f"{hint}（HTTP {r.status_code}：{r.text[:240]}）")
+    raise (InputRejected if r.status_code == 422 else RuntimeError)(_message(r))
 
 
 def _headers(key: str | None = None) -> dict:
@@ -58,10 +80,13 @@ async def submit(prompt: str, duration: int = 5, aspect_ratio: str = "9:16") -> 
     return await _submit(model, {**_video_body(prompt, duration, models, model), "aspect_ratio": aspect_ratio})
 
 
-async def submit_i2v(prompt: str, image_url: str, duration: int = 5) -> dict:
+FALLBACK_I2V = "fal-ai/bytedance/seedance/v1/pro/image-to-video"  # Seedance 2.x 拒收（如含真人脸）时退回用它
+
+
+async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str | None = None) -> dict:
     """图生视频：image_url 是首帧，可以是公网地址或 data URI。Seedance 2.5 的画幅跟随首帧（只能 auto）。"""
     models = settings_store.get_models()
-    model = models["video_i2v"]
+    model = model or models["video_i2v"]
     body = {**_video_body(prompt, duration, models, model), "image_url": image_url}
     if _is_v1(model):
         body["aspect_ratio"] = "9:16"
@@ -86,7 +111,7 @@ async def _result(job: dict, timeout_seconds: float = 900) -> dict:
             if st == "COMPLETED":
                 out = await c.get(job["response_url"], headers=_headers())
                 if out.status_code >= 400:
-                    return {"status": "failed", "error": f"{HINTS.get(out.status_code, '生成失败')}（HTTP {out.status_code}：{out.text[:240]}）"}
+                    return {"status": "failed", "error": _message(out), "rejected": out.status_code == 422}
                 return {"status": "completed", "data": out.json()}
             if st in ("FAILED", "CANCELLED", "ERROR"):
                 return {"status": "failed", "error": f"fal 任务失败（{st}）：{str(r.json())[:200]}"}

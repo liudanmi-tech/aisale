@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 
 from app import agent, assets, canvas, config, product, qc, settings_store, storyboard
 from app.adapters import fal, llm, seedance
@@ -348,14 +349,30 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
     provider = settings_store.video_provider()
     async with _slots:
         if provider == "fal":
+            res: dict
             try:
                 if refs:  # 商品镜头：全能参考，关键帧 + 商品图一起给，生成全程看着商品
                     job = await fal.submit_ref(prompt, refs, duration=5)
                 else:
                     job = await (fal.submit_i2v(prompt, image, duration=5) if image else fal.submit(prompt, duration=5))
-                return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+                res = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+            except fal.InputRejected as e:
+                res = {"provider": "fal", "status": "failed", "error": str(e)[:400], "rejected": True}
             except Exception as e:  # noqa: BLE001
-                return {"provider": "fal", "status": "failed", "error": str(e)[:300]}
+                return {"provider": "fal", "status": "failed", "error": str(e)[:400]}
+            if res.get("status") == "failed" and res.get("rejected") and image:
+                # Seedance 2.x 拒收（常见：画面里有真人脸）：用关键帧走 Seedance 1 Pro 图生视频再做一次。
+                # 关键帧里已经换好了真实商品，外观靠关键帧保持
+                try:
+                    plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
+                    job = await fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V)
+                    res2 = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+                except Exception as e:  # noqa: BLE001
+                    res2 = {"status": "failed", "error": str(e)[:300]}
+                if res2.get("status") != "failed":
+                    return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 Seedance 1 Pro 图生视频"}
+                res["error"] += f"；改用 Seedance 1 Pro 也失败：{res2.get('error', '')[:200]}"
+            return res
         tid = await seedance.create_task(prompt)
         return {"provider": "byteplus" if provider == "byteplus" else "mock", "task_id": tid, **await seedance.wait_task(tid)}
 
@@ -704,6 +721,15 @@ def _finalize(video_id: str, cast: dict, shots: list, tasks: list) -> None:
         v = db.get(Node, video_id)
         if not v:
             return
+        # 整条生成期间，用户可能单独重做了已经失败 / 做完的镜头：那几镜以数据库里的为准
+        cur = list((v.data or {}).get("tasks") or [])
+        tasks = [cur[k] if k < len(cur) and (cur[k] or {}).get("redo_seq", 0) > ((t or {}).get("redo_seq") or 0) else t for k, t in enumerate(tasks)]
+        if any((t or {}).get("phase") not in IDLE for t in tasks):
+            # 还有镜头在单独重做：先把其他镜头的结果写进去，等它做完由 _settle 收尾
+            v.data = {**(v.data or {}), "shots": shots, "tasks": tasks, "stage": "单镜修改"}
+            db.commit()
+            emit(v.project_id, "canvas")
+            return
         failed = [t for t in tasks if t.get("status") == "failed"]
         pending = [k + 1 for k, t in enumerate(tasks) if t.get("phase") == "关键帧待确认"]
         real = [t for t in tasks if t.get("provider") in ("fal", "byteplus")]
@@ -751,7 +777,11 @@ def _begin_shot(video_id: str, i: int, what: str) -> None:
         for r in db.query(ReviewTask).filter(ReviewTask.node_id == video_id, ReviewTask.status == "wait"):
             r.status, r.comment = "cancel", f"第 {i + 1} 镜{what}"
         v.status, v.sub = "run", f"第 {i + 1} 镜{what}中…"
-        v.data = {**(v.data or {}), "stage": "单镜修改"}
+        tasks = list((v.data or {}).get("tasks") or [])
+        while len(tasks) <= i:
+            tasks.append({"shot": len(tasks) + 1})
+        tasks[i] = {**tasks[i], "redo_seq": time.time()}  # 整条生成收尾时认出这一镜被单独改过，不覆盖
+        v.data = {**(v.data or {}), "stage": "单镜修改", "tasks": tasks}
         db.commit()
         emit(v.project_id, "canvas")
         emit(v.project_id, "reviews")
