@@ -245,6 +245,24 @@ def shows_phone(spec: dict, visual: str = "") -> bool:
     return bool(spec.get("product") or re.search(PHONE_WORDS, f"{visual or ''} {spec.get('line') or ''}", re.I))
 
 
+SCREEN_WORDS = (r"给.{0,8}看|展示.{0,4}(屏幕|照片|画面|效果)|屏幕朝|亮屏|看照片|对比|左暗右亮|左亮右暗|照片效果|拍出来|成片|"
+                r"show(s|ing)? .{0,10}(screen|photo|picture)|compare")
+PHONE_PHYSICS = ("The phone is one rigid object with the screen on the front and the camera module on the back — "
+                 "the back cover never appears on both sides, it never flips or changes shape. ")
+
+
+def phone_facing(spec: dict, visual: str = "") -> str:
+    """手机哪一面朝镜头：人把屏幕给别人看 / 对比照片 → screen；人自己看、点、刷手机或者拍照 → back（屏幕朝着他自己）。"""
+    return "screen" if re.search(SCREEN_WORDS, f"{visual or ''} {spec.get('line') or ''}", re.I) else "back"
+
+
+def facing_text(spec: dict, visual: str = "") -> str:
+    if phone_facing(spec, visual) == "screen":
+        return ("In this shot the phone's SCREEN faces the camera (the person shows it to the viewer); the screen is lit with a simple "
+                "blurred photo or plain wallpaper, no text or UI. The camera module is on the hidden back side. ")
+    return ("In this shot the phone's BACK (camera module) faces the camera; the screen faces the person who is looking at or tapping it. ")
+
+
 def phone_spec(spec: dict, visual: str) -> dict:
     """画面里有人拿着 / 用着手机（自拍、刷手机、视频通话……）但没标成商品镜头：升级成手持商品镜头，
     走「先画占位手机、再换成真实商品」和多图参考，保证画面里的手机就是我们的商品。"""
@@ -294,7 +312,7 @@ def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = Fal
             + "画面中不要出现任何文字、字幕、品牌标志。\n"
             + (f"画面里的人物只有本镜的 {len(spec.get('roles') or [])} 个角色（长相照演员参考图），不要多画别人的正脸；背景路人只能是虚化的远景。\n"
                if spec.get("roles") else "这一镜没有出场角色：不要画人物的正脸（商品镜头最多出现一只手）。\n")
-            + ("画面里出现的手机都必须是商品实拍里的这台手机，不要画别的手机。\n" if phone else "")
+            + ("画面里出现的手机都必须是商品实拍里的这台手机，不要画别的手机。" + facing_text(spec, shot[1] if len(shot) > 1 else "") + PHONE_PHYSICS + "\n" if phone else "")
             + f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
             "The whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
             "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters."
@@ -314,7 +332,8 @@ async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, fr
     core = (prompt or "").strip() or keyframe_prompt(shot, spec, market, placeholder)
     if placeholder:
         core += ("\nThe person holds a plain generic black smartphone with no logo and a dark screen (a placeholder that will be replaced "
-                 "by the real product later). Show the phone clearly and large enough, not hidden by fingers.")
+                 "by the real product later). Show the phone clearly and large enough, not hidden by fingers. "
+                 + facing_text(spec, shot[1] if len(shot) > 1 else "") + PHONE_PHYSICS)
     elif spec.get("product") and product.spec_text(cast.get("product")):
         core += f"\n商品说明卡（照着画）：{product.spec_text(cast.get('product'))}"
     notes = "\n".join(f"第 {k + 1} 张参考图是{r['note']}" for k, (r, _) in enumerate(sent))
@@ -333,13 +352,29 @@ PLACE_PROMPT = ("Edit image 1. Replace the placeholder phone in the person's han
                 "no extra phones. Vertical 9:16 photorealistic photo.")
 
 
-async def place_product(video_id: str, i: int, base_url: str, spec: dict, cast: dict, comment: str = "") -> tuple[str, dict]:
+def _two_sides(asset_id: str | None) -> list[dict]:
+    """换真机用的商品图：背面一张 + 正面一张（有的话），这样模型知道两面各长什么样，不会两面都画成后盖。"""
+    allv = product.good_views(asset_id, "hand", 8)
+    back = next((v for v in allv if v.get("view") in ("back", "angle")), None)
+    front = next((v for v in allv if v.get("view") in ("front", "front_on")), None)
+    out = [v for v in (back, front) if v]
+    return out or allv[:2]
+
+
+async def place_product(video_id: str, i: int, base_url: str, spec: dict, cast: dict, comment: str = "", visual: str = "") -> tuple[str, dict]:
     """两步走第二步：用图像编辑把占位手机换成真实商品（参考商品多视角图），画面其余部分不动。"""
-    views = product.good_views(cast.get("product"), "hand", 2)
-    imgs = [assets.jpeg_data_url(base_url, max_w=1280)] + [assets.jpeg_data_url(v.get("cutout") or v["url"], max_w=1024) for v in views]
+    views = _two_sides(cast.get("product"))
+    sent = [(v, assets.jpeg_data_url(v.get("cutout") or v["url"], max_w=1024)) for v in views]
+    sent = [(v, d) for v, d in sent if d]
+    views = [v for v, _ in sent]
+    imgs = [assets.jpeg_data_url(base_url, max_w=1280)] + [d for _, d in sent]
     imgs = [x for x in imgs if x]
     spec_line = product.spec_text(cast.get("product"))
+    sides = " ".join(f"Image {k + 2} is the phone's {'BACK side (camera module)' if v.get('view') in ('back', 'angle', 'detail') else 'FRONT side (screen)'}."
+                     for k, v in enumerate(views))
+    shot = visual
     text = PLACE_PROMPT.format(last=f"–{len(imgs)}" if len(imgs) > 2 else "", spec=f"The phone: {spec_line}. " if spec_line else "")
+    text += f" {sides} {facing_text(spec, shot)}{PHONE_PHYSICS}"
     text += f"\n修改意见：{comment}" if comment else ""
     raw, mime = await llm.image([{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": d}} for d in imgs)],
                                 task="keyframe", aspect_ratio="9:16")
@@ -655,7 +690,7 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
             if mode == "placement":
                 _shot(video_id, i, keyframe=kf, phase="换入真实商品")
                 base = kf
-                kf, extra = await place_product(video_id, i, base, spec, cast, note)
+                kf, extra = await place_product(video_id, i, base, spec, cast, note, sh[1] if len(sh) > 1 else "")
                 meta = {**meta, **extra, "placeholder": base, "mode": "placement"}
             else:
                 meta = {**meta, "mode": "ai"}
@@ -675,11 +710,13 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
                     err: str, comment: str, retries: int) -> dict:
     """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。"""
     move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
-    prompt = f"{sh[1]}. Camera: {move}. {VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
+    physics = PHONE_PHYSICS if shows_phone(spec, sh[1] if len(sh) > 1 else "") else ""
+    prompt = f"{sh[1]}. Camera: {move}. {physics}{VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
     refs, ref_labels = None, []
     if spec.get("product") and kf and cast.get("product") and settings_store.video_provider() == "fal":
         # 商品镜头：全能参考。@Image1 = 关键帧（开场画面），@Image2/3 = 商品多视角实拍，生成全程看着商品图
-        views = product.good_views(cast.get("product"), spec.get("product_tier") or "hero", 2)
+        hero_tier = (kf_qc or {}).get("source") == "product" or spec.get("product_tier") == "hero"
+        views = product.good_views(cast.get("product"), "hero", 2) if hero_tier else _two_sides(cast.get("product"))
         refs = [assets.jpeg_data_url(kf)] + [assets.jpeg_data_url(v["url"], max_w=1280) for v in views]
         refs = [x for x in refs if x]
         ref_labels = ["关键帧"] + [f"商品{product.VIEWS.get(v.get('view'), '')}图" for v in views]
@@ -689,6 +726,8 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
         prompt = (f"@Image1 is the opening frame: start exactly from it and keep its composition, people and setting. "
                   f"The phone is the one in {phone}{(' (' + spec_line + ')') if spec_line else ''}: keep its shape, colour, camera module and logo "
                   "exactly unchanged in every frame — no morphing, no melting logo, no extra phones, no on-screen text. "
+                  + " ".join(f"@Image{k + 2} shows its {'back (camera module)' if v.get('view') in ('back', 'angle', 'detail') else 'front (screen)'}."
+                             for k, v in enumerate(views)) + " " + PHONE_PHYSICS
                   + (f"Product hero shot: slow, subtle {move}; soft moving studio light; no hands. " if hero else f"{sh[1]}. Camera: gentle {move}. ")
                   + VIDEO_STYLE)
     best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
