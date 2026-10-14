@@ -34,6 +34,13 @@ export interface LibraryAsset {
     created_at: string;
     uses?: number;
 }
+export interface ClipRedo { prompt?: string; mode?: string; engine?: string; comment?: string }
+export interface VideoPlan {
+    mode: string; mode_label: string; prompt: string; refs: { label: string; url: string }[]; can_ref: boolean; has_end: boolean;
+    modes: Record<string, string>; engines: Record<string, string>;
+    last: { mode: string | null; mode_label: string; model?: string; fallback?: string; engine_choice: string; prompt: string; comment: string;
+        refs: string[]; status?: string; error: string; issues: string[]; url?: string };
+}
 /** 剧本拆解出的每镜拍法 */
 export interface CatalogModel {
     id: string; brand: "TECNO" | "Infinix" | "itel"; name: string; series: string; announced: string; year: number; color: string; source: string;
@@ -315,7 +322,8 @@ export const api = {
     buildStatus: () => get<{ stale: boolean; backend_stale?: boolean }>("/build-status"),
     redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     stopVideo: (nid: string) => post<{ ok: boolean; cancelled: number }>(`/nodes/${nid}/stop`),
-    redoClip: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/clip`),
+    redoClip: (nid: string, i: number, body: ClipRedo = {}) => post(`/nodes/${nid}/shots/${i}/clip`, body),
+    videoPlan: (nid: string, i: number, body: { mode?: string; prompt?: string; suggestion?: string } = {}) => postSlow<VideoPlan>(`/nodes/${nid}/shots/${i}/video-plan`, body),
     composeCut: (nid: string, body: { captions?: boolean } = {}) => post(`/nodes/${nid}/compose`, body),
     confirmCast: (nid: string) => post(`/nodes/${nid}/confirm-cast`),
     setCast: (nid: string, key: string, asset_id: string) => post<{ cast: Cast }>(`/nodes/${nid}/cast`, { key, asset_id }),

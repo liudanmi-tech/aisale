@@ -246,17 +246,48 @@ def redo_keyframe(nid: str, i: int, body: KeyframeIn, db: Session = Depends(get_
     return {"ok": True}
 
 
+class ClipIn(BaseModel):
+    prompt: str | None = None  # 浮窗里确认过的提示词；不传就按模式自动生成
+    mode: str | None = None  # ref 全能参考 / first 首帧 / first_last 首尾帧
+    engine: str = "auto"  # auto / seedance-2.5 / seedance-2.0 / kling
+    comment: str = ""
+
+
 @router.post("/nodes/{nid}/shots/{i}/clip")
-def redo_clip(nid: str, i: int, db: Session = Depends(get_db)):
-    """用这一镜现在的关键帧生成视频。"""
+def redo_clip(nid: str, i: int, body: ClipIn | None = None, db: Session = Depends(get_db)):
+    """用这一镜现在的关键帧生成视频（可带浮窗里改过的提示词、模式和模型）。"""
+    body = body or ClipIn()
     n = _shot_guard(db, nid, i)
     t = ((n.data or {}).get("tasks") or [{}] * (i + 1))[i]
     if not t.get("keyframe"):
         raise HTTPException(400, "这一镜还没有关键帧，先画关键帧")
-    canvas.audit(db, n.project_id, "user", "redo_clip", {"node_id": nid, "shot": i})
+    if body.engine not in production.VIDEO_ENGINES:
+        raise HTTPException(400, "不认识这个视频模型")
+    canvas.audit(db, n.project_id, "user", "redo_clip", {"node_id": nid, "shot": i, **body.model_dump()})
     db.commit()
-    spawn(production.redo_clip(nid, i))
+    spawn(production.redo_clip(nid, i, (body.prompt or "").strip() or None, body.mode, body.engine, body.comment.strip()))
     return {"ok": True}
+
+
+class ClipPlanIn(BaseModel):
+    mode: str | None = None
+    prompt: str | None = None
+    suggestion: str = ""
+
+
+@router.post("/nodes/{nid}/shots/{i}/video-plan")
+async def video_plan(nid: str, i: int, body: ClipPlanIn, db: Session = Depends(get_db)):
+    """「重做视频」浮窗：上一轮用的模式 / 模型 / 提示词 / 质检问题，这一轮的提示词预览；带修改建议时让模型按建议改写提示词（不生成视频）。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video" or not 0 <= i < len((n.data or {}).get("shots", [])):
+        raise HTTPException(404, "没有这一镜")
+    plan = production.preview_clip(nid, i, body.mode)
+    if body.suggestion.strip():
+        try:
+            plan["prompt"] = await production.rewrite_clip_prompt((body.prompt or "").strip() or plan["prompt"], body.suggestion.strip(), plan["mode"])
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"改写提示词失败：{str(e)[:200]}") from None
+    return plan
 
 
 class ComposeIn(BaseModel):

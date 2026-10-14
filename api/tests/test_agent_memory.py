@@ -164,7 +164,7 @@ def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
         calls.append(("ref", prompt))
         return {"model": "bytedance/seedance-2.5/reference-to-video", "request_id": "r1"}
 
-    async def i2v(prompt, image, duration=5, model=None):
+    async def i2v(prompt, image, duration=5, model=None, end_image=None):
         calls.append(("i2v", model, prompt))
         return {"model": model, "request_id": "r2"}
 
@@ -181,7 +181,7 @@ def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
         # 2.5 全能参考拒收；2.0 全能参考也拒收 → 最后走 2.0 图生视频
         return {"model": model or "bytedance/seedance-2.5/reference-to-video", "request_id": "r1"}
     monkeypatch.setattr(fal, "submit_ref", ref)
-    async def kling(prompt, start, imgs, duration=5):
+    async def kling(prompt, start, imgs, duration=5, end_image=None):
         calls.append(("kling", prompt, start, imgs))
         return {"model": fal.FACE_REF, "request_id": "r3"}
     monkeypatch.setattr(fal, "submit_kling_ref", kling)
@@ -216,3 +216,63 @@ def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
         with SessionLocal() as db:
             n = db.get(Node, vid)
             assert n.data["tasks"][0]["keyframe"] == "/new.png" and n.status == "input"
+
+
+def test_video_plan_and_redo_with_choices(monkeypatch):
+    """重做视频浮窗：读上一轮的模式 / 模型 / 提示词，切模式出新提示词，按建议改写；按选的模型和模式重新生成。"""
+    import time
+
+    from app import canvas, config, production
+    from app.adapters import fal
+    from app.models import Asset, Node, Project
+    import cv2
+    import numpy as np
+    kdir = config.MEDIA_DIR / "keyframes"
+    kdir.mkdir(parents=True, exist_ok=True)
+    for name in ("vp1.png", "vp2.png"):
+        cv2.imwrite(str(kdir / name), np.full((1280, 720, 3), 90, np.uint8))
+    calls = []
+
+    async def kling_i2v(prompt, image, duration=5, end_image=None):
+        calls.append(("kling_i2v", prompt, bool(end_image)))
+        return {"model": fal.FACE_I2V, "request_id": "k"}
+
+    async def wait(job, timeout_seconds=900):
+        return {"status": "completed", "video_url": "https://v.fal.media/k.mp4"}
+    monkeypatch.setattr(fal, "submit_kling_i2v", kling_i2v)
+    monkeypatch.setattr(fal, "wait", wait)
+    monkeypatch.setattr(settings_store, "video_provider", lambda: "fal")
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "浮窗"}).json()["id"]
+        with SessionLocal() as db:
+            db.add(Asset(id="as_vp", kind="product", name="TECNO Pova 8 Pro", description="", images=["/api/v1/media/keyframes/vp1.png"], tags=[],
+                         data={"views": {"/api/v1/media/keyframes/vp1.png": {"view": "back"}}}, source="upload", status="ready"))
+            sc = canvas.create_node(db, db.get(Project, pid), "script", status="pass", data={"shots": [["3", "男主拿着手机", "Look!", ""], ["4", "街景", "Go", ""]],
+                "cast": {"genre": "情景剧", "roles": {"r1": "x"}, "scenes": {}, "names": {}, "product": "as_vp", "specs": [
+                    {"shot": 0, "size": "MS", "move": "固定", "roles": ["r1"], "scene": None, "product": True, "product_tier": "hand", "line": "Look!"},
+                    {"shot": 1, "size": "WS", "move": "推", "roles": [], "scene": None, "product": False, "line": "Go"}]}})
+            db.flush()
+            v = canvas.create_node(db, db.get(Project, pid), "video", status="failed", data={"script_id": sc.id, "stage": "完成", "shots": sc.data["shots"], "tasks": [
+                {"shot": 1, "phase": "失败", "status": "failed", "keyframe": "/api/v1/media/keyframes/vp1.png", "clip_mode": "ref", "model": "bytedance/seedance-2.5/reference-to-video",
+                 "clip_prompt": "@Image1 is the opening frame ... 上一轮", "error": "模型不接受含真人脸的图片", "qc": {"status": "fail", "checks": {}, "issues": ["手机正反面不对"]}},
+                {"shot": 2, "phase": "完成", "status": "completed", "keyframe": "/api/v1/media/keyframes/vp2.png", "url": "https://x/2.mp4"}]})
+            db.commit()
+            vid = v.id
+        p = c.post(f"/api/v1/nodes/{vid}/shots/0/video-plan", json={}).json()
+        assert p["mode"] == "ref" and set(p["modes"]) == {"ref", "first", "first_last"} and p["last"]["prompt"].endswith("上一轮")
+        assert p["last"]["issues"] == ["手机正反面不对"] and "kling" in p["engines"] and p["refs"][0]["url"].endswith("vp1.png")
+        p2 = c.post(f"/api/v1/nodes/{vid}/shots/0/video-plan", json={"mode": "first_last"}).json()
+        assert p2["mode"] == "first_last" and p2["refs"][-1]["url"].endswith("vp2.png") and "last frame" in p2["prompt"]
+        p3 = c.post(f"/api/v1/nodes/{vid}/shots/0/video-plan", json={"mode": "first", "prompt": "Man holds phone.", "suggestion": "动作慢一点"}).json()
+        assert "动作慢一点" in p3["prompt"]  # 没配大模型时把建议附在后面
+        assert c.post(f"/api/v1/nodes/{vid}/shots/0/clip", json={"engine": "nope"}).status_code == 400
+        r = c.post(f"/api/v1/nodes/{vid}/shots/0/clip", json={"prompt": "Man holds the phone, slow.", "mode": "first_last", "engine": "kling", "comment": "慢一点"})
+        assert r.status_code == 200
+        for _ in range(100):
+            with SessionLocal() as db:
+                t = db.get(Node, vid).data["tasks"][0]
+            if t.get("phase") == "完成":
+                break
+            time.sleep(0.05)
+        assert t["phase"] == "完成" and t["clip_mode"] == "first_last" and t["engine_choice"] == "kling" and t["clip_prompt"] == "Man holds the phone, slow."
+        assert calls == [("kling_i2v", "Man holds the phone, slow.", True)]

@@ -10,7 +10,7 @@ import { EvalPanel } from "@/components/canvas/eval-panel";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
-import { api, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
+import { api, type VideoPlan, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
 
 export interface BodyActions {
     /** 选中节点并把「优化 xx：」填进左侧 Agent 输入框 */
@@ -386,6 +386,109 @@ type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string;
     mode?: "photo" | "placement" | "ai"; placeholder?: string; place_refs?: KfRef[] };
 type KfRedo = { comment: string; prompt?: string; drop_refs: string[] };
 
+/** 视频模型 id → 好认的名字 */
+const modelName = (id?: string) => !id ? "—" : /kling/.test(id) ? `可灵 O3 Pro ${/reference/.test(id) ? "全能参考" : "图生视频"}`
+    : /seedance-2\.5/.test(id) ? `Seedance 2.5 ${/reference/.test(id) ? "全能参考" : "图生视频"}` : /seedance-2\.0/.test(id) ? `Seedance 2.0 ${/reference/.test(id) ? "全能参考" : "图生视频"}`
+    : /v1\.5/.test(id) ? "Seedance 1.5 Pro" : /seedance\/v1/.test(id) ? "Seedance 1.0 Pro" : id;
+
+/** 重做视频：看上一轮用的模式 / 模型 / 提示词 / 质检问题，选模式和模型，改提示词（或写建议让模型改写），确认没问题再生成 */
+function VideoRedo({ nid, i, disabled, primary, onDone }: { nid: string; i: number; disabled: boolean; primary?: boolean; onDone: () => void }) {
+    const { message } = App.useApp();
+    const [open, setOpen] = useState(false);
+    const [plan, setPlan] = useState<VideoPlan | null>(null);
+    const [mode, setMode] = useState("");
+    const [engine, setEngine] = useState("auto");
+    const [prompt, setPrompt] = useState("");
+    const [suggestion, setSuggestion] = useState("");
+    const load = useMutation({
+        mutationFn: (body: { mode?: string; prompt?: string; suggestion?: string }) => api.videoPlan(nid, i, body),
+        onError: (e) => message.error(errMsg(e)),
+    });
+    const go = useMutation({
+        mutationFn: () => api.redoClip(nid, i, { prompt: prompt.trim(), mode, engine, comment: suggestion.trim() }),
+        onMutate: () => { message.loading({ content: `镜 ${i + 1}：正在提交重做视频…`, key: `redo-clip-${i}` }); },
+        onSuccess: () => { message.success({ content: `镜 ${i + 1} 按这个提示词重新生成视频中`, key: `redo-clip-${i}` }); setOpen(false); onDone(); },
+        onError: (e) => message.error({ content: `镜 ${i + 1} 重做视频没提交成功：${errMsg(e)}`, key: `redo-clip-${i}`, duration: 6 }),
+    });
+    const openIt = () => {
+        setOpen(true); setSuggestion("");
+        load.mutate({}, { onSuccess: (p) => { setPlan(p); setMode(p.mode); setEngine(p.last.engine_choice || "auto"); setPrompt(p.last.prompt && p.last.mode === p.mode ? p.last.prompt : p.prompt); } });
+    };
+    const switchMode = (m: string) => { setMode(m); load.mutate({ mode: m }, { onSuccess: (p) => { setPlan(p); setPrompt(p.prompt); } }); };
+    const rewrite = () => load.mutate({ mode, prompt, suggestion }, { onSuccess: (p) => { setPlan(p); setPrompt(p.prompt); message.success("已按建议改写，看一下再生成"); } });
+    const last = plan?.last;
+    const body = (
+        <div data-ui className="flex max-h-[72vh] w-[460px] flex-col gap-2 overflow-y-auto text-xs" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+            {!plan ? <div className="py-6 text-center text-ink2">{load.isPending ? "读取上一轮的设置…" : "没读到这一镜的信息"}</div> : (
+                <>
+                    <div className="rounded-lg bg-elev/70 p-2">
+                        <div className="mb-1 font-medium text-ink">上一轮</div>
+                        {last?.mode || last?.model ? (
+                            <div className="grid grid-cols-[52px_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+                                <span className="text-ink2">模式</span><span className="text-ink">{last.mode_label || "—"}{last.refs.length ? `（${last.refs.join("、")}）` : ""}</span>
+                                <span className="text-ink2">模型</span><span className="text-ink">{modelName(last.model)}{last.engine_choice !== "auto" ? "（手动指定）" : ""}</span>
+                                {last.fallback && <><span className="text-ink2">自动换</span><span className="text-ink2">{last.fallback}</span></>}
+                                <span className="text-ink2">结果</span><span className={last.status === "failed" ? "text-bad" : "text-ink"}>{last.status === "failed" ? `失败：${last.error || "没有返回原因"}` : last.url ? "已生成" : "—"}</span>
+                                {last.comment && <><span className="text-ink2">上次建议</span><span className="text-ink">{last.comment}</span></>}
+                            </div>
+                        ) : <div className="text-[11px] text-ink2">这一镜还没生成过视频，或是旧版本生成的（没记录模式和模型）</div>}
+                        {last && last.issues.length > 0 && (
+                            <div className="mt-1.5">
+                                <div className="text-[11px] text-ink2">质检提出的问题（可以照着写修改建议）</div>
+                                {last.issues.map((x) => <div key={x} className="text-[11px] leading-4 text-warn">· {x}</div>)}
+                            </div>
+                        )}
+                    </div>
+                    <div>
+                        <div className="mb-1 font-medium text-ink">这一轮怎么生成</div>
+                        <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-[11px] text-ink2">模式</span>
+                            {Object.entries(plan.modes).map(([k, l]) => (
+                                <button key={k} data-ui onClick={() => switchMode(k)} className={clsx("cursor-pointer rounded-md border px-2 py-0.5 text-[11px]", mode === k ? "border-brand bg-brand/20 text-ink" : "border-line bg-transparent text-ink2 hover:text-ink")}>{l}</button>
+                            ))}
+                            <span className="ml-2 text-[11px] text-ink2">模型</span>
+                            <Select size="small" className="w-[200px]" value={engine} onChange={setEngine} options={Object.entries(plan.engines).map(([value, label]) => ({ value, label }))} />
+                        </div>
+                        <div className="mt-1 text-[10px] leading-[14px] text-ink2">
+                            全能参考：关键帧做开场 + 商品实拍全程参考（商品镜头推荐）；首帧：只用关键帧开场；首尾帧：用下一镜的关键帧做结尾，衔接更顺。
+                            画面有真人脸时 Seedance 2.x 不接受，「自动」会换成可灵 O3 Pro。
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {plan.refs.map((r) => (
+                                <div key={r.url + r.label} className="w-[70px] text-[10px] leading-3 text-ink2" title={r.label}>
+                                    <Image src={r.url} alt={r.label} width={64} height={64} className="rounded bg-white object-contain" preview={{ mask: false }} />
+                                    <div className="mt-0.5 line-clamp-2">{r.label}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="mb-1 font-medium text-ink">提示词 <span className="font-normal text-ink2">（可以直接改；@Image1 是关键帧，@Image2/3 是商品图）</span></div>
+                        <Input.TextArea rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="!font-mono !text-[11px]" />
+                    </div>
+                    <div>
+                        <div className="mb-1 font-medium text-ink">修改建议</div>
+                        <Input.TextArea rows={2} value={suggestion} onChange={(e) => setSuggestion(e.target.value)} placeholder="哪里不对？如：手机全程屏幕朝向观众；动作慢一点，最后停在微笑" />
+                        <div className="mt-1 flex justify-end">
+                            <Btn icon={<Sparkles size={11} />} disabled={!suggestion.trim() || load.isPending} onClick={rewrite}>{load.isPending ? "改写中…" : "按建议改写提示词"}</Btn>
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-1 border-t border-line pt-2">
+                        <span className="mr-auto text-[10px] text-ink2">确认提示词没问题再生成，会按张计费</span>
+                        <Btn onClick={() => setOpen(false)}>取消</Btn>
+                        <Btn primary disabled={!prompt.trim() || go.isPending || load.isPending} onClick={() => go.mutate()}>重新生成视频</Btn>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={(v) => (v ? openIt() : setOpen(false))} trigger="click" title={`重做镜 ${i + 1} 的视频`} content={body}>
+            <span><Btn primary={primary} icon={<RefreshCw size={10} />} disabled={disabled} onClick={() => {}}>重做视频</Btn></span>
+        </Popover>
+    );
+}
+
 /** 回到关键帧：看上一版用了哪些参考图、什么提示词，去掉有问题的参考图 / 改提示词 / 写修改意见，重画后停下等确认 */
 function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [] }: { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean; addProduct?: string[] }) {
     const [open, setOpen] = useState(false);
@@ -604,7 +707,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {!confirming && (
                                     <div className="mt-1 flex flex-wrap gap-1">
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
-                                        {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || (redoClip.isPending && redoClip.variables === i)} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
+                                        {t.keyframe && !waitingKf && <VideoRedo nid={n.id} i={i} primary={t.status === "failed"} disabled={locked} onDone={refresh} />}
                                         {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })}
                                             addProduct={cast?.product && (spec?.product || (spec?.roles?.length && PHONE_RE.test(`${s[1]} ${spec?.line || ""}`)))
                                                 && !(t.kf_meta?.refs || []).some((r: KfRef) => r.kind === "product") ? (lib[cast.product]?.images || []).slice(0, 2) : []} />}

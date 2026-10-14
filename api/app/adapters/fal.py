@@ -85,11 +85,11 @@ FALLBACK_REF = "bytedance/seedance-2.0/reference-to-video"  # 全能参考，最
 FALLBACK_I2V = "bytedance/seedance-2.0/image-to-video"
 
 
-async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str | None = None) -> dict:
+async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str | None = None, end_image: str | None = None) -> dict:
     """图生视频：image_url 是首帧，可以是公网地址或 data URI。Seedance 2.5 的画幅跟随首帧（只能 auto）。"""
     models = settings_store.get_models()
     model = model or models["video_i2v"]
-    body = {**_video_body(prompt, duration, models, model), "image_url": image_url}
+    body = {**_video_body(prompt, duration, models, model), "image_url": image_url, **({"end_image_url": end_image} if end_image else {})}
     if _is_v1(model):
         body["aspect_ratio"] = "9:16"
     return await _submit(model, body)
@@ -114,16 +114,19 @@ def face_rejected(err: str) -> bool:
     return bool(re.search(r"真人脸|likeness|real people|face|person|portrait", err or "", re.I))
 
 
-async def submit_kling_ref(prompt: str, start_image: str, product_images: list[str], duration: int = 5) -> dict:
+async def submit_kling_ref(prompt: str, start_image: str, product_images: list[str], duration: int = 5, end_image: str | None = None) -> dict:
     """可灵 O3 Pro 全能参考：start_image 是开场画面（关键帧），product_images 是商品各角度实拍，提示词里用 @Element1 指代商品。"""
     body = {"prompt": prompt[:2500], "start_image_url": start_image, "aspect_ratio": "9:16", "duration": str(duration), "generate_audio": False}
+    if end_image:
+        body["end_image_url"] = end_image
     if product_images:
         body["elements"] = [{"frontal_image_url": product_images[0], "reference_image_urls": product_images[1:4] or [product_images[0]]}]
     return await _submit(FACE_REF, body)
 
 
-async def submit_kling_i2v(prompt: str, image: str, duration: int = 5) -> dict:
-    return await _submit(FACE_I2V, {"prompt": prompt[:2500], "image_url": image, "duration": str(duration), "generate_audio": False})
+async def submit_kling_i2v(prompt: str, image: str, duration: int = 5, end_image: str | None = None) -> dict:
+    return await _submit(FACE_I2V, {"prompt": prompt[:2500], "image_url": image, "duration": str(duration), "generate_audio": False,
+                                    **({"end_image_url": end_image} if end_image else {})})
 
 
 async def submit_ref(prompt: str, image_urls: list[str], duration: int = 5, model: str | None = None) -> dict:

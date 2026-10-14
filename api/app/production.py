@@ -382,16 +382,34 @@ async def place_product(video_id: str, i: int, base_url: str, spec: dict, cast: 
                                                                                          "url": v.get("cutout") or v["url"], "note": "换入画面的真实商品"} for v in views]}
 
 
-async def clip(prompt: str, image: str | None, refs: list[str] | None = None) -> dict:
+def kling_prompt(prompt: str) -> str:
+    """Seedance 写法（@Image1 关键帧、@Image2/3 商品）改成可灵写法（首帧 + @Element1 商品）。"""
+    return re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "@Element1", prompt.replace("@Image1 is the opening frame", "The video starts from the first frame"))
+
+
+async def clip(prompt: str, image: str | None, refs: list[str] | None = None, engine: str = "auto", end_image: str | None = None) -> dict:
     provider = settings_store.video_provider()
     async with _slots:
+        if provider == "fal" and engine not in ("auto", "seedance-2.5", None):
+            # 浮窗里指定了模型：只用它，不自动换
+            plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
+            try:
+                if engine == "kling":
+                    job = await (fal.submit_kling_ref(kling_prompt(prompt), image, refs[1:], duration=5, end_image=end_image) if refs and image
+                                 else fal.submit_kling_i2v(plain, image, duration=5, end_image=end_image))
+                else:  # seedance-2.0
+                    job = await (fal.submit_ref(prompt, refs, duration=5, model=fal.FALLBACK_REF) if refs
+                                 else fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V, end_image=end_image))
+                return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+            except Exception as e:  # noqa: BLE001
+                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400]}
         if provider == "fal":
             res: dict
             try:
                 if refs:  # 商品镜头：全能参考，关键帧 + 商品图一起给，生成全程看着商品
                     job = await fal.submit_ref(prompt, refs, duration=5)
                 else:
-                    job = await (fal.submit_i2v(prompt, image, duration=5) if image else fal.submit(prompt, duration=5))
+                    job = await (fal.submit_i2v(prompt, image, duration=5, end_image=end_image) if image else fal.submit(prompt, duration=5))
                 res = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
             except fal.InputRejected as e:
                 res = {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400], "rejected": True}
@@ -400,13 +418,15 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
             plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
             if fal.face_rejected(res.get("error", "")):
                 # 含真人脸：Seedance 2.x（2.5 和 2.0）都按隐私规定拒收，直接改用可灵 O3 Pro：关键帧做开场，商品图作为 @Element1
-                kling = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "@Element1", prompt.replace("@Image1 is the opening frame", "The video starts from the first frame"))
-                tries = ([("可灵 O3 Pro 全能参考", "Kling", lambda: fal.submit_kling_ref(kling, image, (refs or [])[1:], duration=5))] if refs and image else []) + \
-                    ([("可灵 O3 Pro 图生视频", "Kling", lambda: fal.submit_kling_i2v(plain, image, duration=5))] if image else [])
+                kling = kling_prompt(prompt)
+                tries = ([("可灵 O3 Pro 全能参考", "Kling", lambda: fal.submit_kling_ref(kling, image, (refs or [])[1:], duration=5, end_image=end_image))] if refs and image else []) + \
+                    ([("可灵 O3 Pro 图生视频", "Kling", lambda: fal.submit_kling_i2v(plain, image, duration=5, end_image=end_image))] if image else [])
             else:
                 # 其他原因被 2.5 拒收：退回 Seedance 2.0，先用同样的全能参考，不行再用关键帧图生视频
                 tries = ([("Seedance 2.0 全能参考", "2.0", lambda: fal.submit_ref(prompt, refs, duration=5, model=fal.FALLBACK_REF))] if refs else []) + \
-                    ([("Seedance 2.0 图生视频", "2.0", lambda: fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V))] if image else [])
+                    ([("Seedance 2.0 图生视频", "2.0", lambda: fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V, end_image=end_image))] if image else [])
+            if engine == "seedance-2.5":  # 指定只用 2.5：不自动换
+                return res
             if res.get("status") == "failed" and res.get("rejected") and "seedance-2.0" not in (res.get("model") or ""):
                 errs = []
                 for label, _, go in tries:
@@ -712,23 +732,30 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
     return kf, kf_qc, tries, err
 
 
-async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf: str | None, kf_qc: dict | None, tries: int,
-                    err: str, comment: str, retries: int) -> dict:
-    """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。"""
-    move = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}.get(spec.get("move"), "static camera")
+VIDEO_MODES = {"ref": "全能参考", "first": "首帧", "first_last": "首尾帧"}
+VIDEO_ENGINES = {"auto": "自动（Seedance 2.5，拒收时自动换）", "seedance-2.5": "Seedance 2.5", "seedance-2.0": "Seedance 2.0", "kling": "可灵 O3 Pro"}
+MOVES_EN = {"固定": "static camera", "推": "slow push-in", "拉": "slow pull-out", "摇": "pan", "跟拍": "tracking shot", "手持": "handheld"}
+
+
+def clip_plan(sh: list, spec: dict, cast: dict, kf: str | None, kf_qc: dict | None, mode: str | None = None, comment: str = "",
+              end_kf: str | None = None) -> dict:
+    """这一镜视频怎么生成：模式（全能参考 / 首帧 / 首尾帧）、提示词、参考图（本地地址 + 说明）。重做视频的浮窗也用它预览。"""
+    move = MOVES_EN.get(spec.get("move"), "static camera")
+    can_ref = bool(spec.get("product") and kf and cast.get("product") and settings_store.video_provider() == "fal")
+    mode = mode if mode in VIDEO_MODES else ("ref" if can_ref else "first")
+    if mode == "ref" and not can_ref:
+        mode = "first"
+    if mode == "first_last" and not end_kf:
+        mode = "first"
     physics = PHONE_PHYSICS if shows_phone(spec, sh[1] if len(sh) > 1 else "") else ""
-    prompt = f"{sh[1]}. Camera: {move}. {physics}{VIDEO_STYLE}" + (f". 修改意见：{comment}" if comment else "")
-    refs, ref_labels = None, []
-    if spec.get("product") and kf and cast.get("product") and settings_store.video_provider() == "fal":
+    refs = [{"label": "关键帧（开场画面）", "url": kf}] if kf else []
+    if mode == "ref":
         # 商品镜头：全能参考。@Image1 = 关键帧（开场画面），@Image2/3 = 商品多视角实拍，生成全程看着商品图
-        hero_tier = (kf_qc or {}).get("source") == "product" or spec.get("product_tier") == "hero"
-        views = product.good_views(cast.get("product"), "hero", 2) if hero_tier else _two_sides(cast.get("product"))
-        refs = [assets.jpeg_data_url(kf)] + [assets.jpeg_data_url(v["url"], max_w=1280) for v in views]
-        refs = [x for x in refs if x]
-        ref_labels = ["关键帧"] + [f"商品{product.VIEWS.get(v.get('view'), '')}图" for v in views]
-        phone = " and ".join(f"@Image{k + 2}" for k in range(len(refs) - 1))
-        spec_line = product.spec_text(cast.get("product"))
         hero = (kf_qc or {}).get("source") == "product" or spec.get("product_tier") == "hero"
+        views = product.good_views(cast.get("product"), "hero", 2) if hero else _two_sides(cast.get("product"))
+        refs += [{"label": f"商品{product.VIEWS.get(v.get('view'), '')}图", "url": v["url"], "view": v.get("view")} for v in views]
+        phone = " and ".join(f"@Image{k + 2}" for k in range(len(views)))
+        spec_line = product.spec_text(cast.get("product"))
         prompt = (f"@Image1 is the opening frame: start exactly from it and keep its composition, people and setting. "
                   f"The phone is the one in {phone}{(' (' + spec_line + ')') if spec_line else ''}: keep its shape, colour, camera module and logo "
                   "exactly unchanged in every frame — no morphing, no melting logo, no extra phones, no on-screen text. "
@@ -736,11 +763,33 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
                              for k, v in enumerate(views)) + " " + PHONE_PHYSICS
                   + (f"Product hero shot: slow, subtle {move}; soft moving studio light; no hands. " if hero else f"{sh[1]}. Camera: gentle {move}. ")
                   + VIDEO_STYLE)
+    else:
+        if mode == "first_last":
+            refs.append({"label": "结尾画面（下一镜关键帧）", "url": end_kf})
+        prompt = f"{sh[1]}. Camera: {move}. {physics}{VIDEO_STYLE}" + (
+            " End exactly on the given last frame so the cut to the next shot is seamless." if mode == "first_last" else "")
+    if comment:
+        prompt += f". 修改意见：{comment}"
+    return {"mode": mode, "mode_label": VIDEO_MODES[mode], "prompt": prompt, "refs": refs, "can_ref": can_ref, "has_end": bool(end_kf)}
+
+
+async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf: str | None, kf_qc: dict | None, tries: int,
+                    err: str, comment: str, retries: int, prompt_override: str | None = None, mode: str | None = None,
+                    engine: str = "auto", end_kf: str | None = None) -> dict:
+    """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。
+    prompt_override / mode / engine / end_kf 来自「重做视频」浮窗：人改过的提示词、选的模式和模型。"""
+    plan = clip_plan(sh, spec, cast, kf, kf_qc, mode, "" if prompt_override else comment, end_kf)
+    prompt = (prompt_override or "").strip() or plan["prompt"]
+    mode = plan["mode"]
+    refs = [assets.jpeg_data_url(r["url"], max_w=1280) for r in plan["refs"]] if mode == "ref" else None
+    refs = [x for x in refs if x] if refs else None
+    ref_labels = [r["label"] for r in plan["refs"]]
+    end_image = assets.jpeg_data_url(end_kf) if mode == "first_last" and end_kf else None
     best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
     for clip_tries in range(1, retries + 2):
         _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}),
               fallback=None, error=None)  # 上一轮「改用备用模型」的记录作废，免得和这一轮混在一起
-        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs)
+        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs, engine=engine, end_image=end_image)
         if res.get("status") == "failed":
             if best:
                 retry_error = res.get("error") or "重新生成失败"
@@ -761,7 +810,8 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
             "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, "fallback": None, **res,
             "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
             "kf_from": "product" if (kf_qc or {}).get("source") == "product" else "ai",
-            "video_mode": "reference" if refs else "image", "video_refs": ref_labels,
+            "video_mode": "reference" if refs else "image", "video_refs": ref_labels, "clip_mode": mode, "engine_choice": engine,
+            "clip_prompt": prompt, "clip_comment": comment if prompt_override else "",
             **({"retry_error": f"质检不合格后自动重做失败，保留了第一条视频：{retry_error[:200]}"} if retry_error else {}),
             "qc": qc.merge(kf_qc, clip_qc, spec, {"keyframe": tries, "clip": clip_tries})}
 
@@ -897,7 +947,44 @@ async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str |
     _settle(video_id)
 
 
-async def _redo_clip(video_id: str, i: int) -> None:
+def _end_keyframe(video_id: str, i: int) -> str | None:
+    """首尾帧模式的结尾画面：下一镜的关键帧。"""
+    with SessionLocal() as db:
+        tasks = ((db.get(Node, video_id).data or {}).get("tasks") or [])
+    return (tasks[i + 1] or {}).get("keyframe") if i + 1 < len(tasks) else None
+
+
+def preview_clip(video_id: str, i: int, mode: str | None = None) -> dict:
+    """「重做视频」浮窗：这一镜上一轮怎么生成的，以及按选的模式这一轮会怎么生成（提示词、参考图）。"""
+    ctx = _context(video_id)
+    with SessionLocal() as db:
+        t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i] or {}
+    sh, cast = ctx["shots"][i], ctx["cast"]
+    spec = phone_spec(_spec(cast.get("specs") or [], i), sh[1] if len(sh) > 1 else "") if cast.get("product") else _spec(cast.get("specs") or [], i)
+    kf_qc = {**(t.get("qc") or {}), **({"source": "product"} if t.get("kf_from") == "product" else {})}
+    end = _end_keyframe(video_id, i)
+    plan = clip_plan(sh, spec, cast, t.get("keyframe"), kf_qc, mode or t.get("clip_mode"), "", end)
+    last_mode = t.get("clip_mode") or ("ref" if t.get("video_mode") == "reference" else "first" if t.get("url") else None)
+    return {**plan, "engines": VIDEO_ENGINES, "modes": {k: v for k, v in VIDEO_MODES.items() if (k != "ref" or plan["can_ref"]) and (k != "first_last" or end)},
+            "last": {"mode": last_mode, "mode_label": VIDEO_MODES.get(last_mode or "", ""), "model": t.get("model"), "fallback": t.get("fallback"),
+                     "engine_choice": t.get("engine_choice") or "auto", "prompt": t.get("clip_prompt") or t.get("prompt") or "",
+                     "comment": t.get("clip_comment") or "", "refs": t.get("video_refs") or [], "status": t.get("status"),
+                     "error": t.get("error") or t.get("retry_error") or "", "issues": (t.get("qc") or {}).get("issues") or [], "url": t.get("url")}}
+
+
+async def rewrite_clip_prompt(prompt: str, suggestion: str, mode: str) -> str:
+    """按修改建议改写视频提示词：保留 @Image 引用和商品一致性要求，只改动作、运镜、节奏等。"""
+    if not settings_store.llm_enabled():
+        return f"{prompt}\n修改意见：{suggestion}"
+    out = await llm.chat_json(
+        "你是短视频广告的视频提示词工程师。按用户的修改建议改写图生视频提示词，只输出 JSON：{\"prompt\": \"英文提示词\"}。"
+        "必须保留原文里的 @Image1 / @Image2 等引用写法和它们的含义（@Image1 是开场画面），保留商品外观不变、不出现屏幕文字、手机正反面符合物理这些要求；"
+        "只按建议修改人物动作、运镜、节奏、光线等。不要加入建议里没有的新元素。",
+        f"模式：{VIDEO_MODES.get(mode, mode)}\n原提示词：{prompt}\n修改建议：{suggestion}", task="script", timeout=60)
+    return (out.get("prompt") or "").strip() or prompt
+
+
+async def _redo_clip(video_id: str, i: int, prompt: str | None = None, mode: str | None = None, engine: str = "auto", comment: str = "") -> None:
     """用第 i 镜现在的关键帧生成视频（关键帧确认后、或只有视频失败时）。"""
     _begin_shot(video_id, i, "生成视频")
     try:
@@ -910,7 +997,8 @@ async def _redo_clip(video_id: str, i: int) -> None:
         if t.get("kf_from") == "product":  # 实拍图合成的关键帧，视频提示词要求商品保持不变
             kf_qc = {**(kf_qc or {}), "source": "product"}
         res = await make_clip(video_id, i, sh, spec, cast, t.get("keyframe"), kf_qc, ((t.get("qc") or {}).get("attempts") or {}).get("keyframe", 1),
-                              "", "", settings_store.get_retries()["clip"])
+                              "", comment, settings_store.get_retries()["clip"], prompt_override=prompt, mode=mode, engine=engine or "auto",
+                              end_kf=_end_keyframe(video_id, i) if mode == "first_last" else None)
         _shot(video_id, i, **res)
     except Exception as e:  # noqa: BLE001
         log.exception("生成视频出错 %s #%d", video_id, i)
@@ -928,10 +1016,10 @@ async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | 
         raise
 
 
-async def redo_clip(video_id: str, i: int) -> None:
+async def redo_clip(video_id: str, i: int, prompt: str | None = None, mode: str | None = None, engine: str = "auto", comment: str = "") -> None:
     try:
         with _track(video_id):
-            await _redo_clip(video_id, i)
+            await _redo_clip(video_id, i, prompt, mode, engine, comment)
     except asyncio.CancelledError:
         _mark_stopped(video_id)
         _settle(video_id)
