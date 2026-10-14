@@ -100,6 +100,16 @@ FACE_REF = "fal-ai/kling-video/o3/pro/reference-to-video"
 FACE_I2V = "fal-ai/kling-video/o3/pro/image-to-video"
 
 
+def describe(e: BaseException) -> str:
+    """异常写成人话。httpx 的超时 / 连接错误 str() 是空的，直接存会变成「没有返回原因」。"""
+    msg = str(e).strip()
+    if isinstance(e, httpx.TimeoutException):
+        return f"连接 fal 超时（{type(e).__name__}）：网络或代理太慢，稍后点「重做视频」再试" + (f"：{msg}" if msg else "")
+    if isinstance(e, httpx.TransportError):
+        return f"连不上 fal（{type(e).__name__}）：检查网络 / 代理" + (f"：{msg}" if msg else "")
+    return msg or f"{type(e).__name__}（没有更多信息）"
+
+
 def face_rejected(err: str) -> bool:
     return bool(re.search(r"真人脸|likeness|real people|face|person|portrait", err or "", re.I))
 

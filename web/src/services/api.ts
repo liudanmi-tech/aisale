@@ -1,6 +1,7 @@
 import axios from "axios";
 
-export const http = axios.create({ baseURL: "/api/v1" });
+// 30 秒没响应就报错（后端卡住或没启动时，按钮不会一直转圈没反应）；上传等慢接口单独放宽
+export const http = axios.create({ baseURL: "/api/v1", timeout: 30_000 });
 
 /** 公网部署开启了管理员口令时，设置页的写操作带上它（只存在当前标签页）。 */
 export const adminToken = {
@@ -139,6 +140,8 @@ export interface FlowStep {
 
 const get = <T,>(url: string, params?: object) => http.get<T>(url, { params }).then((r) => r.data);
 const post = <T = any,>(url: string, body?: object) => http.post<T>(url, body).then((r) => r.data);
+/** 要等大模型 / 上传的接口：放宽到 3 分钟 */
+const postSlow = <T = any,>(url: string, body?: object) => http.post<T>(url, body, { timeout: 180_000 }).then((r) => r.data);
 
 export interface ProjectSummary {
     id: string;
@@ -282,7 +285,7 @@ export const api = {
     canvas: (pid: string) => get<CanvasSnapshot>(`/projects/${pid}/canvas`),
     chat: (pid: string) => get<ChatMsg[]>(`/projects/${pid}/chat`),
     send: (pid: string, text: string, selection: string[]) =>
-        post<{ effects: { type: string; node_ids: string[] }[]; reply?: string; pending_patch?: string | null }>(`/projects/${pid}/agent/chat`, { text, selection }),
+        postSlow<{ effects: { type: string; node_ids: string[] }[]; reply?: string; pending_patch?: string | null }>(`/projects/${pid}/agent/chat`, { text, selection }),
     deleteNodes: (pid: string, ids: string[]) => post<{ ok: boolean; deleted: string[] }>(`/projects/${pid}/nodes/delete`, { ids }),
     applyPatch: (pid: string, id: string) => post(`/projects/${pid}/patches/${id}/apply`),
     cancelPatch: (pid: string, id: string) => post(`/projects/${pid}/patches/${id}/cancel`),
@@ -293,7 +296,7 @@ export const api = {
     wash: (pid: string, ref_ad_no: number) => post<{ node_id: string; prompt: string }>(`/projects/${pid}/wash`, { ref_ad_no }),
     flow: (pid: string) => get<FlowStep[]>(`/projects/${pid}/flow`),
     node: (nid: string) => get<CanvasNode & { review_id: string | null; upstream: CanvasNode[]; project_id: string }>(`/nodes/${nid}`),
-    rewriteShot: (nid: string, i: number, hint: string) => post(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
+    rewriteShot: (nid: string, i: number, hint: string) => postSlow(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
     drawStoryboard: (nid: string, indices?: number[]) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null }),
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
@@ -301,9 +304,9 @@ export const api = {
     library: (kind?: AssetKind) => get<LibraryAsset[]>("/library", kind ? { kind } : {}),
     catalog: () => get<CatalogModel[]>("/library/catalog"),
     importCatalog: (ids: string[]) => post<{ created: number; items: { catalog_id: string; asset_id: string; created: boolean }[] }>("/library/catalog/import", { ids }),
-    createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean; consent?: boolean }) => post<LibraryAsset>("/library", body),
+    createAsset: (body: { kind: AssetKind; name: string; description?: string; data?: object; image?: string; generate?: boolean; consent?: boolean }) => postSlow<LibraryAsset>("/library", body),
     patchAsset: (id: string, body: Partial<Pick<LibraryAsset, "name" | "description" | "data" | "tags">>) => http.patch(`/library/${id}`, body).then((r) => r.data),
-    uploadAsset: (id: string, image: string, consent = false, view?: string) => post<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent, view }),
+    uploadAsset: (id: string, image: string, consent = false, view?: string) => postSlow<LibraryAsset & { resumed: string[] }>(`/library/${id}/upload`, { image, consent, view }),
     setAssetView: (id: string, url: string, view: string) => post<LibraryAsset>(`/library/${id}/view`, { url, view }),
     removeAssetImage: (id: string, url: string) => post<LibraryAsset>(`/library/${id}/remove-image`, { url }),
     generateAsset: (id: string, prompt?: string) => post(`/library/${id}/generate`, prompt === undefined ? {} : { prompt }),
@@ -330,7 +333,7 @@ export const api = {
     settings: () => get<PlatformSettings>("/settings"),
     saveSecret: (name: string, value: string) => http.put(`/settings/secrets/${name}`, { value }).then((r) => r.data),
     deleteSecret: (name: string) => http.delete(`/settings/secrets/${name}`).then((r) => r.data),
-    testSecret: (name: string, value?: string) => post<{ ok: boolean; message: string }>(`/settings/secrets/${name}/test`, { value: value || null }),
+    testSecret: (name: string, value?: string) => postSlow<{ ok: boolean; message: string }>(`/settings/secrets/${name}/test`, { value: value || null }),
     watchAccounts: () => get<{ ready: boolean; items: WatchAccount[] }>("/watch/accounts"),
     addWatchAccounts: (body: { handles: string; brand: string; market: string; kind: string }) => post<{ added: number; skipped: number }>("/watch/accounts", body),
     patchWatchAccount: (id: string, body: Partial<Pick<WatchAccount, "brand" | "market" | "kind" | "enabled">>) => http.patch(`/watch/accounts/${id}`, body).then((r) => r.data),

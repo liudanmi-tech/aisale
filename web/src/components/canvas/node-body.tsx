@@ -17,7 +17,9 @@ export interface BodyActions {
     onRevise: (n: CanvasNode) => void;
 }
 
-const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
+const errMsg = (e: any) => e?.response?.data?.detail
+    || (e?.code === "ECONNABORTED" ? "后端 30 秒没有响应：看一下运行后端的终端有没有报错，或重启后端后再试"
+        : e?.code === "ERR_NETWORK" ? "连不上后端：后端可能没启动或刚重启，稍等再试" : e?.message) || "操作失败";
 
 function Btn({ icon, children, onClick, disabled, primary }: { icon?: ReactNode; children: ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean }) {
     return (
@@ -489,7 +491,12 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const regen = useMutation({ mutationFn: (i: number) => api.regenerateShot(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 重新生成中`); refresh(); }, onError: onErr });
     const regenSome = useMutation({ mutationFn: (idx: number[]) => api.regenerateShots(n.id, idx), onSuccess: (r) => { message.success(`重新生成 ${r.indices.length} 镜`); refresh(); }, onError: onErr });
     const redoKf = useMutation({ mutationFn: ({ i, r }: { i: number; r: KfRedo }) => api.redoKeyframe(n.id, i, r), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
-    const redoClip = useMutation({ mutationFn: (i: number) => api.redoClip(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 用当前关键帧生成视频中`); refresh(); }, onError: onErr });
+    const redoClip = useMutation({
+        mutationFn: (i: number) => api.redoClip(n.id, i),
+        onMutate: (i) => { message.loading({ content: `镜 ${i + 1}：正在提交重做视频…`, key: `redo-clip-${i}` }); },
+        onSuccess: (_, i) => { message.success({ content: `镜 ${i + 1} 用当前关键帧生成视频中`, key: `redo-clip-${i}` }); refresh(); },
+        onError: (e, i) => { message.error({ content: `镜 ${i + 1} 重做视频没提交成功：${errMsg(e)}`, key: `redo-clip-${i}`, duration: 6 }); },
+    });
     const regenAll = useMutation({ mutationFn: () => api.regenerateVideo(n.id), onSuccess: () => { message.success("整条视频重新生成中（使用当前的演员 / 场景 / 商品）"); refresh(); }, onError: onErr });
     const dirty = shots.map((s, i) => libReady && shotDirty(tasks[i], s[1], cast?.specs?.[i], cast, lib));
     const dirtyIdx = dirty.flatMap((d, i) => (d ? [i] : []));
@@ -597,7 +604,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {!confirming && (
                                     <div className="mt-1 flex flex-wrap gap-1">
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
-                                        {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || redoClip.isPending} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
+                                        {t.status === "failed" && t.keyframe && !waitingKf && <Btn primary icon={<RefreshCw size={10} />} disabled={locked || (redoClip.isPending && redoClip.variables === i)} onClick={() => redoClip.mutate(i)}>重做视频</Btn>}
                                         {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })}
                                             addProduct={cast?.product && (spec?.product || (spec?.roles?.length && PHONE_RE.test(`${s[1]} ${spec?.line || ""}`)))
                                                 && !(t.kf_meta?.refs || []).some((r: KfRef) => r.kind === "product") ? (lib[cast.product]?.images || []).slice(0, 2) : []} />}

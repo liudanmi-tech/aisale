@@ -394,9 +394,9 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
                     job = await (fal.submit_i2v(prompt, image, duration=5) if image else fal.submit(prompt, duration=5))
                 res = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
             except fal.InputRejected as e:
-                res = {"provider": "fal", "status": "failed", "error": str(e)[:400], "rejected": True}
+                res = {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400], "rejected": True}
             except Exception as e:  # noqa: BLE001
-                return {"provider": "fal", "status": "failed", "error": str(e)[:400]}
+                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400]}
             plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
             if fal.face_rejected(res.get("error", "")):
                 # 含真人脸：Seedance 2.x（2.5 和 2.0）都按隐私规定拒收，直接改用可灵 O3 Pro：关键帧做开场，商品图作为 @Element1
@@ -414,7 +414,7 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
                         job = await go()
                         res2 = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
                     except Exception as e:  # noqa: BLE001
-                        res2 = {"status": "failed", "error": str(e)[:300]}
+                        res2 = {"status": "failed", "error": fal.describe(e)[:300]}
                     if res2.get("status") != "failed":
                         return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 {label}"}
                     errs.append(f"{label}：{res2.get('error', '')[:160]}")
@@ -893,7 +893,7 @@ async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str |
             _shot(video_id, i, phase="失败", status="failed", error=f"关键帧没画出来：{err}")
     except Exception as e:  # noqa: BLE001
         log.exception("重画关键帧出错 %s #%d", video_id, i)
-        _shot(video_id, i, phase="失败", status="failed", error=f"重画关键帧出错：{str(e)[:200]}")
+        _shot(video_id, i, phase="失败", status="failed", error=f"重画关键帧出错：{fal.describe(e)[:200]}")
     _settle(video_id)
 
 
@@ -914,7 +914,7 @@ async def _redo_clip(video_id: str, i: int) -> None:
         _shot(video_id, i, **res)
     except Exception as e:  # noqa: BLE001
         log.exception("生成视频出错 %s #%d", video_id, i)
-        _shot(video_id, i, phase="失败", status="failed", error=f"生成视频出错：{str(e)[:200]}")
+        _shot(video_id, i, phase="失败", status="failed", error=f"生成视频出错：{fal.describe(e)[:200]}")
     _settle(video_id)
 
 
