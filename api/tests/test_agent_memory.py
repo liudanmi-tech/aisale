@@ -276,3 +276,25 @@ def test_video_plan_and_redo_with_choices(monkeypatch):
             time.sleep(0.05)
         assert t["phase"] == "完成" and t["clip_mode"] == "first_last" and t["engine_choice"] == "kling" and t["clip_prompt"] == "Man holds the phone, slow."
         assert calls == [("kling_i2v", "Man holds the phone, slow.", True)]
+
+
+def test_fal_failure_always_has_reason(monkeypatch):
+    """可灵 / fal 任务「完成」但没给视频、或 FAILED 只带 error 字段：都要写出原因，不能是空的。"""
+    import asyncio as _a
+
+    import httpx as _h
+
+    from app.adapters import fal as _fal
+
+    def run(status: dict, result: dict) -> dict:
+        def handler(req):
+            return _h.Response(200, json=status if req.url.path.endswith("/status") else result)
+        monkeypatch.setattr(_fal, "transport", _h.MockTransport(handler))
+        monkeypatch.setattr(_fal, "_headers", lambda key=None: {})
+        job = {"model": _fal.FACE_REF, "status_url": "https://q.test/r/1/status", "response_url": "https://q.test/r/1"}
+        return _a.run(_fal.wait(job, 5))
+
+    r = run({"status": "COMPLETED"}, {"detail": "content moderation"})
+    assert r["status"] == "failed" and "没有返回视频" in r["error"] and "content moderation" in r["error"]
+    r = run({"status": "FAILED", "error": "Kling internal error"}, {})
+    assert r["status"] == "failed" and "Kling internal error" in r["error"]

@@ -4,12 +4,14 @@
 返回 request_id、status_url、response_url；轮询 status_url 到 COMPLETED 后读 response_url，视频地址在 video.url。
 """
 import asyncio
+import logging
 import re
 
 import httpx
 
 from app import settings_store
 
+log = logging.getLogger(__name__)
 BASE = "https://queue.fal.run"
 transport: httpx.AsyncBaseTransport | None = None  # 测试时注入
 POLL_SECONDS = 4.0
@@ -152,7 +154,9 @@ async def _result(job: dict, timeout_seconds: float = 900) -> dict:
                     return {"status": "failed", "error": _message(out), "rejected": out.status_code == 422}
                 return {"status": "completed", "data": out.json()}
             if st in ("FAILED", "CANCELLED", "ERROR"):
-                return {"status": "failed", "error": f"fal 任务失败（{st}）：{str(r.json())[:200]}"}
+                body = r.json()
+                why = body.get("error") or body.get("detail") or body.get("logs") or body
+                return {"status": "failed", "error": f"fal 任务失败（{st}）：{str(why)[:300]}"}
             await asyncio.sleep(POLL_SECONDS)
             waited += POLL_SECONDS
     return {"status": "failed", "error": "timeout"}
@@ -163,7 +167,12 @@ async def wait(job: dict, timeout_seconds: float = 900) -> dict:
     if res["status"] != "completed":
         return res
     d = res["data"]
-    return {"status": "completed", "video_url": (d.get("video") or {}).get("url", ""), "seed": d.get("seed")}
+    url = (d.get("video") or {}).get("url", "") if isinstance(d, dict) else ""
+    if not url:  # 任务「完成」了但没给视频：多半是模型内部失败，把原始返回带上，别当成功
+        log.warning("fal %s 完成但没有视频：%s", job.get("model"), str(d)[:500])
+        why = (d.get("error") or d.get("detail") or d) if isinstance(d, dict) else d
+        return {"status": "failed", "error": f"{job.get('model', 'fal')} 任务结束了但没有返回视频：{str(why)[:300]}"}
+    return {"status": "completed", "video_url": url, "seed": d.get("seed")}
 
 
 CUTOUT_MODEL = "fal-ai/birefnet/v2"

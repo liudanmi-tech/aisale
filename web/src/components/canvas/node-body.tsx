@@ -428,7 +428,7 @@ function VideoRedo({ nid, i, disabled, primary, onDone }: { nid: string; i: numb
                                 <span className="text-ink2">模式</span><span className="text-ink">{last.mode_label || "—"}{last.refs.length ? `（${last.refs.join("、")}）` : ""}</span>
                                 <span className="text-ink2">模型</span><span className="text-ink">{modelName(last.model)}{last.engine_choice !== "auto" ? "（手动指定）" : ""}</span>
                                 {last.fallback && <><span className="text-ink2">自动换</span><span className="text-ink2">{last.fallback}</span></>}
-                                <span className="text-ink2">结果</span><span className={last.status === "failed" ? "text-bad" : "text-ink"}>{last.status === "failed" ? `失败：${last.error || "没有返回原因"}` : last.url ? "已生成" : "—"}</span>
+                                <span className="text-ink2">结果</span><span className={last.status === "failed" ? "text-bad" : "text-ink"}>{last.status === "failed" ? `失败：${last.error || "这次失败没有记下原因（多半是重启后端之前跑的），再生成一次就能看到原因"}` : last.url ? "已生成" : "—"}</span>
                                 {last.comment && <><span className="text-ink2">上次建议</span><span className="text-ink">{last.comment}</span></>}
                             </div>
                         ) : <div className="text-[11px] text-ink2">这一镜还没生成过视频，或是旧版本生成的（没记录模式和模型）</div>}
@@ -693,7 +693,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     {t.kf_meta?.mode === "placement" && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2" title="先画占位手机，再换成真实商品">换真机</span>}
                                     {t.kf_meta?.composite && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2">实拍合成</span>}
                                 </div>
-                                {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有返回原因），可以点「重做视频」"}</div>}
+                                {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有记下原因，多半是重启后端之前跑的），点「重做视频」再试一次会显示原因"}</div>}
                                 {t.fallback && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-elev px-1 text-[10px] leading-[14px] text-ink2" title={t.fallback}>{`已改用 ${(t.fallback.match(/自动改用 (.+)$/) || [])[1] || "备用模型"}`}{/可灵/.test(t.fallback) ? "：画面有真人脸，Seedance 2.x 不接受" : "：2.5 不接受这一镜的输入"}</div>}
                                 {t.retry_error && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.retry_error}>{t.retry_error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}

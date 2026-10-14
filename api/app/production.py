@@ -790,6 +790,8 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
         _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}),
               fallback=None, error=None)  # 上一轮「改用备用模型」的记录作废，免得和这一轮混在一起
         res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs, engine=engine, end_image=end_image)
+        if res.get("status") == "failed" and not (res.get("error") or "").strip():
+            res = {**res, "error": f"{res.get('model') or '视频模型'} 返回失败，但没有给出原因（任务 {res.get('task_id') or '未提交'}）"}
         if res.get("status") == "failed":
             if best:
                 retry_error = res.get("error") or "重新生成失败"
@@ -807,7 +809,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
     if best:
         res, clip_qc, clip_tries = best
     return {"shot": i + 1, "source": "seedance", "prompt": prompt, "keyframe": kf, "keyframe_error": err, "spec": spec,
-            "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, "fallback": None, **res,
+            "url": res.get("video_url"), "video_url": res.get("video_url"), "error": None, "retry_error": None, "fallback": None, "model": None, "task_id": None, **res,
             "phase": "失败" if res.get("status") == "failed" else "完成", "inputs": inputs(sh, spec, cast),
             "kf_from": "product" if (kf_qc or {}).get("source") == "product" else "ai",
             "video_mode": "reference" if refs else "image", "video_refs": ref_labels, "clip_mode": mode, "engine_choice": engine,
