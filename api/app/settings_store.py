@@ -37,6 +37,7 @@ IMAGE_MODELS = [
 ]
 VIDEO_I2V_MODELS = [
     {"id": "bytedance/seedance-2.5/image-to-video", "label": "Seedance 2.5 图生视频", "hint": "按关键帧生成，最高 1080p，4–30 秒（默认）"},
+    {"id": "bytedance/seedance-2.0/image-to-video", "label": "Seedance 2.0 图生视频", "hint": "2.5 拒收（如含真人脸）时自动退回用它"},
     {"id": "fal-ai/bytedance/seedance/v1/pro/image-to-video", "label": "Seedance 1.0 Pro 图生视频", "hint": "按关键帧生成，最高 1080p，更便宜"},
     {"id": "fal-ai/bytedance/seedance/v1/lite/image-to-video", "label": "Seedance 1.0 Lite 图生视频", "hint": "更快更便宜"},
 ]

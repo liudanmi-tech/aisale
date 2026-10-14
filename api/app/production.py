@@ -362,18 +362,22 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
                 res = {"provider": "fal", "status": "failed", "error": str(e)[:400], "rejected": True}
             except Exception as e:  # noqa: BLE001
                 return {"provider": "fal", "status": "failed", "error": str(e)[:400]}
-            if res.get("status") == "failed" and res.get("rejected") and image:
-                # Seedance 2.x 拒收（常见：画面里有真人脸）：用关键帧走 Seedance 1 Pro 图生视频再做一次。
-                # 关键帧里已经换好了真实商品，外观靠关键帧保持
-                try:
-                    plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
-                    job = await fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V)
-                    res2 = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
-                except Exception as e:  # noqa: BLE001
-                    res2 = {"status": "failed", "error": str(e)[:300]}
-                if res2.get("status") != "failed":
-                    return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 Seedance 1 Pro 图生视频"}
-                res["error"] += f"；改用 Seedance 1 Pro 也失败：{res2.get('error', '')[:200]}"
+            # Seedance 2.5 拒收（常见：画面里有真人脸）：退回 Seedance 2.0，先用同样的全能参考，不行再用关键帧图生视频
+            tries = ([("全能参考", lambda: fal.submit_ref(prompt, refs, duration=5, model=fal.FALLBACK_REF))] if refs else []) + \
+                ([("图生视频", lambda: fal.submit_i2v(re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame",
+                                                          prompt.replace("@Image1", "the first frame")), image, duration=5, model=fal.FALLBACK_I2V))] if image else [])
+            if res.get("status") == "failed" and res.get("rejected") and "seedance-2.0" not in (res.get("model") or ""):
+                errs = []
+                for label, go in tries:
+                    try:
+                        job = await go()
+                        res2 = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
+                    except Exception as e:  # noqa: BLE001
+                        res2 = {"status": "failed", "error": str(e)[:300]}
+                    if res2.get("status") != "failed":
+                        return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 Seedance 2.0 {label}"}
+                    errs.append(f"Seedance 2.0 {label}：{res2.get('error', '')[:160]}")
+                res["error"] += "；改用 " + "；".join(errs) + " 也失败" if errs else ""
             return res
         tid = await seedance.create_task(prompt)
         return {"provider": "byteplus" if provider == "byteplus" else "mock", "task_id": tid, **await seedance.wait_task(tid)}

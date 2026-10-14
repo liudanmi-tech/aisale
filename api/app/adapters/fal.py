@@ -80,7 +80,9 @@ async def submit(prompt: str, duration: int = 5, aspect_ratio: str = "9:16") -> 
     return await _submit(model, {**_video_body(prompt, duration, models, model), "aspect_ratio": aspect_ratio})
 
 
-FALLBACK_I2V = "fal-ai/bytedance/seedance/v1/pro/image-to-video"  # Seedance 2.x 拒收（如含真人脸）时退回用它
+# Seedance 2.5 拒收（如含真人脸）时退回 Seedance 2.0
+FALLBACK_REF = "bytedance/seedance-2.0/reference-to-video"  # 全能参考，最多 9 张图
+FALLBACK_I2V = "bytedance/seedance-2.0/image-to-video"
 
 
 async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str | None = None) -> dict:
@@ -93,10 +95,12 @@ async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str 
     return await _submit(model, body)
 
 
-async def submit_ref(prompt: str, image_urls: list[str], duration: int = 5) -> dict:
+async def submit_ref(prompt: str, image_urls: list[str], duration: int = 5, model: str | None = None) -> dict:
     """全能参考生视频（Seedance 2.x reference-to-video）：提示词里用 @Image1、@Image2 引用 image_urls 里的图。"""
     models = settings_store.get_models()
-    model = models["video_ref"]
+    model = model or models["video_ref"]
+    if "seedance-2.0" in model:
+        image_urls = image_urls[:9]
     return await _submit(model, {**_video_body(prompt, duration, models, model), "image_urls": image_urls, "aspect_ratio": "9:16"})
 
 

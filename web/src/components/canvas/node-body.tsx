@@ -584,7 +584,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     {t.kf_meta?.composite && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2">实拍合成</span>}
                                 </div>
                                 {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有返回原因），可以点「重做视频」"}</div>}
-                                {t.fallback && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-elev px-1 text-[10px] leading-[14px] text-ink2" title={t.fallback}>已改用 Seedance 1 Pro：2.5 不接受这一镜的输入</div>}
+                                {t.fallback && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-elev px-1 text-[10px] leading-[14px] text-ink2" title={t.fallback}>{(t.fallback.match(/改用 (Seedance [^，。；]+)/) || [])[1] ? `已改用 ${(t.fallback.match(/改用 (Seedance [^，。；]+)/) || [])[1]}` : "已改用备用模型"}：2.5 不接受这一镜的输入</div>}
                                 {t.retry_error && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.retry_error}>{t.retry_error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />

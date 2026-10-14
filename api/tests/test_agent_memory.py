@@ -176,9 +176,14 @@ def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
     monkeypatch.setattr(fal, "submit_i2v", i2v)
     monkeypatch.setattr(fal, "wait", wait)
     monkeypatch.setattr(settings_store, "video_provider", lambda: "fal")
+    async def ref(prompt, urls, duration=5, model=None):
+        calls.append(("ref", model))
+        # 2.5 全能参考拒收；2.0 全能参考也拒收 → 最后走 2.0 图生视频
+        return {"model": model or "bytedance/seedance-2.5/reference-to-video", "request_id": "r1"}
+    monkeypatch.setattr(fal, "submit_ref", ref)
     res = asyncio.run(production.clip("@Image1 is the opening frame. The phone is the one in @Image2 and @Image3.", "data:image/jpeg;base64,xx", ["a", "b"]))
-    assert res["video_url"] == "https://v.fal.media/ok.mp4" and "Seedance 1 Pro" in res["fallback"]
-    assert calls[1][1] == fal.FALLBACK_I2V and "@Image" not in calls[1][2]
+    assert res["video_url"] == "https://v.fal.media/ok.mp4" and "Seedance 2.0 图生视频" in res["fallback"]
+    assert calls[1] == ("ref", fal.FALLBACK_REF) and calls[2][1] == fal.FALLBACK_I2V == "bytedance/seedance-2.0/image-to-video" and "@Image" not in calls[2][2]
 
     with TestClient(app) as c:
         pid = c.post("/api/v1/projects", json={"name": "并行"}).json()["id"]
