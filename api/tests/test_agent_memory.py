@@ -67,3 +67,16 @@ def test_history_window(monkeypatch):
         msgs = seen["messages"]
         assert msgs[0]["role"] == "system" and "记忆" in msgs[0]["content"] and msgs[-1] == {"role": "user", "content": "继续"}
         assert any(m["content"].startswith("当前这条") for m in msgs[1:-1])
+
+
+def test_openrouter_errors_are_readable():
+    """OpenRouter 出错时给出原因：余额不够画图（文字调用照常）这种情况最常见。"""
+    import httpx
+    import pytest
+    req = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    body = {"error": {"message": "This request requires at least $1.00 in balance for image or video output", "code": 402}}
+    with pytest.raises(RuntimeError, match="生成图片要求账户余额至少 \\$1"):
+        llm._check(httpx.Response(402, json=body, request=req))
+    with pytest.raises(RuntimeError, match="Key 无效"):
+        llm._check(httpx.Response(401, json={"error": {"message": "No auth"}}, request=req))
+    llm._check(httpx.Response(200, json={}, request=req))

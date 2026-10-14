@@ -111,10 +111,16 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
                     </span>
                 )}
                 <span className="ml-auto truncate text-[11px] text-ink2">
-                    {sb.status === "running" ? `正在画分镜 ${sb.done ?? 0}/${sb.total ?? shots.length}` : sb.status === "error" ? <span className="text-bad" title={sb.error}>部分分镜失败</span>
+                    {sb.status === "running" ? `正在画分镜 ${sb.done ?? 0}/${sb.total ?? shots.length}` : sb.status === "error" ? <span className="text-bad" title={sb.error}>{frames.some(Boolean) ? "部分分镜失败" : "分镜失败"}</span>
                         : `v${n.data.version || 1} · ${shots.length} 镜 · 15 秒 · 9:16`}
                 </span>
             </div>
+            {sb.status === "error" && sb.error && !drawing && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg bg-bad/10 px-2.5 py-1.5 text-[11px] leading-4 text-bad">
+                    <span className="min-w-0 flex-1">原因：{sb.error}</span>
+                    <Btn icon={<RefreshCw size={11} />} disabled={n.status === "run"} onClick={() => draw.mutate(shots.flatMap((_, i) => (frames[i] ? [] : [i])))}>重画失败的分镜</Btn>
+                </div>
+            )}
             <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(4, shots.length)}, minmax(0, 1fr))` }}>
                 {shots.map((s, i) => {
                     const f = frames[i];

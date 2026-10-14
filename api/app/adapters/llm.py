@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import re
 
 import httpx
 
@@ -25,8 +26,31 @@ async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode:
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
         # httpx 的 timeout 只管单次读写；OpenRouter 处理中会发保活空白，模型卡住时永远不超时，所以再加一个总时限
         r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
-        r.raise_for_status()
+        _check(r)
         return r.json()["choices"][0]["message"]
+
+
+def _check(r: httpx.Response) -> None:
+    """OpenRouter 出错时把原因翻成人话（原始的 httpx 报错只有状态码，看不出为什么）。"""
+    if r.status_code < 400:
+        return
+    try:
+        msg = (r.json().get("error") or {}).get("message") or r.text
+    except Exception:  # noqa: BLE001
+        msg = r.text
+    msg = str(msg)[:200]
+    if r.status_code == 402 and re.search(r"image|video", msg, re.I):
+        raise RuntimeError("OpenRouter 余额不足：生成图片要求账户余额至少 $1（写剧本等文字调用不受影响）。"
+                           "到 openrouter.ai 充值，或在 Keys 设置里调高这个 Key 的额度，然后点「重画失败的分镜」")
+    if r.status_code == 402:
+        raise RuntimeError("OpenRouter 余额不足或这个 Key 的额度用完了：到 openrouter.ai 充值或调高 Key 额度后重试")
+    if r.status_code in (401, 403):
+        raise RuntimeError(f"OpenRouter Key 无效或没有权限（{msg}）：在设置页重新填写 Key")
+    if r.status_code == 429:
+        raise RuntimeError("OpenRouter 请求太频繁，稍等一会儿再试")
+    if r.status_code == 404 or "not a valid model" in msg:
+        raise RuntimeError(f"模型不可用（{msg}）：在设置页换一个模型")
+    raise RuntimeError(f"OpenRouter {r.status_code}：{msg}")
 
 
 async def image(content: list[dict] | str, task: str = "storyboard", aspect_ratio: str = "9:16", timeout: float = 180) -> tuple[bytes, str]:
@@ -39,7 +63,7 @@ async def image(content: list[dict] | str, task: str = "storyboard", aspect_rati
             "messages": [{"role": "user", "content": content}]}
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
         r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
-        r.raise_for_status()
+        _check(r)
         imgs = r.json()["choices"][0]["message"].get("images") or []
         if not imgs:
             raise RuntimeError("模型没有返回图片")

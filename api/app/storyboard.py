@@ -143,7 +143,7 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
             await draw(0, None)
         except Exception as e:  # noqa: BLE001
             log.warning("分镜 %s 第 1 镜失败：%s", node_id, e)
-            errors.append(f"第 1 镜：{str(e)[:80] or type(e).__name__}")
+            errors.append(f"第 1 镜：{str(e)[:220] or type(e).__name__}")
         with SessionLocal() as db:
             f0 = ((db.get(Node, node_id).data or {}).get("frames") or [None])[0]
         ref = _data_url(frame_path(f0["url"])) if f0 else None
@@ -155,8 +155,13 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
                 await draw(i, ref)
             except Exception as e:  # noqa: BLE001  单镜失败不影响其他镜
                 log.warning("分镜 %s 第 %d 镜失败：%s", node_id, i + 1, e)
-                errors.append(f"第 {i + 1} 镜：{str(e)[:80] or type(e).__name__}")
+                errors.append(f"第 {i + 1} 镜：{str(e)[:220] or type(e).__name__}")
 
     await asyncio.gather(*(guarded(i) for i in todo if i != 0))
-    _update(node_id, storyboard={"status": "error" if errors else "done", "done": total - len(errors), "total": total,
-                                 "error": "；".join(errors)})
+    # 同一个原因（如余额不足）只说一次：「第 1、2、3、4 镜：……」
+    by: dict[str, list[str]] = {}
+    for e in errors:
+        shot, _, why = e.partition("：")
+        by.setdefault(why, []).append(shot.removeprefix("第 ").removesuffix(" 镜"))
+    msg = "；".join(f"第 {'、'.join(sorted(v, key=int))} 镜：{why}" for why, v in by.items())
+    _update(node_id, storyboard={"status": "error" if errors else "done", "done": total - len(errors), "total": total, "error": msg})
