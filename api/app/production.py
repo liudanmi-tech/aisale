@@ -41,6 +41,8 @@ CAST_PROMPT = f"""你是短视频广告的制片和选角导演。根据剧本�
 }}
 规则：specs 每镜一条、顺序与分镜一致；人物都是目标市场的当地人；第 {PRODUCT_SHOT + 1} 镜是产品特写，product 为 true；
 同一个人物在不同镜头用同一个 key；已有素材合适就复用（reuse 填它的 id），不要重复造人。
+场景是空的布景：description 只写环境、陈设和光线，不写人物，也不写手机或任何电子设备（人物用演员，手机用商品实拍，画关键帧时再放进去）；
+商品特写用的展示台 / 桌面要写成「空的台面」。
 画面里不出现任何文字：屏幕上显示的参数、价格、卖点数字一律写进 overlay（后期做成字幕贴片），不要让画面去画。"""
 
 
@@ -231,12 +233,21 @@ def _turnaround_url(asset_id: str | None) -> str | None:
         return (a.data or {}).get("turnaround") if a else None
 
 
-def keyframe_refs(spec: dict, cast: dict, frame_url: str | None) -> list[dict]:
+PHONE_WORDS = r"手机|phone|屏幕|自拍|拍照|视频通话|刷视频|刷手机|WhatsApp|TikTok|收款|扫码|导航|打电话|来电"
+
+
+def shows_phone(spec: dict, visual: str = "") -> bool:
+    """这一镜画面里有没有手机：商品镜头，或者画面描述里有人在用手机。画面里出现的手机都必须是我们的商品。"""
+    return bool(spec.get("product") or re.search(PHONE_WORDS, visual or "", re.I))
+
+
+def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "") -> list[dict]:
     """这一镜关键帧用的参考图（本地地址 + 用途说明），顺序：分镜草图 → 演员定妆照 / 三视图 → 场景 → 商品。"""
     refs = []
     if frame_url:
         refs.append({"kind": "storyboard", "label": "分镜草图", "url": frame_url,
-                     "note": "这一镜的分镜草图：只参考构图、机位和人物位置，不要沿用它的铅笔线稿画风"})
+                     "note": "这一镜的分镜草图：只参考构图、机位和人物位置，不要沿用它的铅笔线稿画风；草图里的人物和手机都只是占位，"
+                             "人物的长相、服装以演员定妆照为准，手机以商品实拍为准"})
     for key in spec.get("roles", []):
         name = cast["names"].get(key, key)
         aid = cast["roles"].get(key)
@@ -247,17 +258,21 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None) -> list[dict]:
     sid = cast["scenes"].get(spec.get("scene"))
     if _first_image(sid):
         name = cast["names"].get(spec.get("scene"), "")
-        refs.append({"kind": "scene", "label": f"场景：{name}", "url": _first_image(sid), "note": f"场景「{name}」：环境与光线和它一致"})
-    if spec.get("product"):
-        for v in product.good_views(cast.get("product"), spec.get("product_tier") or "hero", 2):
+        refs.append({"kind": "scene", "label": f"场景：{name}", "url": _first_image(sid),
+                     "note": f"场景「{name}」：只参考环境、布置和光线；场景图里如果有人物、手或手机，一律去掉、不要画进来——"
+                             "人物只用上面的演员，手机只用商品实拍"})
+    if spec.get("product") or shows_phone(spec, visual):
+        tier = spec.get("product_tier") or ("hero" if spec.get("product") and not spec.get("roles") else "hand")
+        for v in product.good_views(cast.get("product"), tier, 2 if spec.get("product") else 1):
             label = f"商品{product.VIEWS.get(v.get('view'), '')}图"
             refs.append({"kind": "product", "label": label, "url": v["url"],
                          "note": f"商品实拍（{product.VIEWS.get(v.get('view'), '实拍')}）：手机外观、颜色、摄像头模组必须和它完全一致，不要改造型"})
     return refs
 
 
-def keyframe_prompt(shot: list, spec: dict, market: str) -> str:
-    """关键帧提示词的主体（不含参考图说明和修改意见），重画时可以在画布上直接改。"""
+def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = False) -> str:
+    """关键帧提示词的主体（不含参考图说明和修改意见），重画时可以在画布上直接改。placeholder：两步走第一步，手机先画占位。"""
+    phone = shows_phone(spec, shot[1] if len(shot) > 1 else "") and not placeholder
     return (f"ONE photorealistic photograph of a single moment (never a collage, grid, split screen or before/after panels) — "
             f"a keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
             "如果画面描述里包含一段时间（如「从早到晚」「一边…一边…」），只挑其中最有代表性的一个瞬间来拍。\n"
@@ -265,23 +280,26 @@ def keyframe_prompt(shot: list, spec: dict, market: str) -> str:
             + ("画面描述里提到的参数、数字、标识和文字都不要画出来（后期做成字幕贴片），只画手机和人物本身。\n"
                if re.search(TEXTY, shot[1] if len(shot) > 1 else "") else "")
             + "画面中不要出现任何文字、字幕、品牌标志。\n"
-            f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
+            + (f"画面里的人物只有本镜的 {len(spec.get('roles') or [])} 个角色（长相照演员参考图），不要多画别人的正脸；背景路人只能是虚化的远景。\n"
+               if spec.get("roles") else "这一镜没有出场角色：不要画人物的正脸（商品镜头最多出现一只手）。\n")
+            + ("画面里出现的手机都必须是商品实拍里的这台手机，不要画别的手机。\n" if phone else "")
+            + f"Rules: the setting is {market}; people, streets and shops look local to {market}, never East Asian. "
             "The whole frame must be one consistent photorealistic photograph — no pencil-sketch or drawn areas. "
             "No readable text anywhere: shop signs, labels and screens are blank or blurred; never render Chinese characters."
             + (" The phone must copy the product photo exactly: same color, same camera module shape, same number and layout of lenses."
                " If the screen is visible it is off or shows a plain dark wallpaper — never draw UI, numbers or text on the screen."
-               if spec.get("product") else ""))
+               if phone else ""))
 
 
 async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, frame_url: str | None, market: str, comment: str,
                    prompt: str | None = None, drop: set[str] | None = None, placeholder: bool = False) -> tuple[str, dict]:
     """画一镜的关键帧。prompt 传入时代替自动生成的提示词主体；drop 里的参考图不用。返回 (关键帧地址, 本次用的提示词和参考图)。"""
-    refs = [r for r in keyframe_refs(spec, cast, frame_url) if r["url"] not in (drop or set())]
+    refs = [r for r in keyframe_refs(spec, cast, frame_url, shot[1] if len(shot) > 1 else "") if r["url"] not in (drop or set())]
     if placeholder:  # 两步走第一步：先画占位手机，商品图不参与，第二步再换成真实商品
         refs = [r for r in refs if r["kind"] != "product"]
     sent = [(r, assets.jpeg_data_url(r["url"], max_w=1280)) for r in refs]
     sent = [(r, d) for r, d in sent if d]
-    core = (prompt or "").strip() or keyframe_prompt(shot, spec, market)
+    core = (prompt or "").strip() or keyframe_prompt(shot, spec, market, placeholder)
     if placeholder:
         core += ("\nThe person holds a plain generic black smartphone with no logo and a dark screen (a placeholder that will be replaced "
                  "by the real product later). Show the phone clearly and large enough, not hidden by fingers.")

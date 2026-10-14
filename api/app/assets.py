@@ -19,8 +19,10 @@ MAX_UPLOAD = 8 * 1024 * 1024
 PROMPTS = {
     "actor": ("Photorealistic casting photo for a smartphone TikTok ad. Vertical 3:4. Full body plus clear face, natural light, "
               "plain light-grey studio background, neutral pose, no text, no logo. Character: {name}. {description}"),
-    "scene": ("Photorealistic location photo for a smartphone TikTok ad, vertical 9:16, no people in frame, natural cinematic light, "
-              "no text, no logo. Location: {name}. {description}"),
+    "scene": ("Photorealistic location photo for a smartphone TikTok ad, vertical 9:16, natural cinematic light. This is an EMPTY SET: "
+              "absolutely no people, no hands, no silhouettes, and no phones, tablets, laptops, screens or any electronic device anywhere — "
+              "the actors and the real product are added later. Tables, counters and display stands are left empty. "
+              "No text, no logo, no readable signs. Location: {name}. {description}"),
 }
 TURNAROUND = ("Character turnaround sheet of the SAME person as the reference photo, for keeping the actor consistent across shots. "
               "Horizontal 16:9, plain light-grey studio background, even soft light, photorealistic. Four full-body views side by side, "
@@ -122,11 +124,23 @@ async def generate_image(asset_id: str) -> bool:
         if not a or a.kind not in PROMPTS or not settings_store.llm_enabled():
             return False
         prompt = prompt_for(a)
+        kind = a.kind
         aspect = "3:4" if a.kind == "actor" else "9:16"
         a.status = "generating"
         db.commit()
+    check = None
     try:
         raw, mime = await llm.image(prompt, task="keyframe", aspect_ratio=aspect)
+        if kind == "scene":
+            # 场景图里混进了人或手机，画关键帧时会和演员 / 商品打架：查一下，有就加重要求再画一次
+            check = await scene_check(raw, mime)
+            if check and (check.get("people") or check.get("phone")):
+                raw2, mime2 = await llm.image(prompt + "\nIMPORTANT: the previous attempt contained "
+                                              + " and ".join(x for x, k in (("people", "people"), ("a phone/device", "phone")) if check.get(k))
+                                              + ". Remove them completely — show only the empty environment.", task="keyframe", aspect_ratio=aspect)
+                check2 = await scene_check(raw2, mime2)
+                if not check2 or not (check2.get("people") or check2.get("phone")) or not (check.get("people") and check.get("phone")):
+                    raw, mime, check = raw2, mime2, check2
         url = save_image(raw, mime)
     except Exception as e:  # noqa: BLE001
         log.warning("素材图生成失败 %s: %s", asset_id, e)
@@ -142,11 +156,27 @@ async def generate_image(asset_id: str) -> bool:
         if a:
             a.images = [url, *(a.images or [])][:6]
             a.status = "generating" if a.kind == "actor" else "ready"
-            a.data = {**{k: v for k, v in (a.data or {}).items() if k != "error"}, "last_prompt": prompt, **({"gen_step": "三视图"} if a.kind == "actor" else {})}
+            a.data = {**{k: v for k, v in (a.data or {}).items() if k != "error"}, "last_prompt": prompt, **({"gen_step": "三视图"} if a.kind == "actor" else {}),
+                      **({"scene_check": check} if a.kind == "scene" else {})}
             db.commit()
     if a and a.kind == "actor":
         await generate_turnaround(asset_id)
     return True
+
+
+async def scene_check(raw: bytes, mime: str) -> dict | None:
+    """看场景图里有没有人物 / 手 / 手机等电子设备。查不了（没 Key、出错）返回 None，不挡流程。"""
+    try:
+        url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+        msg = await llm.chat([{"role": "user", "content": [
+            {"type": "text", "text": "Look at this location photo. Answer only JSON: {\"people\": true/false (any person, face, hand or silhouette, "
+                                     "even small or in the background), \"phone\": true/false (any phone, tablet, laptop, monitor or other screen device), "
+                                     "\"note\": \"中文，一句话说明在哪里\"}"},
+            {"type": "image_url", "image_url": {"url": url}}]}], json_mode=True, task="qc", timeout=60)
+        return llm.parse_json(msg.get("content") or "")
+    except Exception as e:  # noqa: BLE001
+        log.info("场景检查跳过：%s", e)
+        return None
 
 
 async def generate_turnaround(asset_id: str) -> None:

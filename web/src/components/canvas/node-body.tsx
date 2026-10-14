@@ -258,6 +258,10 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
                 <div className="truncate font-medium text-ink" title={a?.description}>{a?.name || k}</div>
                 <div className="truncate text-[10px] text-ink2">{uses.length ? `镜 ${uses.join("、")}` : "未出场"}</div>
                 {slot === "product" && <ProductHint a={a} />}
+                {slot === "scene" && (a?.data?.scene_check?.people || a?.data?.scene_check?.phone) && (
+                    <div className="text-[10px] leading-[14px] text-warn" title={a.data.scene_check.note}>
+                        场景图里有{[a.data.scene_check.people && "人物", a.data.scene_check.phone && "手机"].filter(Boolean).join("和")}，关键帧会去掉；不放心就重画</div>
+                )}
                 <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ""; }} />
                 {editable && a && (
                     <div className="mt-0.5 flex gap-0.5" data-ui>
@@ -506,7 +510,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
             </div>
             {confirming && (
                 <div className="mb-2 flex items-center gap-2 rounded-md bg-brand/15 px-2 py-1.5 text-[11px] text-ink">
-                    <span className="flex-1">选角完成：检查演员（定妆照 + 三视图）、场景、每镜拍法和口播，不合适就换、重画或上传。{n.data.need_product ? <b className="text-warn">还需要上传商品实拍图。</b> : ""}确认后开始画关键帧（按张计费）。</span>
+                    <span className="flex-1">选角完成：检查演员（定妆照 + 三视图）、场景、每镜拍法和口播，不合适就换、重画或上传。{n.data.need_product && !(cast?.product && lib[cast.product]?.images.length) ? <b className="text-warn">还需要商品图：在商品卡片上点「从商品库选」或上传实拍。</b> : ""}确认后开始画关键帧（按张计费）。</span>
                     <Btn primary disabled={!!n.data.need_product && !lib[n.data.need_product]?.images.length || confirm.isPending} onClick={() => confirm.mutate()}>确认选角，开始生成</Btn>
                 </div>
             )}
