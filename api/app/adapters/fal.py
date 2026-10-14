@@ -95,6 +95,27 @@ async def submit_i2v(prompt: str, image_url: str, duration: int = 5, model: str 
     return await _submit(model, body)
 
 
+# 含真人脸、Seedance 2.x 一律拒收的镜头：改用可灵 O3 Pro（全能参考：首帧 + 商品作为 @Element1）
+FACE_REF = "fal-ai/kling-video/o3/pro/reference-to-video"
+FACE_I2V = "fal-ai/kling-video/o3/pro/image-to-video"
+
+
+def face_rejected(err: str) -> bool:
+    return bool(re.search(r"真人脸|likeness|real people|face|person|portrait", err or "", re.I))
+
+
+async def submit_kling_ref(prompt: str, start_image: str, product_images: list[str], duration: int = 5) -> dict:
+    """可灵 O3 Pro 全能参考：start_image 是开场画面（关键帧），product_images 是商品各角度实拍，提示词里用 @Element1 指代商品。"""
+    body = {"prompt": prompt[:2500], "start_image_url": start_image, "aspect_ratio": "9:16", "duration": str(duration), "generate_audio": False}
+    if product_images:
+        body["elements"] = [{"frontal_image_url": product_images[0], "reference_image_urls": product_images[1:4] or [product_images[0]]}]
+    return await _submit(FACE_REF, body)
+
+
+async def submit_kling_i2v(prompt: str, image: str, duration: int = 5) -> dict:
+    return await _submit(FACE_I2V, {"prompt": prompt[:2500], "image_url": image, "duration": str(duration), "generate_audio": False})
+
+
 async def submit_ref(prompt: str, image_urls: list[str], duration: int = 5, model: str | None = None) -> dict:
     """全能参考生视频（Seedance 2.x reference-to-video）：提示词里用 @Image1、@Image2 引用 image_urls 里的图。"""
     models = settings_store.get_models()

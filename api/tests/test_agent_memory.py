@@ -181,6 +181,25 @@ def test_fal_reject_falls_back_and_redo_during_run(monkeypatch):
         # 2.5 全能参考拒收；2.0 全能参考也拒收 → 最后走 2.0 图生视频
         return {"model": model or "bytedance/seedance-2.5/reference-to-video", "request_id": "r1"}
     monkeypatch.setattr(fal, "submit_ref", ref)
+    async def kling(prompt, start, imgs, duration=5):
+        calls.append(("kling", prompt, start, imgs))
+        return {"model": fal.FACE_REF, "request_id": "r3"}
+    monkeypatch.setattr(fal, "submit_kling_ref", kling)
+    # 真人脸：2.0 也会拒收，直接走可灵 O3 Pro 全能参考（关键帧做开场，商品图作为 @Element1）
+    res = asyncio.run(production.clip("@Image1 is the opening frame. The phone is the one in @Image2 and @Image3.", "data:kf", ["data:kf", "b", "c"]))
+    assert res["video_url"] == "https://v.fal.media/ok.mp4" and "可灵 O3 Pro 全能参考" in res["fallback"]
+    k = next(x for x in calls if x[0] == "kling")
+    assert k[2] == "data:kf" and k[3] == ["b", "c"] and "@Element1" in k[1] and "@Image" not in k[1]
+    assert not any(x == ("ref", fal.FALLBACK_REF) for x in calls)
+
+    # 其他原因被拒：退回 Seedance 2.0（全能参考 → 图生视频）
+    calls.clear()
+
+    async def wait2(job, timeout_seconds=900):
+        if job["request_id"] == "r1":
+            return {"status": "failed", "error": "模型不接受这些参数（duration：bad value）", "rejected": True}
+        return {"status": "completed", "video_url": "https://v.fal.media/ok.mp4"}
+    monkeypatch.setattr(fal, "wait", wait2)
     res = asyncio.run(production.clip("@Image1 is the opening frame. The phone is the one in @Image2 and @Image3.", "data:image/jpeg;base64,xx", ["a", "b"]))
     assert res["video_url"] == "https://v.fal.media/ok.mp4" and "Seedance 2.0 图生视频" in res["fallback"]
     assert calls[1] == ("ref", fal.FALLBACK_REF) and calls[2][1] == fal.FALLBACK_I2V == "bytedance/seedance-2.0/image-to-video" and "@Image" not in calls[2][2]

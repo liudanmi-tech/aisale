@@ -397,21 +397,27 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None) ->
                 res = {"provider": "fal", "status": "failed", "error": str(e)[:400], "rejected": True}
             except Exception as e:  # noqa: BLE001
                 return {"provider": "fal", "status": "failed", "error": str(e)[:400]}
-            # Seedance 2.5 拒收（常见：画面里有真人脸）：退回 Seedance 2.0，先用同样的全能参考，不行再用关键帧图生视频
-            tries = ([("全能参考", lambda: fal.submit_ref(prompt, refs, duration=5, model=fal.FALLBACK_REF))] if refs else []) + \
-                ([("图生视频", lambda: fal.submit_i2v(re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame",
-                                                          prompt.replace("@Image1", "the first frame")), image, duration=5, model=fal.FALLBACK_I2V))] if image else [])
+            plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
+            if fal.face_rejected(res.get("error", "")):
+                # 含真人脸：Seedance 2.x（2.5 和 2.0）都按隐私规定拒收，直接改用可灵 O3 Pro：关键帧做开场，商品图作为 @Element1
+                kling = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "@Element1", prompt.replace("@Image1 is the opening frame", "The video starts from the first frame"))
+                tries = ([("可灵 O3 Pro 全能参考", "Kling", lambda: fal.submit_kling_ref(kling, image, (refs or [])[1:], duration=5))] if refs and image else []) + \
+                    ([("可灵 O3 Pro 图生视频", "Kling", lambda: fal.submit_kling_i2v(plain, image, duration=5))] if image else [])
+            else:
+                # 其他原因被 2.5 拒收：退回 Seedance 2.0，先用同样的全能参考，不行再用关键帧图生视频
+                tries = ([("Seedance 2.0 全能参考", "2.0", lambda: fal.submit_ref(prompt, refs, duration=5, model=fal.FALLBACK_REF))] if refs else []) + \
+                    ([("Seedance 2.0 图生视频", "2.0", lambda: fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V))] if image else [])
             if res.get("status") == "failed" and res.get("rejected") and "seedance-2.0" not in (res.get("model") or ""):
                 errs = []
-                for label, go in tries:
+                for label, _, go in tries:
                     try:
                         job = await go()
                         res2 = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
                     except Exception as e:  # noqa: BLE001
                         res2 = {"status": "failed", "error": str(e)[:300]}
                     if res2.get("status") != "failed":
-                        return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 Seedance 2.0 {label}"}
-                    errs.append(f"Seedance 2.0 {label}：{res2.get('error', '')[:160]}")
+                        return {**res2, "fallback": f"Seedance 2.5 不接受这一镜的输入（{res['error'][:120]}），自动改用 {label}"}
+                    errs.append(f"{label}：{res2.get('error', '')[:160]}")
                 res["error"] += "；改用 " + "；".join(errs) + " 也失败" if errs else ""
             return res
         tid = await seedance.create_task(prompt)
