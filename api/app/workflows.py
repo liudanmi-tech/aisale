@@ -58,6 +58,10 @@ async def generate_script(node_id: str, comment: str = "") -> None:
             return
         d = dict(n.data or {})
         sp, aud = d.get("selling_point", "续航"), d.get("audience", "小商贩")
+        proj = db.get(Project, n.project_id)
+        market = proj.market if proj else "尼日利亚"
+        lang = d.get("language") or ("尼日利亚皮钦英语" if market == "尼日利亚" else f"{market}当地常用语言")
+        extra = (f"；人群标签：{'、'.join(d['audience_tags'])}" if d.get("audience_tags") else "") + (f"；机型：{d['model_sku']}" if d.get("model_sku") else "")
         current = [list(s) for s in d.get("shots") or []]
         shots = [s[:] for s in SHOTS.get(sp, SHOTS["续航"])]
         if settings_store.llm_enabled():
@@ -67,10 +71,10 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                       "意见没涉及的镜头、画面和口播保持原样；时长写成秒数。") if comment and current else ""
             try:
                 out = await llm.chat_json(
-                    "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(尼日利亚皮钦英语), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写。"
+                    "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(" + lang + "), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写。"
                     "画面描述只写人物动作、手机的角度和姿态、场景，不写屏幕上显示什么、不写画面里的文字（AI 画不准文字）；"
                     "电池容量、价格、门店这类卖点数字放进口播，后期做成字幕贴片。",
-                    f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：尼日利亚 {aud}；修改意见：{comment or '无'}{revise}")
+                    f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：{market} {aud}{extra}；修改意见：{comment or '无'}{revise}")
                 if isinstance(out.get("shots"), list) and len(out["shots"]) >= 3:
                     shots = _normalize_shots(out["shots"])
             except Exception:

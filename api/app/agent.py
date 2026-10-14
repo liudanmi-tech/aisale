@@ -13,11 +13,14 @@ from app.adapters import llm
 from app.models import ChatMessage, Node, Patch, Project, RefAd, ReviewTask, new_id
 
 INTENT_TOOLS = [
-    {"type": "function", "function": {"name": "write_scripts", "description": "基于爆款结构给某个人群写剧本",
+    {"type": "function", "function": {"name": "write_scripts", "description": "给某个人群写新剧本。人群和卖点可以是用户说的任意描述，不限于已有的人群包",
         "parameters": {"type": "object", "properties": {
             "count": {"type": "integer", "minimum": 1, "maximum": 6},
-            "selling_point": {"type": "string", "enum": ["续航", "拍照", "存储"]},
-            "audience": {"type": "string", "enum": ["小商贩", "学生", "年轻家庭"]},
+            "selling_point": {"type": "string", "description": "主卖点，简短。常见：续航 / 拍照 / 存储，也可以是用户说的其他卖点（如 快充、大屏、游戏）"},
+            "audience": {"type": "string", "description": "人群名称，简短（如 小商贩、学生、大学生、宝妈）；能对上画布上已有人群包时用它的名字"},
+            "audience_tags": {"type": "array", "items": {"type": "string"}, "description": "用户圈选或提到的人群标签原文（职业、兴趣、信仰、痛点、语言等），没有就省略"},
+            "language": {"type": "string", "description": "口播语言（如 皮钦语、阿姆哈拉语、斯瓦希里语）；用户没说就省略"},
+            "model_sku": {"type": "string", "description": "机型（如 Infinix Hot 60）；用户没说就省略"},
             "ref_ad_node_id": {"type": "string", "description": "参考的爆款节点 id，不确定时省略"}},
             "required": ["count", "selling_point", "audience"]}}},
     {"type": "function", "function": {"name": "revise_script", "description": "按用户的修改意见改已有的剧本（选中剧本节点后说怎么改）",
@@ -83,9 +86,14 @@ def rule_intent(text: str, selection: list[str], selected_types: set[str] | None
     if re.search("剧本|写|变体", t):
         m = re.search(r"(\d+)个", t)
         ad = re.search(r"爆款#?(\d+)", t)
+        tags = [x for x in re.split(r"[、,，/]", (re.search(r"「([^」]+)」", text) or [None, ""])[1]) if x.strip()]
+        lang = re.search(r"用(\S{1,8}?语)口播", t)
+        model = re.search(r"(TECNO|Infinix|itel)\s?[A-Za-z]*\s?\d+\s?(Pro|Ultra|Plus)?", text, re.I)
+        aud = ("学生" if "学生" in t else ("年轻家庭" if re.search("家庭|婚礼|斋月", t) else "小商贩")) if not tags else tags[0]
         return {"name": "write_scripts", "count": min(6, int(m.group(1))) if m else 3,
-                "selling_point": "拍照" if re.search("拍照|夜拍", t) else ("存储" if "存储" in t else "续航"),
-                "audience": "学生" if "学生" in t else ("年轻家庭" if re.search("家庭|婚礼|斋月", t) else "小商贩"), "ref_ad_no": int(ad.group(1)) if ad else None}
+                "selling_point": "拍照" if re.search("拍照|夜拍|自拍|美颜", t) else ("存储" if re.search("存储|内存", t) else "续航"),
+                "audience": aud, "audience_tags": tags or None, "language": lang.group(1) if lang else None,
+                "model_sku": model.group(0).strip() if model else None, "ref_ad_no": int(ad.group(1)) if ad else None}
     if re.search("合成|成片|拼接", t):
         return {"name": "compose_videos"}
     if re.search("视频", t):
@@ -97,18 +105,52 @@ def rule_intent(text: str, selection: list[str], selected_types: set[str] | None
     return {"name": "help"}
 
 
+HISTORY_MESSAGES, HISTORY_CHARS, HISTORY_EACH = 12, 6000, 800
+FOLLOW_UP = r"^(继续|好的?|可以|行|嗯|对|是的?|就这样|就按(这个|刚才|之前|你说)的?|按(刚才|之前|上面)的?|开始吧?|写吧|执行|确定|没问题|编写剧本|写剧本|帮我写)[!！。.~]*$"
+
+
+def history(db: Session, pid: str) -> list[dict]:
+    """滑动窗口记忆：最近 12 条对话（不含刚收到的这条），总长不超过 6000 字，越旧的越先丢。"""
+    rows = (db.query(ChatMessage).filter(ChatMessage.project_id == pid, ChatMessage.role.in_(("user", "agent")))
+            .order_by(ChatMessage.id.desc()).limit(HISTORY_MESSAGES + 1).all())[1:]  # [0] 是刚写入的当前消息
+    out, total = [], 0
+    for m in rows:
+        text = re.sub(r"\{\{(\w+)\}\}", r"[\1]", (m.content or {}).get("text") or "").strip()
+        if not text:
+            continue
+        text = text[:HISTORY_EACH]
+        if total + len(text) > HISTORY_CHARS:
+            break
+        total += len(text)
+        out.append({"role": "user" if m.role == "user" else "assistant", "content": text})
+    return out[::-1]
+
+
+def _with_context(db: Session, pid: str, text: str) -> str:
+    """规则解析兜底时的记忆：「继续」「编写剧本」这类短句，接上最近一条真正的指令。"""
+    if not re.match(FOLLOW_UP, re.sub(r"\s", "", text)):
+        return text
+    for h in reversed(history(db, pid)):
+        if h["role"] == "user" and not re.match(FOLLOW_UP, re.sub(r"\s", "", h["content"])):
+            return f"{h['content']}（{text}）"
+    return text
+
+
 async def llm_intent(db: Session, project: Project, text: str, selection: list[str]) -> dict:
     nodes = canvas.nodes_of(db, project.id)
     snap = "\n".join(f"- {n.id} | {n.title} | {n.type} | {canvas.STATUS_ZH.get(n.status, n.status)}" for n in nodes)
     system = ("你是 TECNO 手机海外投放平台的画布 Agent，只能通过给定工具操作画布。"
               "根据用户指令选择且只选择一个工具。节点引用一律使用节点 id。\n"
-              "卖点同义词：夜拍/拍照/相机/自拍 → 拍照；电池/续航/停电/充电 → 续航；内存/存储/装照片 → 存储。"
-              "人群同义词：学生/年轻人/大学生 → 学生；摊主/商贩/小生意/做生意 → 小商贩；家庭/婚礼/斋月团聚 → 年轻家庭。数量用阿拉伯数字（两个 → 2）。\n"
+              "卖点归一：夜拍/拍照/相机/自拍 → 拍照；电池/续航/停电/充电 → 续航；内存/存储/装照片 → 存储；其他卖点照用户原话。"
+              "人群：能对上画布上已有人群包就用它的名字，对不上就用用户的说法（如 大学生），标签放进 audience_tags。数量用阿拉伯数字（两个 → 2）。\n"
               "用户没有点名具体节点（如「都」「全部」「通过的」）时，不要传节点 id 参数，系统会作用于全部符合条件的节点；"
               "只有当前选中了节点或用户点名时才传 id。选中了剧本、要求修改它（改口播、换场景、改第几镜、更口语等）时用 revise_script，"
               "instruction 填用户原话；要写新剧本才用 write_scripts。与画布无关的问题用 clarify 简短说明你能做什么。\n"
+              "前面的对话是记忆：用户说「继续」「好的」「就按刚才的」「编写剧本」这类省略的话时，沿用之前说过的人群、标签、卖点、机型、语言和数量，直接执行，不要再反问。"
+              "人群和卖点不限于已有的人群包和三个常用卖点，用户说什么就用什么（会自动新建人群包）。\n"
+              f"项目：{project.brand} {project.model_sku} · 市场 {project.market}\n"
               f"当前画布节点（id | 标题 | 类型 | 状态）：\n{snap}\n当前选中：{selection or '无'}")
-    msg = await llm.chat([{"role": "system", "content": system}, {"role": "user", "content": text}], tools=INTENT_TOOLS, task="agent")
+    msg = await llm.chat([{"role": "system", "content": system}, *history(db, project.id), {"role": "user", "content": text}], tools=INTENT_TOOLS, task="agent")
     call = (msg.get("tool_calls") or [None])[0]
     if not call:
         raise ValueError("no tool call")  # 交给规则解析兜底
@@ -124,7 +166,7 @@ async def parse_intent(db: Session, project: Project, text: str, selection: list
             pass
     nodes = canvas.nodes_of(db, project.id)
     types = {n.type for n in nodes if n.id in selection}
-    return rule_intent(text, selection, types, has_scripts=any(n.type == "script" for n in nodes))
+    return rule_intent(_with_context(db, project.id, text), selection, types, has_scripts=any(n.type == "script" for n in nodes))
 
 
 def revise_scripts(db: Session, project: Project, intent: dict, selection: list[str]) -> str:
@@ -185,10 +227,19 @@ def compile_scripts(db: Session, project: Project, intent: dict, selection: list
         src = next((n for n in ads if (n.data or {}).get("ref_ad_no") == intent["ref_ad_no"]), None)
     if not src:
         src = next((n for n in ads if n.id in selection), None) or (ads[-1] if ads else None)
-    aud_node = next((n for n in canvas.nodes_of(db, project.id, "aud") if (n.data or {}).get("audience") == aud), None)
-    if not aud_node:
-        return f"资产库里还没有「{aud}」人群包。"
+    tags = [t for t in (intent.get("audience_tags") or []) if t][:12]
+    lang = intent.get("language") or ""
+    model = intent.get("model_sku") or ""
+    aud_node = next((n for n in canvas.nodes_of(db, project.id, "aud") if (n.data or {}).get("audience") == aud
+                     and (not tags or set(tags) <= set((n.data or {}).get("tags") or tags))), None)
     ops, k0 = [], (project.counters or {}).get("script", 0)
+    if aud_node:
+        aud_id, aud_title = aud_node.id, aud_node.title
+    else:
+        # 画布上还没有这个人群：按用户说的人群和标签新建一个人群包
+        aud_id, aud_title = "a0", f"人群包 · {aud}"
+        ops.append({**_ghost_create(db, project.id, "a0", "aud", 0, f"{project.market} · " + ("、".join(tags[:4]) if tags else aud),
+                                    {"audience": aud, "tags": tags, "market": project.market}), "status": "pass", "title": aud_title})
     if src:
         src_id, src_title, ref_no = src.id, src.title, (src.data or {}).get("ref_ad_no")
     else:
@@ -204,13 +255,17 @@ def compile_scripts(db: Session, project: Project, intent: dict, selection: list
     for k in range(count):
         tid = f"g{k}"
         ops.append(_ghost_create(db, project.id, tid, "script", k, f"{sp} · {aud} · 15s",
-                                 {"selling_point": sp, "audience": aud, "version": 1, "ref_ad_no": ref_no}))
-        ops += [{"op": "connect", "from": src_id, "to": tid}, {"op": "connect", "from": aud_node.id, "to": tid},
+                                 {"selling_point": sp, "audience": aud, "audience_tags": tags, "language": lang, "model_sku": model,
+                                  "version": 1, "ref_ad_no": ref_no}))
+        ops += [{"op": "connect", "from": src_id, "to": tid}, {"op": "connect", "from": aud_id, "to": tid},
                 {"op": "run_node", "node_id": tid, "action": "generate_script"}]
     intent = {**intent, "name": "write_scripts", "count": count, "selling_point": sp, "audience": aud, "ref_ad_node_id": src.id if src else None}
-    steps = ([] if src else [f"从爆款库选出最匹配的 {src_title}（{ad.title}，爆款分 {ad.hot_score}）放到画布"]) + [f"新增 {count} 个剧本节点（{sp} · {aud}），编号 #{k0 + 1}–#{k0 + count}",
-             f"新增 {count * 2} 条连线：{src_title}、{aud_node.title} → 新剧本",
-             "生成分镜与本地语言口播（英语 / 皮钦语）", "完成后逐个提交审核"]
+    steps = ([] if src else [f"从爆款库选出最匹配的 {src_title}（{ad.title}，爆款分 {ad.hot_score}）放到画布"])
+    if not aud_node:
+        steps.append(f"新建人群包「{aud}」" + (f"：{'、'.join(tags)}" if tags else ""))
+    steps += [f"新增 {count} 个剧本节点（{sp} · {aud}{' · ' + model if model else ''}），编号 #{k0 + 1}–#{k0 + count}",
+              f"新增 {count * 2} 条连线：{src_title}、{aud_title} → 新剧本",
+              f"生成分镜与{lang or '本地语言'}口播", "完成后逐个提交审核"]
     return _propose(db, project, intent, "写剧本", steps, "约 0.2 积分（文本生成）", ops)
 
 
