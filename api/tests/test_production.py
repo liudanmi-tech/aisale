@@ -106,6 +106,8 @@ def test_production(tmp_path, monkeypatch):
         of = lambda t: [n for n in canvas()["nodes"] if n["type"] == t]  # noqa: E731
         c.post(P + "/agent/chat", json={"text": "给小商贩写 1 个续航剧本"})
         c.post(f"{P}/patches/{canvas()['pending_patch']['id']}/apply")
+        wait_until(lambda: of("wash") and of("wash")[0]["status"] == "wait")  # 先确认洗稿方案，剧本才写
+        c.post("/api/v1/reviews/pass-nodes", json={"node_ids": [of("wash")[0]["id"]]})
         wait_until(lambda: of("script") and of("script")[0]["status"] == "wait")
         c.post("/api/v1/reviews/pass-nodes", json={"node_ids": [of("script")[0]["id"]]})
 

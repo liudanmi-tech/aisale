@@ -8,7 +8,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app import canvas, config, settings_store
+from app import canvas, config, settings_store, wash_plan
 from app.adapters import llm
 from app.models import ChatMessage, Node, Patch, Project, RefAd, ReviewTask, new_id
 
@@ -170,7 +170,7 @@ async def parse_intent(db: Session, project: Project, text: str, selection: list
 
 
 def revise_scripts(db: Session, project: Project, intent: dict, selection: list[str]) -> str:
-    """在原剧本节点上按意见修改：没提到的镜头保留，改完重新提交审核，改过的镜头自动重画分镜。"""
+    """在原剧本节点上按意见修改：没提到的镜头保留，改完重新提交审核；分镜图在审核通过后补画。"""
     from app import workflows  # workflows 依赖本模块，延迟导入
     scripts = canvas.nodes_of(db, project.id, "script")
     ids = intent.get("script_node_ids") or [i for i in selection if any(n.id == i for n in scripts)]
@@ -189,10 +189,18 @@ def revise_scripts(db: Session, project: Project, intent: dict, selection: list[
         canvas.audit(db, project.id, "agent", "revise_script", {"node_id": n.id, "instruction": instruction})
     db.commit()
     for n in todo:
+        wn = next((u for u in canvas.upstream(db, n.id) if u.type == "wash"), None)
+        if wn and instruction:  # 有洗稿方案：意见记进方案，以后按方案重写也会执行
+            wd = dict(wn.data or {})
+            wn.data = {**wd, "notes": [*(wd.get("notes") or []), instruction][-8:]}
+    db.commit()
+    for n in todo:
         workflows.rework(n, instruction)
     parts = []
     if todo:
-        parts.append(f"好的，正在按「{instruction}」修改 {' '.join(ref(n) for n in todo)}：没提到的镜头保持不变，改完重新提交你审核，改过的镜头会自动重画分镜。")
+        washed = [n for n in todo if any(u.type == "wash" for u in canvas.upstream(db, n.id))]
+        parts.append(f"好的，正在按「{instruction}」修改 {' '.join(ref(n) for n in todo)}：没提到的镜头保持不变，改完重新提交你审核，审核通过后再画改过的分镜图。"
+                     + ("这条意见也记进了它的洗稿方案，以后按方案重写也会照做。" if washed else ""))
     if busy:
         parts.append(f"{' '.join(ref(n) for n in busy)} 还在生成中，等它完成后再改。")
     return "\n".join(parts)
@@ -252,20 +260,25 @@ def compile_scripts(db: Session, project: Project, intent: dict, selection: list
         src_id, src_title, ref_no = "ad0", f"爆款 #{ad.no}", ad.no
         ops.append({**_ghost_create(db, project.id, "ad0", "ad", 0, f"{ad.hook} · {ad.market}", {"ref_ad_no": ad.no}),
                     "status": "pass", "title": src_title})
+    # 每个剧本前面先有一个洗稿方案：拆要素、评估相似度、定档位，人确认后剧本才写。写 3 个时高 / 中 / 低三档各一个
+    tiers = ([None] if count == 1 else [["high", "mid", "low"][k % 3] for k in range(count)])
+    brief = {"selling_point": sp, "audience": aud, "audience_tags": tags, "language": lang, "model_sku": model, "ref_ad_no": ref_no}
     for k in range(count):
-        tid = f"g{k}"
-        ops.append(_ghost_create(db, project.id, tid, "script", k, f"{sp} · {aud} · 15s",
-                                 {"selling_point": sp, "audience": aud, "audience_tags": tags, "language": lang, "model_sku": model,
-                                  "version": 1, "ref_ad_no": ref_no}))
-        ops += [{"op": "connect", "from": src_id, "to": tid}, {"op": "connect", "from": aud_id, "to": tid},
-                {"op": "run_node", "node_id": tid, "action": "generate_script"}]
+        wid, tid = f"w{k}", f"g{k}"
+        tier = tiers[k]
+        label = wash_plan.TIERS[tier]["label"] if tier else "按相似度推荐档位"
+        ops.append(_ghost_create(db, project.id, wid, "wash", k, f"{label} · 参考 {src_title}",
+                                 {**brief, "tier": tier, "tier_source": "agent" if tier else None}))
+        ops.append({**_ghost_create(db, project.id, tid, "script", k, f"{sp} · {aud} · 等洗稿方案确认", {**brief, "version": 1})})
+        ops += [{"op": "connect", "from": src_id, "to": wid}, {"op": "connect", "from": aud_id, "to": wid},
+                {"op": "connect", "from": wid, "to": tid}, {"op": "run_node", "node_id": wid, "action": "plan_wash"}]
     intent = {**intent, "name": "write_scripts", "count": count, "selling_point": sp, "audience": aud, "ref_ad_node_id": src.id if src else None}
     steps = ([] if src else [f"从爆款库选出最匹配的 {src_title}（{ad.title}，爆款分 {ad.hot_score}）放到画布"])
     if not aud_node:
         steps.append(f"新建人群包「{aud}」" + (f"：{'、'.join(tags)}" if tags else ""))
-    steps += [f"新增 {count} 个剧本节点（{sp} · {aud}{' · ' + model if model else ''}），编号 #{k0 + 1}–#{k0 + count}",
-              f"新增 {count * 2} 条连线：{src_title}、{aud_title} → 新剧本",
-              f"生成分镜与{lang or '本地语言'}口播", "完成后逐个提交审核"]
+    steps += [f"新增 {count} 个洗稿方案（{'、'.join(wash_plan.TIERS[t]['label'] for t in tiers) if tiers[0] else '按相似度推荐档位'}）：拆分钩子、人物、场景、节奏、台词、镜头，评估相似度",
+              f"每个方案后面接一个剧本节点（{sp} · {aud}{' · ' + model if model else ''}），编号 #{k0 + 1}–#{k0 + count}",
+              "方案提交你确认（可以改档位、改每一行）→ 确认后按方案写分镜与" + (lang or "本地语言") + "口播 → 剧本审核通过后画分镜图"]
     return _propose(db, project, intent, "写剧本", steps, "约 0.2 积分（文本生成）", ops)
 
 
@@ -404,6 +417,18 @@ def compile_delivery(db: Session, project: Project, intent: dict, selection: lis
 def auto_advance(db: Session, project: Project, node: Node) -> list[tuple[str, str]]:
     """审核通过后自动走下一步（审核即同意）：剧本 → 视频；视频通过 → 合成成片；成片都好了 → 一起评测；评测 → 投放方案。
     下发投放要真花钱，仍由人点击。返回要启动的 (节点, 动作)。"""
+    if node.type == "wash":
+        # 洗稿方案确认了：下游剧本按这张表写分镜（已经写过的按新方案重写）
+        scripts = [x for x in canvas.downstream(db, node.id) if x.type == "script" and x.status != "run"]
+        for x in scripts:
+            for r in db.query(ReviewTask).filter(ReviewTask.node_id == x.id, ReviewTask.status == "wait"):
+                r.status, r.comment = "cancel", "洗稿方案重新确认"
+            x.status, x.sub = "run", "按洗稿方案写分镜…"
+        if not scripts:
+            say(db, project.id, f"{ref(node)} 已确认，但后面没有连着剧本节点。")
+            return []
+        say(db, project.id, f"{ref(node)} 已确认，开始按方案写 " + " ".join(ref(x) for x in scripts) + "。写好后提交你审核，审核通过才画分镜图。")
+        return [(x.id, "generate_script") for x in scripts]
     if node.type == "script":
         res = compile_videos(db, project, {"script_node_ids": [node.id]}, [])
         label = f"{ref(node)} 已通过，自动开始生成视频（Seedance 按镜生成，产品镜头用官方素材）"

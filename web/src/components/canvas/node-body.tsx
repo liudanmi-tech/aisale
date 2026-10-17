@@ -7,6 +7,7 @@ import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 }
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
+import { WashBody } from "@/components/canvas/wash-body";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
@@ -1109,6 +1110,7 @@ function OptBody({ n }: { n: CanvasNode }) {
 
 export function NodeBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: BodyActions }) {
     switch (n.type) {
+        case "wash": return <WashBody n={n} pid={pid} />;
         case "script": return <ScriptBody n={n} pid={pid} actions={actions} />;
         case "actor": case "scene": case "product": return <AssetBody n={n} />;
         case "video": return <VideoBody n={n} pid={pid} />;

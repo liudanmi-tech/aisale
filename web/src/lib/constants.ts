@@ -4,6 +4,7 @@ export const NODE_META: Record<NodeType, { label: string; ch: string; color: str
     ad: { label: "爆款", ch: "爆", color: "#ff7a45" },
     sp: { label: "卖点", ch: "卖", color: "#36cfc9" },
     aud: { label: "人群包", ch: "群", color: "#9254de" },
+    wash: { label: "洗稿方案", ch: "洗", color: "#13a8a8" },
     script: { label: "剧本", ch: "剧", color: "#7c5cff" },
     actor: { label: "演员", ch: "演", color: "#f25f5c" },
     scene: { label: "场景", ch: "景", color: "#2bc48a" },
@@ -31,7 +32,7 @@ export const STATUS_META: Record<NodeStatus | "preview", { label: string; cls: s
 export const NODE_W = 220;
 export const NODE_H = 84;
 /** 默认展开、内容平铺在画布上的节点类型，以及展开后的宽度（与后端 canvas.NODE_SIZE 一致） */
-export const EXPANDED_W: Partial<Record<NodeType, number>> = { script: 660, actor: 260, scene: 260, product: 260, video: 660, cut: 380, eval: 760, deliver: 400, data: 400, opt: 400 };
+export const EXPANDED_W: Partial<Record<NodeType, number>> = { wash: 620, script: 660, actor: 260, scene: 260, product: 260, video: 660, cut: 380, eval: 760, deliver: 400, data: 400, opt: 400 };
 export const SIZE_ZH: Record<string, string> = { WS: "全景", MS: "中景", CU: "特写", ECU: "大特写" };
 export const MOVES = ["固定", "推", "拉", "摇", "跟拍", "手持"];
 export const GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子", "达人口播", "产品展示"];

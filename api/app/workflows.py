@@ -10,7 +10,7 @@ import logging
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, compose, config, panel, production, settings_store, storyboard, wash
+from app import agent, canvas, compose, config, panel, production, settings_store, storyboard, wash, wash_plan
 from app.adapters import llm, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
@@ -64,19 +64,28 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         extra = (f"；人群标签：{'、'.join(d['audience_tags'])}" if d.get("audience_tags") else "") + (f"；机型：{d['model_sku']}" if d.get("model_sku") else "")
         current = [list(s) for s in d.get("shots") or []]
         shots = [s[:] for s in SHOTS.get(sp, SHOTS["续航"])]
-        ad = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first() if d.get("ref_ad_no") else None
+        wn = next((u for u in canvas.upstream(db, node_id) if u.type == "wash" and u.status == "pass"), None)
+        ref_no = (wn.data or {}).get("ref_ad_no") if wn else d.get("ref_ad_no")
+        ad = db.query(RefAd).filter(RefAd.no == ref_no).first() if ref_no else None
         bd = ((ad.dna or {}).get("breakdown") if ad else None) or None
+        if wn and ad and not bd:
+            bd = wash_plan.ref_breakdown(ad)  # 没做视频拆解：用文案推断的分镜凑（洗稿方案上已标出）
         washed, wash_err = None, ""
         if settings_store.llm_enabled() and bd:
-            # 有多模态拆解：先出洗稿清单（用户改过就用改过的），再按清单写，镜头数和节奏跟着参考走
+            # 有确认过的洗稿方案：按方案的六行表写；否则先出洗稿清单（用户改过就用改过的），再按清单写。镜头数和节奏跟着参考走
             brand = proj.brand if proj else "TECNO"
             ours = (f"品牌机型：{brand} {(d.get('model_sku') or (proj.model_sku if proj else '') or '').strip()}；主卖点：{sp}；"
                     f"目标市场：{market}；目标人群：{aud}{extra}；口播语言：{lang}")
             old = d.get("wash") or {}
+            tier = (wn.data or {}).get("tier") if wn else None
             try:
-                plan = old["plan"] if old.get("plan_edited") and old.get("plan") and old.get("ref_no") == ad.no else await wash.make_plan(bd, ours, comment)
-                washed = await wash.write(bd, plan, ours, brand, lang, comment, current)
+                if wn:
+                    plan = wash_plan.to_plan(wn.data or {})
+                else:
+                    plan = old["plan"] if old.get("plan_edited") and old.get("plan") and old.get("ref_no") == ad.no else await wash.make_plan(bd, ours, comment)
+                washed = await wash.write(bd, plan, ours, brand, lang, comment, current, tier=tier)
                 d["wash"] = {"ref_no": ad.no, "plan": plan, "plan_edited": bool(old.get("plan_edited") and old.get("plan") is plan),
+                             "tier": tier, "from_node": wn.id if wn else None,
                              "map": washed["map"], "similarity": washed["similarity"], "check": washed.get("check"), "ref_shots": len(bd.get("shots") or []),
                              "ref": [{k: x.get(k) for k in ("t", "frame", "scene", "action", "line", "beat")} for x in bd.get("shots") or [] if isinstance(x, dict)]}
                 shots = washed["shots"]
@@ -115,12 +124,75 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         n.sub = f"{sp} · {aud} · {total:g}s" + (f" · v{d['version']}" if d["version"] > 1 else "")
         ref = f"按爆款 #{ad.no} 的逐镜拆解洗稿（参考 {d['wash']['ref_shots']} 镜 → 新剧本 {len(shots)} 镜）" if washed else \
             (f"参考爆款 #{ad.no} 的文案和钩子（这条还没做视频拆解）" if ad else "按卖点模板写")
-        sim_text = (f"台词和参考原话最高相似度 {sim['line_max']:.0%}（阈值 {sim['threshold']:.0%}，逐镜按词比对）"
+        sim_text = ((sim.get("note") or f"台词和参考原话最高相似度 {sim['line_max']:.0%}（阈值 {sim['threshold']:.0%}，逐镜按词比对）")
                     if ad else "没有参考爆款，未做相似度比对")
         _done(db, n, f"{sp}卖点 · {aud}，{len(shots)} 镜 {total:g} 秒" + ("，台词和参考太像，建议修改" if sim["line_max"] > sim["threshold"] else ""),
               f"{ref}；{sim_text}" + (f"；洗稿失败原因：{wash_err}" if wash_err else ""))
-    if settings_store.llm_enabled():  # 剧本好了接着画分镜图（不阻塞审核）
-        spawn(storyboard.run(node_id))
+    # 分镜图等剧本审核通过后再画（生成视频前会补画缺的），改稿不用每次都重画、花钱；想先看可以点「画分镜」
+
+
+async def plan_wash(node_id: str, comment: str = "") -> None:
+    """洗稿方案：要素拆分 → 相似度评估定档位 → 按档位写每行我方怎么做 → 提交人工确认。"""
+    await _sleep()
+    with SessionLocal() as db:
+        n = db.get(Node, node_id)
+        if not n:
+            return
+        d = dict(n.data or {})
+        proj = db.get(Project, n.project_id)
+        ad_row = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first() if d.get("ref_ad_no") else None
+        if not ad_row:
+            n.status, n.sub = "failed", "没有参考爆款"
+            db.commit()
+            emit(n.project_id, "canvas")
+            return
+        market, brand = (proj.market if proj else "尼日利亚"), (proj.brand if proj else "TECNO")
+        sp, aud = d.get("selling_point", "续航"), d.get("audience", "小商贩")
+        lang = d.get("language") or ("尼日利亚皮钦英语" if market == "尼日利亚" else f"{market}当地常用语言")
+        sku = (d.get("model_sku") or (proj.model_sku if proj else "") or "").strip()
+        ours = (f"品牌机型：{brand} {sku}；主卖点：{sp}；目标市场：{market}；目标人群：{aud}"
+                + (f"；人群标签：{'、'.join(d['audience_tags'])}" if d.get("audience_tags") else "") + f"；口播语言：{lang}")
+        ad = {"market": ad_row.market, "selling_point": ad_row.selling_point, "breakdown": (ad_row.dna or {}).get("breakdown")}
+        bd = wash_plan.ref_breakdown(ad_row)
+        pid = n.project_id
+    raw: dict = {}
+    err = ""
+    if settings_store.llm_enabled():
+        try:
+            pre = wash_plan.fit(ad, {"market": market, "selling_point": sp})
+            tier0 = d.get("tier") if d.get("tier_source") in ("agent", "user") else pre["recommended"]
+            raw = await wash_plan.draft(bd, ours, tier0, comment)
+        except Exception as e:  # noqa: BLE001
+            log.warning("洗稿方案生成失败：%s", e)
+            err = str(e)[:200] or type(e).__name__
+    f = wash_plan.fit(ad, {"market": market, "selling_point": sp}, {"audience": raw.get("audience_fit"), "product": raw.get("product_fit")})
+    tier = d.get("tier") if d.get("tier_source") in ("agent", "user") and d.get("tier") in wash_plan.TIERS else f["recommended"]
+    rows = wash_plan.rows_for(tier, raw.get("rows"), d.get("rows"))
+    if not raw:  # 没有模型：原片一列按拆解填上，我方一列留给人写
+        refs = {"hook": (bd.get("core") or {}).get("device") or "", "scene": "；".join(s.get("scene", "") for s in bd["shots"]),
+                "rhythm": f"{len(bd['shots'])} 镜 · {bd.get('video_duration') or '—'} 秒", "lines": "；".join(s.get("line", "") for s in bd["shots"] if s.get("line")),
+                "camera": "；".join(s.get("camera", "") for s in bd["shots"] if s.get("camera")),
+                "cast": "；".join(f"{c.get('role')}：{c.get('look')}" for c in bd.get("cast") or [])}
+        rows = [{**r, "ref": r["ref"] or refs.get(r["key"], "")} for r in rows]
+    a = raw.get("analysis") if isinstance(raw.get("analysis"), dict) else {}
+    opts = [{k: str(o.get(k) or "") for k in ("idea", "intensity", "fit", "risk")} for o in raw.get("options") or [] if isinstance(o, dict) and o.get("idea")][:4]
+    chosen = int(raw["chosen"]) - 1 if str(raw.get("chosen", "")).isdigit() else None
+    if opts and (chosen is None or not 0 <= chosen < len(opts) or "弱" in opts[chosen]["intensity"]):
+        chosen = next((k for k, o in enumerate(opts) if "强" in o["intensity"]), next((k for k, o in enumerate(opts) if "弱" not in o["intensity"]), 0))
+    with SessionLocal() as db:
+        n = db.get(Node, node_id)
+        if not n:
+            return
+        d = dict(n.data or {})
+        d.update(tier=tier, tier_source=d.get("tier_source") or "recommended", fit=f, rows=rows, error=err,
+                 analysis={k: str(a.get(k) or "") for k in ("core", "why", "intensity", "must_not_lose")} if a else d.get("analysis"),
+                 options=opts or d.get("options") or [], chosen=chosen if opts else d.get("chosen"),
+                 inferred=bool(bd.get("inferred")), ref_title=ad_row.title, version=d.get("version", 0) + 1)
+        n.data = d
+        n.sub = f"{wash_plan.TIERS[tier]['label']} · 参考爆款 #{ad_row.no}"
+        _done(db, n, wash_plan.summary(d) + ("（模型没生成成功，「我方」一列请手动填写）" if err or not raw else ""),
+              f.get("reason", "") + ("；这条爆款没做视频拆解，要素按文案推断" if bd.get("inferred") else "") + (f"；出错：{err}" if err else ""))
+    emit(pid, "canvas")
 
 
 async def generate_video(node_id: str, comment: str = "") -> None:
@@ -262,8 +334,8 @@ async def compose_cut(node_id: str, comment: str = "") -> None:
     await compose.run(node_id, comment)
 
 
-ACTIONS = {"generate_script": generate_script, "generate_video": generate_video, "compose": compose_cut, "evaluate": evaluate, "plan_delivery": plan_delivery}
-TYPE_ACTION = {"script": "generate_script", "video": "generate_video", "cut": "compose", "eval": "evaluate", "deliver": "plan_delivery"}
+ACTIONS = {"plan_wash": plan_wash, "generate_script": generate_script, "generate_video": generate_video, "compose": compose_cut, "evaluate": evaluate, "plan_delivery": plan_delivery}
+TYPE_ACTION = {"wash": "plan_wash", "script": "generate_script", "video": "generate_video", "cut": "compose", "eval": "evaluate", "deliver": "plan_delivery"}
 
 
 def run(runs: list[tuple[str, str]]) -> None:

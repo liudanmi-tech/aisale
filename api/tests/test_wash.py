@@ -169,3 +169,82 @@ def test_wash_keeps_core_hook(monkeypatch):
             p = db.get(Node, nid).data["wash"]["plan"]
         assert p["replace"][0] == "用铲车往手机上倒一整斗水 → 直升机吊着水箱往下倒" and p["options"][p["chosen"]]["idea"] == "直升机吊着水箱往下倒"
         assert "小米 → TECNO" in p["replace"] and len(p["replace"]) == 2
+
+
+def test_fit_recommends_tier():
+    from app import wash_plan
+    same = wash_plan.fit({"market": "尼日利亚", "selling_point": "续航"}, {"market": "尼日利亚", "selling_point": "6000mAh 大电池续航"},
+                         {"audience": {"match": "match"}, "product": {"match": "match"}})
+    assert same["recommended"] == "high" and same["score"] == 1.0
+    mid = wash_plan.fit({"market": "肯尼亚", "breakdown": {"selling_point": "防水耐用"}}, {"market": "尼日利亚", "selling_point": "续航"},
+                        {"audience": {"match": "match"}, "product": {"match": "partial"}})
+    assert mid["items"]["market"]["match"] == "partial" and mid["items"]["selling_point"]["match"] == "no" and mid["recommended"] == "low"
+    assert "推荐" in mid["reason"]
+
+
+def test_wash_node_confirm_then_script(monkeypatch):
+    """洗稿方案节点：六行表按档位定保留 / 替换；换档位时人改过的行不动；确认后剧本按表写，高档不按相似度拦，但查竞品品牌。"""
+    from app import wash_plan
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    monkeypatch.setattr(workflows, "spawn", lambda coro: coro.close())
+    calls = []
+    rows = {k: {"ref": f"原片{k}", "ours": f"我方{k}", "why": "因为"} for k, _ in wash_plan.ROWS}
+
+    async def fake_json(system, user, task="script", timeout=90):
+        calls.append((system, user))
+        if "洗稿方案" in system and "六个要素" in system:
+            return {"rows": rows, "audience_fit": {"match": "match"}, "product_fit": {"match": "partial"},
+                    "analysis": {"core": "铲车倒水", "why": "反差", "intensity": "工程级", "must_not_lose": "规模"},
+                    "options": [{"idea": "水桶浇水", "intensity": "更弱"}, {"idea": "无人机喷水", "intensity": "更强"}], "chosen": 1}
+        if "检查一版洗稿剧本" in system:
+            return {"kept_core": True, "intensity": "相当", "score": 4, "problems": "", "fix": ""}
+        first = sum(1 for s_, _ in calls if "改写成我方剧本" in s_) == 1
+        line = "Redmi no fit!" if first else "Can your phone ever survive this?"  # 第一版留着竞品品牌；高档台词像原片也不拦
+        return {"shots": [[3, "女孩举着手机", line, ""], [4, "无人机喷水", "Water!", ""], [3, "手机特写", "6000mAh", ""], [4, "比赞", "Buy", ""]],
+                "map": [{"ref": k + 1, "kept": "", "changed": ""} for k in range(4)], "product_shots": [3]}
+
+    monkeypatch.setattr(llm, "chat_json", fake_json)
+    with TestClient(app) as c:
+        no = _ad(url="https://www.tiktok.com/@x/video/3", breakdown={"shots": REF_SHOTS, "video_duration": 14, "selling_point": "防水"})
+        pid = c.post("/api/v1/projects", json={"name": "洗稿方案"}).json()["id"]
+        with SessionLocal() as db:
+            p = db.get(Project, pid)
+            wn = canvas.create_node(db, p, "wash", data={"ref_ad_no": no, "selling_point": "续航", "audience": "学生", "tier": "high", "tier_source": "agent"})
+            sn = canvas.create_node(db, p, "script", data={"ref_ad_no": no, "selling_point": "续航", "audience": "学生"})
+            canvas.connect(db, pid, wn.id, sn.id)
+            db.commit()
+            wid, sid = wn.id, sn.id
+        asyncio.run(workflows.plan_wash(wid))
+        with SessionLocal() as db:
+            w = db.get(Node, wid)
+            d, status = w.data, w.status
+        assert status == "wait" and d["tier"] == "high" and d["fit"]["recommended"] in ("mid", "low")  # Agent 指定了高档，推荐档单独显示
+        assert [(r["key"], r["action"]) for r in d["rows"]] == list(wash_plan.TIERS["high"]["actions"].items())
+        assert d["rows"][2]["ours"] == "我方scene" and d["chosen"] == 1 and d["analysis"]["core"] == "铲车倒水"
+
+        # 人改了场景一行，再换到中档：场景这一行不动，其他行按中档重排
+        rows_edit = [dict(r) for r in d["rows"]]
+        rows_edit[2].update(ours="纯室外，不要雨棚", edited=True)
+        c.patch(f"/api/v1/projects/{pid}/nodes/{wid}", json={"data": {"rows": rows_edit}})
+        assert c.post(f"/api/v1/nodes/{wid}/wash-tier", json={"tier": "bad"}).status_code == 400
+        assert c.post(f"/api/v1/nodes/{wid}/wash-tier", json={"tier": "mid"}).status_code == 200
+        asyncio.run(workflows.plan_wash(wid))
+        with SessionLocal() as db:
+            d = db.get(Node, wid).data
+        assert d["tier"] == "mid" and d["tier_source"] == "user" and d["rows"][2]["ours"] == "纯室外，不要雨棚"
+        assert d["rows"][0]["action"] == "adapt" and d["rows"][4]["action"] == "replace"
+
+        # 回到高档后确认：剧本按六行表写
+        c.post(f"/api/v1/nodes/{wid}/wash-tier", json={"tier": "high"})
+        asyncio.run(workflows.plan_wash(wid))
+        assert c.post("/api/v1/reviews/pass-nodes", json={"node_ids": [wid]}).json() == {"passed": 1}
+        with SessionLocal() as db:
+            assert db.get(Node, sid).status == "run"
+        asyncio.run(workflows.generate_script(sid))
+        with SessionLocal() as db:
+            sd = db.get(Node, sid).data
+        user = next(u for s_, u in calls if "改写成我方剧本" in s_)
+        assert "纯室外，不要雨棚" in user and "场景照原片" in user  # 人改的那一行进了写剧本的清单
+        assert sd["wash"]["tier"] == "high" and sd["wash"]["from_node"] == wid
+        assert sd["shots"][0][2] == "Can your phone ever survive this?"  # 竞品品牌那版被换掉；高档台词像原片不重写
+        assert sd["similarity"]["note"].startswith("高相似档") and not sd["similarity"].get("competitor_shots")

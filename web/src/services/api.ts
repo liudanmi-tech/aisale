@@ -14,7 +14,7 @@ http.interceptors.request.use((cfg) => {
     return cfg;
 });
 
-export type NodeType = "ad" | "sp" | "aud" | "script" | "actor" | "scene" | "product" | "video" | "cut" | "eval" | "deliver" | "data" | "opt";
+export type NodeType = "ad" | "sp" | "aud" | "wash" | "script" | "actor" | "scene" | "product" | "video" | "cut" | "eval" | "deliver" | "data" | "opt";
 export type NodeStatus = "none" | "run" | "input" | "wait" | "pass" | "reject" | "live" | "failed";
 export type AssetKind = "actor" | "scene" | "product";
 export interface LibraryAsset {
@@ -146,6 +146,18 @@ export interface WashInfo {
 }
 export interface Similarity {
     per_shot: { line: number; visual: number }[]; line_max: number; visual_max: number; threshold: number; has_breakdown: boolean; rewrote?: number[];
+}
+export type WashTier = "high" | "mid" | "low";
+export type WashAction = "keep" | "adapt" | "replace";
+export interface WashRow { key: string; label: string; action: WashAction; ref: string; ours: string; why: string; edited?: boolean }
+export interface WashFitItem { match: "match" | "partial" | "no"; ref?: string; ours?: string; note?: string }
+export interface WashNodeData {
+    ref_ad_no: number; ref_title?: string; selling_point?: string; audience?: string;
+    tier?: WashTier; tier_source?: "agent" | "user" | "recommended" | null;
+    fit?: { score: number; items: Record<"selling_point" | "market" | "audience" | "product", WashFitItem>; recommended: WashTier; reason: string };
+    rows?: WashRow[]; analysis?: { core: string; why: string; intensity: string; must_not_lose: string } | null;
+    options?: { idea: string; intensity: string; fit: string; risk: string }[]; chosen?: number | null;
+    notes?: string[]; inferred?: boolean; error?: string; version?: number;
 }
 export interface RefAd {
     id: string;
@@ -332,6 +344,8 @@ export const api = {
     node: (nid: string) => get<CanvasNode & { review_id: string | null; upstream: CanvasNode[]; project_id: string }>(`/nodes/${nid}`),
     startBreakdown: (no: number, video?: string) => postSlow<RefAd>(`/ref-ads/${no}/breakdown`, { video }),
     refAd: (no: number) => get<RefAd>(`/ref-ads/${no}`),
+    washTier: (nid: string, tier: WashTier, reset_edits = false) => post(`/nodes/${nid}/wash-tier`, { tier, reset_edits }),
+    washConfirm: (nid: string) => post(`/nodes/${nid}/wash-confirm`),
     washPlan: (nid: string, body: { keep?: string[]; replace?: string[]; idea?: string }) => post(`/nodes/${nid}/wash-plan`, body),
     rewriteShot: (nid: string, i: number, hint: string) => postSlow(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
     drawStoryboard: (nid: string, indices?: number[], prompt?: string) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null, prompt }),

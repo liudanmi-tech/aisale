@@ -39,6 +39,20 @@ def approve_all(c):
         assert c.post(f"/api/v1/reviews/{r['id']}/decide", json={"decision": "pass"}).status_code == 200
 
 
+def confirm_washes(c, p=P):
+    """写剧本先出洗稿方案：等方案都出来，逐个确认，剧本才开始写。"""
+    washes = lambda: [n for n in c.get(p + "/canvas").json()["nodes"] if n["type"] == "wash"]  # noqa: E731
+    wait_until(c, lambda: washes() and all(n["status"] == "wait" or n["status"] == "pass" for n in washes()))
+    ids = {n["id"] for n in washes()}
+    for r in c.get("/api/v1/reviews", params={"status": "wait"}).json():
+        if r["node_id"] in ids:
+            assert c.post(f"/api/v1/reviews/{r['id']}/decide", json={"decision": "pass"}).status_code == 200
+
+
+def creates(patch, t="script"):
+    return [o for o in patch["ops"] if o["op"] == "create_node" and o["type"] == t]
+
+
 def flow(c):
     return [s["done"] for s in c.get(P + "/flow").json()]
 
@@ -52,13 +66,19 @@ def test_full_flow():
         # 1 洗剧本 → 2 计划 + 预览 → 执行
         w = c.post(P + "/wash", json={"ref_ad_no": 13}).json()
         patch = chat(c, w["prompt"], [w["node_id"]])
-        assert patch and patch["summary"] == "写剧本" and len([o for o in patch["ops"] if o["op"] == "create_node"]) == 3
+        assert patch and patch["summary"] == "写剧本" and len(creates(patch)) == 3 and len(creates(patch, "wash")) == 3
+        assert [o["data"]["tier"] for o in creates(patch, "wash")] == ["high", "mid", "low"]
         # 调整数量 3 → 4
         assert c.post(f"{P}/patches/{patch['id']}/adjust", json={"count": 4}).json()["ok"]
         patch = c.get(P + "/canvas").json()["pending_patch"]
-        assert len([o for o in patch["ops"] if o["op"] == "create_node"]) == 4
+        assert len(creates(patch)) == 4
         before = len(nodes(c, "script"))
         assert c.post(f"{P}/patches/{patch['id']}/apply").status_code == 200
+        wait_until(c, lambda: len(nodes(c, "wash")) == 4 and all(n["status"] == "wait" for n in nodes(c, "wash")))
+        assert all(n["status"] == "none" for n in nodes(c, "script")[before:])  # 方案没确认，剧本不写
+        w0 = nodes(c, "wash")[0]
+        assert [r["key"] for r in w0["data"]["rows"]] == ["hook", "cast", "scene", "rhythm", "lines", "camera"] and w0["data"]["fit"]["recommended"]
+        confirm_washes(c)
         wait_until(c, lambda: all(n["status"] == "wait" for n in nodes(c, "script")[before:]))
         assert len(nodes(c, "script")) == before + 4
 
@@ -67,6 +87,7 @@ def test_full_flow():
         assert len(nodes(c, "script")) == before
         patch = chat(c, "给小商贩写 2 个续航剧本")
         c.post(f"{P}/patches/{patch['id']}/apply")
+        confirm_washes(c)
         wait_until(c, lambda: all(n["status"] == "wait" for n in nodes(c, "script")[before:]))
 
         # 计划生成后画布被修改 → 计划失效
@@ -169,6 +190,7 @@ def test_pass_nodes_from_canvas():
         P = f"/api/v1/projects/{pid}"
         c.post(P + "/agent/chat", json={"text": "给小商贩写 2 个续航剧本"})
         c.post(f"{P}/patches/{c.get(P + '/canvas').json()['pending_patch']['id']}/apply")
+        confirm_washes(c, P)
         scripts = lambda: [n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script"]  # noqa: E731
         wait_until(c, lambda: all(n["status"] == "wait" for n in scripts()))
         ids = [n["id"] for n in scripts()]
@@ -186,6 +208,7 @@ def test_revise_and_reject_on_canvas():
         P = f"/api/v1/projects/{pid}"
         c.post(P + "/agent/chat", json={"text": "给小商贩写 1 个续航剧本"})
         c.post(f"{P}/patches/{c.get(P + '/canvas').json()['pending_patch']['id']}/apply")
+        confirm_washes(c, P)
         script = lambda: next(n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script")  # noqa: E731
         wait_until(c, lambda: script()["status"] == "wait")
         nid, before = script()["id"], len(c.get(P + "/canvas").json()["nodes"])
@@ -226,7 +249,7 @@ def test_migrate_layouts_once():
             db.commit()
             assert canvas.migrate_layouts(db) == 1 and canvas.migrate_layouts(db) == 0
         s = sorted((n for n in c.get(P + "/canvas").json()["nodes"] if n["type"] == "script"), key=lambda n: n["y"])
-        assert s[0]["x"] == canvas.COL_X[1] and s[1]["y"] - s[0]["y"] >= canvas.NODE_SIZE["script"][1]
+        assert s[0]["x"] == canvas.COL_X[canvas.TYPES["script"]["col"]] and s[1]["y"] - s[0]["y"] >= canvas.NODE_SIZE["script"][1]
 
 
 def test_recover_interrupted():

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, breakdown, canvas, config, monitor, production, settings_store, storyboard, wash, workflows
+from app import agent, breakdown, canvas, config, monitor, production, settings_store, storyboard, wash, wash_plan, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -78,6 +78,61 @@ def start_breakdown(no: int, body: BreakdownIn, db: Session = Depends(get_db)):
     breakdown.start(no)
     db.refresh(a)
     return ad_dict(a)
+
+
+@router.post("/nodes/{nid}/wash-confirm")
+def wash_confirm(nid: str, db: Session = Depends(get_db)):
+    """确认洗稿方案（待确认时等于审核通过；已确认后又改了表，就重新确认、按新表重写下游剧本）。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "wash":
+        raise HTTPException(404, "not found")
+    if n.status in ("run", "none"):
+        raise HTTPException(409, "方案还没生成好")
+    if not any((r.get("ours") or "").strip() for r in (n.data or {}).get("rows") or []):
+        raise HTTPException(400, "「我方」一列还是空的：先填好每一行怎么做")
+    r = db.query(ReviewTask).filter(ReviewTask.node_id == nid, ReviewTask.status == "wait").first()
+    if r:
+        _decide(db, r, DecideIn(decision="pass"))
+        return {"ok": True}
+    project = db.get(Project, n.project_id)
+    n.status = "pass"
+    canvas.audit(db, n.project_id, "user", "wash_confirm", {"node_id": nid})
+    runs = agent.auto_advance(db, project, n)
+    db.commit()
+    workflows.run(runs)
+    for k in ("canvas", "chat", "reviews"):
+        emit(n.project_id, k)
+    return {"ok": True}
+
+
+class WashTierIn(BaseModel):
+    tier: str
+    reset_edits: bool = False  # 换档时把人改过的行也按新档位重写
+
+
+@router.post("/nodes/{nid}/wash-tier")
+def wash_tier(nid: str, body: WashTierIn, db: Session = Depends(get_db)):
+    """洗稿方案换档位：按新档位重新定每行保留 / 替换，重写「我方」一列，再提交确认。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "wash":
+        raise HTTPException(404, "not found")
+    if body.tier not in wash_plan.TIERS:
+        raise HTTPException(400, "档位只能是 high / mid / low")
+    if n.status == "run":
+        raise HTTPException(409, "方案正在生成，稍等")
+    d = dict(n.data or {})
+    rows = d.get("rows") or []
+    if body.reset_edits:
+        rows = [{**r, "edited": False} for r in rows]
+    n.data = {**d, "tier": body.tier, "tier_source": "user", "rows": rows}
+    n.status, n.sub = "run", f"按「{wash_plan.TIERS[body.tier]['label']}」重新出方案…"
+    for r in db.query(ReviewTask).filter(ReviewTask.node_id == nid, ReviewTask.status == "wait"):
+        r.status = "cancel"
+    canvas.audit(db, n.project_id, "user", "wash_tier", {"node_id": nid, "tier": body.tier})
+    db.commit()
+    emit(n.project_id, "canvas")
+    spawn(workflows.plan_wash(nid))
+    return {"ok": True}
 
 
 class WashPlanIn(BaseModel):
@@ -434,7 +489,7 @@ class DecideIn(BaseModel):
 
 
 NEXT_HINT = {"deliver": "在投放节点上点「下发到 TikTok」开始花钱投放。", "opt": ""}
-AUTO_NEXT = ("script", "video", "eval")  # 这些节点通过后自动走下一步，见 agent.auto_advance
+AUTO_NEXT = ("wash", "script", "video", "eval")  # 这些节点通过后自动走下一步，见 agent.auto_advance
 
 
 @router.post("/reviews/{rid}/decide")

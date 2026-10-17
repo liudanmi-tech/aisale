@@ -119,6 +119,8 @@ def test_settings_and_real_call_paths():
             p = c.get(f"{P}/canvas").json()["pending_patch"]
             c.post(f"{P}/patches/{p['id']}/apply")
             nodes = lambda t: [n for n in c.get(f"{P}/canvas").json()["nodes"] if n["type"] == t]  # noqa: E731
+            wait_until(lambda: nodes("wash") and nodes("wash")[0]["status"] == "wait")  # 先确认洗稿方案
+            c.post("/api/v1/reviews/pass-nodes", json={"node_ids": [nodes("wash")[0]["id"]]})
             wait_until(lambda: nodes("script") and nodes("script")[0]["status"] == "wait")
             assert nodes("script")[0]["data"]["shots"][0][2] == "Light don cut!"
             approve = lambda: [c.post(f"/api/v1/reviews/{r['id']}/decide", json={"decision": "pass"}) for r in c.get("/api/v1/reviews", params={"status": "wait"}).json() if r["project_id"] == pid]  # noqa: E731

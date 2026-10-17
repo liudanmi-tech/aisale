@@ -146,7 +146,16 @@ def _clean(out: dict, n: int) -> tuple[list, list, list[int]]:
     return shots, mapping, prod
 
 
-async def write(bd: dict, plan: dict, ours: str, brand: str, lang: str, comment: str = "", current: list | None = None) -> dict:
+def competitor_hits(shots: list, brand: str) -> list[int]:
+    """台词或画面里出现竞品品牌 / 机型的镜头（镜号从 1 开始）。"""
+    from app.wash_plan import COMPETITORS
+    own = (brand or "").lower()
+    words = [w for w in COMPETITORS if w not in own]
+    return [i + 1 for i, s in enumerate(shots) if any(re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", " ".join(map(str, s)).lower()) for w in words)]
+
+
+async def write(bd: dict, plan: dict, ours: str, brand: str, lang: str, comment: str = "", current: list | None = None, tier: str | None = None) -> dict:
+    """tier 是洗稿方案的档位：「high」几乎照拍，台词本来就会像，不按相似度阈值重写，只查有没有竞品品牌。"""
     n, total = target_shots(bd)
     system = WRITE_PROMPT.format(brand=brand, lang=lang, n=n, total=total)
     a = plan.get("analysis") or {}
@@ -157,7 +166,7 @@ async def write(bd: dict, plan: dict, ours: str, brand: str, lang: str, comment:
     user = f"爆款逐镜拆解：{_ref_text(bd)}\n洗稿清单：\n{plan_text}\n我方：{ours}\n修改意见：{comment or '无'}{revise}"
     shots, mapping, prod = _clean(await llm.chat_json(system, user, task="script", timeout=120), n)
     sim = similarity(shots, bd)
-    too_close = [i + 1 for i, p in enumerate(sim["per_shot"]) if p["line"] > THRESHOLD]
+    too_close = [] if tier == "high" else [i + 1 for i, p in enumerate(sim["per_shot"]) if p["line"] > THRESHOLD]
     if too_close:  # 台词太像参考：只把这几镜重写一遍
         user += (f"\n上一版：{json.dumps(shots, ensure_ascii=False)}\n第 {'、'.join(map(str, too_close))} 镜的台词和参考原话太像"
                  f"（超过 {int(THRESHOLD * 100)}%），把这几镜的台词换一种说法重写，其他镜头不动。")
@@ -168,6 +177,21 @@ async def write(bd: dict, plan: dict, ours: str, brand: str, lang: str, comment:
                 shots, mapping, prod, sim = shots2, mapping2, prod2, {**sim2, "rewrote": too_close}
         except Exception:  # noqa: BLE001  重写失败就用第一版，相似度照实标出来
             pass
+    hits = competitor_hits(shots, brand)
+    if hits:  # 剧本里还留着竞品品牌：只改这几镜
+        try:
+            shots2, mapping2, prod2 = _clean(await llm.chat_json(system, user + f"\n上一版：{json.dumps(shots, ensure_ascii=False)}\n第 {'、'.join(map(str, hits))} 镜"
+                                                                  f"还出现了竞品品牌或机型，换成 {brand} 的说法，其他镜头不动。", task="script", timeout=120), n)
+            if len(competitor_hits(shots2, brand)) < len(hits):
+                shots, mapping, prod = shots2, mapping2, prod2
+                sim = similarity(shots, bd)
+        except Exception:  # noqa: BLE001
+            pass
+    if tier == "high":
+        sim = {**sim, "threshold": 1.0, "note": f"高相似档（几乎照拍）：台词按原片句式重说，不按相似度拦截（最高 {sim['line_max']:.0%}），只检查竞品品牌"}
+    left = competitor_hits(shots, brand)
+    if left:
+        sim = {**sim, "competitor_shots": left}
     check, fixed = None, False
     try:
         check = await critique(plan, shots)
