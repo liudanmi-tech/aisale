@@ -46,7 +46,7 @@ RUBRIC = """你是短视频广告的质检员，检查一张 AI 生成的广告�
   "script": {{"status": "...", "reason": "画面是否符合这一镜的描述和景别"}}
 }}
 规则：这一镜{product_rule}；要求出场的主要角色 {roles}（共 {n_roles} 个角色）；景别 {size}；画面描述：{visual}
-- 商品检查：颜色、摄像头模组的形状 / 数量 / 排列、屏幕形态逐项对照实拍图，有出入判 warn 并写清哪里不一样；
+- 商品检查：广告画面里的手机故意不画 logo 和文字，没有 logo 不算问题；看不到背面时只比看得到的部分。颜色、摄像头模组的形状 / 数量 / 排列、屏幕形态逐项对照实拍图，有出入判 warn 并写清哪里不一样；
   只有明显是另一款手机（如 实拍是圆形大模组，画面是 iPhone 式方形三摄）或出现竞品标志才判 fail。
 - 不是商品特写的镜头：人物拿着手机很正常，不算问题；只在出现竞品标志或明显不是一个牌子的多部手机时提出来。
 - 人物：背景里的路人、群演不算多出来的人；只看主要角色有没有出现、服装发型和定妆照是否一致；背对镜头的角色看服装体型。
@@ -131,6 +131,8 @@ def _face_check(frame: Path, spec: dict, cast: dict) -> dict:
         return {"status": "skip", "reason": f"未执行：{_face['error']}", "scores": {}}
     import cv2
     faces = _features(frame)
+    if not faces and spec.get("size") in ("CU", "ECU"):
+        return {"status": "skip", "reason": "特写镜头（手部 / 商品特写）不要求露脸", "scores": {}, "faces": 0}
     rec = _face["rec"]
     scores, problems, worst = {}, [], "pass"
     with SessionLocal() as db:
@@ -304,7 +306,10 @@ BOX_PROMPT = ('Locate the main smartphone in image 1 and output its bounding box
               'and to ignore tiny phones in the background. Output only JSON {"box": [ymin, xmin, ymax, xmax]} with coordinates of image 1 '
               'normalized to 0-1000; {"box": null} only when image 1 contains no phone at all.')
 PAIR_PROMPT = """第 1 张是广告画面里裁出来的手机特写，后面是这款商品的实拍图。判断画面里这台手机是不是同一款商品，逐项对照：
-摄像头模组（形状、镜头数量和排列、闪光灯位置）、颜色、logo / 文字、机身比例。{card}
+摄像头模组（形状、镜头数量和排列、闪光灯位置）、颜色、机身比例。{card}
+- 广告画面里的手机故意不画 logo 和文字（后期再加），没有 logo / 文字不算不一致，不要提。
+- 光线、反光会让颜色看起来偏暖或偏冷，银白 / 米白 / 浅灰这类接近的颜色不算不一致。
+- 看不到背面（只露正面或侧面）时只比看得到的部分；看不到的部分不算不一致，看得到的都没问题就判 same=true。
 只输出 JSON：{{"same": true/false, "mismatches": ["不一致的地方，如 镜头是方形排列三颗，实拍是圆形模组四颗"], "confidence": 0-1}}"""
 SIM_STRUCT = 0.6  # SIFT 内点 ≥ 36：画面里就是实拍商品的像素（实拍合成 / 换入真实商品）
 
