@@ -303,3 +303,30 @@ def test_wash_waits_for_video_breakdown(monkeypatch):
         r = c.post(f"/api/v1/ref-ads/{no}/breakdown", json={"video": "data:video/mp4;base64," + base64.b64encode(b"x" * 20000).decode()})
         assert r.status_code == 200 and resumed == [wid]
         bdm.upload_path(no).unlink(missing_ok=True)
+
+
+def test_fetch_video_tries_free_download_before_apify(tmp_path, monkeypatch):
+    """拿视频的顺序：上传 > 存下的地址 > yt-dlp（免费）> Apify；都失败时把每一路的原因都列出来。"""
+    from app import breakdown as bdm
+    order = []
+
+    def ytdlp(url, dest):
+        order.append("yt-dlp")
+        raise RuntimeError("Unable to extract")
+
+    async def apify_media(url):
+        order.append("apify")
+        raise RuntimeError("Apify 账户额度不够了")
+
+    monkeypatch.setattr(bdm, "ytdlp_download", ytdlp)
+    monkeypatch.setattr(bdm.apify, "post_media", apify_media)
+    ad = {"no": 987654, "dna": {"url": "https://www.tiktok.com/@x/video/1"}, "raw": None}
+    bdm.upload_path(987654).unlink(missing_ok=True)
+    with pytest.raises(RuntimeError) as e:
+        asyncio.run(bdm.fetch_video(ad, tmp_path / "v.mp4"))
+    assert order == ["yt-dlp", "apify"] and "yt-dlp：Unable to extract" in str(e.value) and "Apify：Apify 账户额度" in str(e.value)
+
+    def ok(url, dest):
+        dest.write_bytes(b"\0" * 20000)
+    monkeypatch.setattr(bdm, "ytdlp_download", ok)
+    assert asyncio.run(bdm.fetch_video(ad, tmp_path / "v.mp4")) == "TikTok 原视频（yt-dlp 下载）"

@@ -102,8 +102,31 @@ async def _download(url: str, dest: Path, headers: dict | None = None) -> None:
         raise RuntimeError("下载到的不是视频文件")
 
 
+def ytdlp_download(url: str, dest: Path) -> None:
+    """用 yt-dlp 直接从 TikTok 下载（免费，不经 Apify）。没装 yt-dlp 时报错，换下一条路。"""
+    try:
+        import yt_dlp
+    except ImportError:
+        raise RuntimeError("没装 yt-dlp（在 api 目录运行 pip install -r requirements.txt）") from None
+    class _Quiet:  # 报错由下面整理后抛出，不往终端打
+        def debug(self, msg): pass
+        def info(self, msg): pass
+        def warning(self, msg): pass
+        def error(self, msg): pass
+
+    opts = {"outtmpl": str(dest), "format": "mp4/best", "quiet": True, "no_warnings": True, "noplaylist": True, "logger": _Quiet(),
+            "max_filesize": MAX_BYTES, "socket_timeout": 30, "retries": 2, "overwrites": True}
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except Exception as e:  # noqa: BLE001  yt-dlp 的报错带颜色码和前缀，整理一下
+        raise RuntimeError(re.sub(r"\x1b\[[0-9;]*m|^ERROR:\s*", "", str(e)).strip()[:200] or type(e).__name__) from None
+    if not dest.exists() or dest.stat().st_size < 10_000:
+        raise RuntimeError("下载到的不是视频文件")
+
+
 async def fetch_video(ad: dict, dest: Path) -> str:
-    """拿到视频文件，返回来源说明。"""
+    """拿到视频文件，返回来源说明。依次试：人工上传 → 同步时存下的 TikTok 地址 → yt-dlp（免费）→ Apify（要额度）。"""
     up = upload_path(ad["no"])
     if up.exists():
         dest.write_bytes(up.read_bytes())
@@ -118,14 +141,20 @@ async def fetch_video(ad: dict, dest: Path) -> str:
             await _download(u, dest, UA)
             return "TikTok 原视频"
         except Exception as e:  # noqa: BLE001
-            errs.append(str(e) or type(e).__name__)
+            errs.append(f"TikTok 存下的地址：{str(e) or type(e).__name__}")
+            break  # 这几个地址是同一批、一起过期，试一个就够
     if dna.get("url"):
+        try:
+            await asyncio.to_thread(ytdlp_download, dna["url"], dest)
+            return "TikTok 原视频（yt-dlp 下载）"
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"yt-dlp：{str(e) or type(e).__name__}")
         try:
             await _download(await apify.post_media(dna["url"]), dest)
             return "TikTok 原视频（经 Apify 下载）"
         except Exception as e:  # noqa: BLE001
-            errs.append(str(e) or type(e).__name__)
-    raise RuntimeError("拿不到视频文件：" + ("；".join(errs[-2:]) if errs else "这条爆款没有 TikTok 链接") + "。可以在爆款详情里手动上传视频再拆解")
+            errs.append(f"Apify：{str(e) or type(e).__name__}")
+    raise RuntimeError("拿不到视频文件：" + ("；".join(errs) if errs else "这条爆款没有 TikTok 链接") + "。可以手动上传视频再拆解")
 
 
 def _ffmpeg(*args: str) -> subprocess.CompletedProcess:

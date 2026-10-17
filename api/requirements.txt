@@ -9,3 +9,4 @@ cryptography>=46
 opencv-python-headless>=4.12  # 质检：人脸一致性（YuNet + SFace）、模糊和闪烁
 imageio-ffmpeg>=0.5
 pillow>=11
+yt-dlp>=2025.1  # 爆款视频拆解：免费从 TikTok 下载视频（不走 Apify）
