@@ -41,6 +41,15 @@ export function InpaintButton({ nid, i, keyframe, hasProduct, history, disabled,
     );
 }
 
+/** 不经过按钮、直接打开局部重绘（从关键帧候选里「用这张，局部重绘」进来）。 */
+export function InpaintDialog(props: { nid: string; i: number; keyframe: string; hasProduct: boolean; onClose: () => void; onDone: () => void }) {
+    return (
+        <span data-ui onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onWheel={stop} onKeyDown={stop} onDoubleClick={stop} onClick={stop}>
+            <InpaintModal {...props} />
+        </span>
+    );
+}
+
 function InpaintModal({ nid, i, keyframe, hasProduct, onClose, onDone }:
     { nid: string; i: number; keyframe: string; hasProduct: boolean; onClose: () => void; onDone: () => void }) {
     const { message } = App.useApp();

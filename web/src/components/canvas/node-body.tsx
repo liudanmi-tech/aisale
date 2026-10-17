@@ -7,7 +7,7 @@ import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 }
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
-import { InpaintButton } from "@/components/canvas/inpaint-editor";
+import { InpaintButton, InpaintDialog } from "@/components/canvas/inpaint-editor";
 import { WashBody } from "@/components/canvas/wash-body";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
@@ -805,6 +805,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const redoKf = useMutation({ mutationFn: ({ i, r }: { i: number; r: KfRedo }) => api.redoKeyframe(n.id, i, r), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
     const genAll = useMutation({ mutationFn: () => api.generateClips(n.id), onSuccess: (r) => { message.info(`开始生成 ${r.shots.length} 镜视频`); refresh(); }, onError: (e) => message.error(errMsg(e)) });
     const pick = useMutation({ mutationFn: ({ i, url }: { i: number; url: string }) => api.pickKeyframe(n.id, i, url), onSuccess: refresh, onError: (e) => message.error(errMsg(e)) });
+    const [inpaint, setInpaint] = useState<{ i: number; url: string } | null>(null);
     const redoClip = useMutation({
         mutationFn: (i: number) => api.redoClip(n.id, i),
         onMutate: (i) => { message.loading({ content: `镜 ${i + 1}：正在提交重做视频…`, key: `redo-clip-${i}` }); },
@@ -824,6 +825,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const usesOf = (pred: (sp: ShotSpec) => boolean) => (cast?.specs || []).flatMap((sp, i) => (pred(sp) ? [i + 1] : []));
     return (
         <div>
+            {inpaint && <InpaintDialog nid={n.id} i={inpaint.i} keyframe={inpaint.url} hasProduct={!!cast?.product} onClose={() => setInpaint(null)} onDone={refresh} />}
             <div className="mb-2 flex items-center gap-1.5 text-[11px]">
                 {(running || n.status === "input") && stage && !["完成", "单镜修改", "关键帧待确认"].includes(stage)
                     ? <span className="flex items-center gap-1">{[...VSTAGES.slice(0, 3), ...(stage === "等待商品图" ? ["等待商品图"] : []), ...VSTAGES.slice(3)].map((x, k, arr) => (
@@ -903,7 +905,9 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 </div>
                                 {(t.kf_candidates || []).length > 1 && !hasVideo && (
                                     <KfCandidates cands={t.kf_candidates as KfCand[]} current={t.keyframe} shot={i + 1} busy={shotBusy}
-                                        disabled={locked || pick.isPending} onPick={(url) => pick.mutate({ i, url })} />
+                                        disabled={locked || pick.isPending} onPick={(url) => pick.mutate({ i, url })}
+                                        onInpaint={(url) => (url === t.keyframe ? setInpaint({ i, url }) : pick.mutate({ i, url }, { onSuccess: () => setInpaint({ i, url }) }))}
+                                        onRedraw={() => redoKf.mutate({ i, r: { comment: "", drop_refs: [] } })} />
                                 )}
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span>
                                     {t.video_mode === "reference" && <span className="ml-1 rounded bg-brand/20 px-1 text-[10px] text-ink" title={`全能参考：${(t.video_refs || []).join(" + ")}`}>全能参考</span>}
@@ -1183,8 +1187,9 @@ const QC_DOT: Record<string, string> = { pass: "bg-good", warn: "bg-warn", fail:
 const QC_TEXT: Record<string, string> = { pass: "质检通过", warn: "有问题待你看", fail: "质检没过", skip: "没质检" };
 
 /** 关键帧候选：鼠标移上去看大图和质检问题，点「用这张」换上（不花钱）。这一镜还在画时只能看，画完才能换。 */
-function KfCandidates({ cands, current, shot, busy, disabled, onPick }:
-    { cands: KfCand[]; current?: string; shot: number; busy: boolean; disabled: boolean; onPick: (url: string) => void }) {
+function KfCandidates({ cands, current, shot, busy, disabled, onPick, onInpaint, onRedraw }:
+    { cands: KfCand[]; current?: string; shot: number; busy: boolean; disabled: boolean; onPick: (url: string) => void;
+      onInpaint: (url: string) => void; onRedraw: () => void }) {
     return (
         <div data-ui className="mt-1">
             <div className="mb-0.5 text-[10px] text-ink2">{busy ? `候选 ${cands.length} 张（这一镜画完后才能换）` : `候选 ${cands.length} 张：移上去看大图，点「用这张」换上`}</div>
@@ -1200,10 +1205,13 @@ function KfCandidates({ cands, current, shot, busy, disabled, onPick }:
                                     {on && <span className="ml-auto rounded bg-brand px-1 text-[11px] text-white">正在用</span>}
                                 </div>
                                 {!!c.issues?.length && <ul className="mt-1 list-disc pl-4 text-[11px] leading-4 text-ink2">{c.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
-                                {!on && (
-                                    <Button size="small" type="primary" block className="mt-2" disabled={disabled} onClick={() => onPick(c.url)}>
-                                        {busy ? "这一镜画完后才能换" : `镜 ${shot} 用这张`}
-                                    </Button>
+                                {c.status === "fail" && <div className="mt-1 text-[11px] text-ink2">质检只是提示：你看着能用就可以用，小问题用局部重绘修。</div>}
+                                {busy ? <div className="mt-2 text-center text-[12px] text-ink2">这一镜画完后才能换</div> : (
+                                    <div className="mt-2 flex flex-col gap-1">
+                                        {!on && <Button size="small" type="primary" block disabled={disabled} onClick={() => onPick(c.url)}>镜 {shot} 用这张</Button>}
+                                        <Button size="small" block disabled={disabled} onClick={() => onInpaint(c.url)}>{on ? "在这张上局部重绘" : "用这张，接着局部重绘"}</Button>
+                                        <Button size="small" type="text" block disabled={disabled} onClick={onRedraw}>都不满意，重画这一镜</Button>
+                                    </div>
                                 )}
                             </div>
                         }>
