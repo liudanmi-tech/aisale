@@ -1,12 +1,17 @@
 """40 个独立评测 Agent：模型只给逐镜相对评分，按基准概率抽样；同一条视频结果可复现。"""
 import asyncio
 import json
+import os
 
-import httpx
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_flow.db")  # 和其他测试一样：不先设好，先导入 app 时会连到开发库
+os.environ["STEP_DELAY"] = "0"
+os.environ["LLM_ENABLED"] = "false"
 
-from app import panel
-from app.adapters import llm
-from app.workflows import _personas
+import httpx  # noqa: E402
+
+from app import panel  # noqa: E402
+from app.adapters import llm  # noqa: E402
+from app.workflows import _personas  # noqa: E402
 
 SHOTS = [["0–3s", "停电夜市", "Light don cut!", ""], ["3–7s", "收款", "No charger.", ""], ["7–11s", "产品特写", "6000mAh", ""], ["11–15s", "CTA", "Buy am", ""]]
 
