@@ -1,12 +1,12 @@
 """爆款库、节点详情编辑、审核、投放、数据、资产与设置。"""
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, canvas, config, monitor, production, settings_store, storyboard, workflows
+from app import agent, breakdown, canvas, config, monitor, production, settings_store, storyboard, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -47,6 +47,66 @@ def ref_ad(no: int, db: Session = Depends(get_db)):
     if not a:
         raise HTTPException(404, "not found")
     return ad_dict(a)
+
+
+class BreakdownIn(BaseModel):
+    video: str | None = None  # data URL：没有 TikTok 链接或下载不到时，手动上传视频
+
+
+@router.post("/ref-ads/{no}/breakdown")
+def start_breakdown(no: int, body: BreakdownIn, db: Session = Depends(get_db)):
+    """多模态拆解这条爆款（下载视频 → 抽帧 + 音轨 → 模型逐镜拆解），后台跑，结果写进 dna.breakdown。"""
+    a = db.query(RefAd).filter(RefAd.no == no).first()
+    if not a:
+        raise HTTPException(404, "not found")
+    started = (a.dna or {}).get("breakdown_started") or ""
+    if (a.dna or {}).get("breakdown_status") == "running" and started > (datetime.utcnow() - timedelta(minutes=15)).isoformat():
+        raise HTTPException(409, "正在拆解，稍等")
+    if body.video:
+        m = re.match(r"data:video/[\w.+-]+;base64,(.+)", body.video, re.S)
+        if not m:
+            raise HTTPException(400, "请上传视频文件（mp4 / mov）")
+        import base64
+        raw = base64.b64decode(m.group(1))
+        if len(raw) > breakdown.MAX_BYTES:
+            raise HTTPException(400, "视频太大（超过 80MB）")
+        p = breakdown.upload_path(no)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(raw)
+    elif not (a.dna or {}).get("url") and not breakdown.upload_path(no).exists():
+        raise HTTPException(400, "这条爆款没有 TikTok 链接：请上传视频文件再拆解")
+    breakdown.start(no)
+    db.refresh(a)
+    return ad_dict(a)
+
+
+class WashPlanIn(BaseModel):
+    keep: list[str]
+    replace: list[str]
+
+
+@router.post("/nodes/{nid}/wash-plan")
+def rewrite_with_plan(nid: str, body: WashPlanIn, db: Session = Depends(get_db)):
+    """改过的洗稿清单：保存后按清单重写剧本（不再重新出清单）。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "script":
+        raise HTTPException(404, "not found")
+    d = dict(n.data or {})
+    if not d.get("wash"):
+        raise HTTPException(400, "这个剧本不是按爆款拆解洗的，没有洗稿清单")
+    keep = [x.strip() for x in body.keep if x.strip()][:8]
+    replace = [x.strip() for x in body.replace if x.strip()][:10]
+    if not keep or not replace:
+        raise HTTPException(400, "保留和替换至少各写一条")
+    if n.status == "run":
+        raise HTTPException(409, "剧本正在生成，稍等")
+    d["wash"] = {**d["wash"], "plan": {"keep": keep, "replace": replace}, "plan_edited": True}
+    n.data, n.status = d, "run"
+    canvas.audit(db, n.project_id, "user", "wash_plan", {"node_id": nid})
+    db.commit()
+    emit(n.project_id, "canvas")
+    spawn(workflows.generate_script(nid))
+    return {"ok": True}
 
 
 @router.get("/nodes/{nid}")

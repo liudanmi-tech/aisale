@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import analysis, canvas, monitor, settings_store
+from app import analysis, breakdown, canvas, monitor, settings_store
 from app.db import get_db
 from app.events import spawn
 from app.models import Report, SourceVideo, VideoAnalysis, VideoSnapshot, WatchAccount, new_id
@@ -225,4 +225,7 @@ def promote(vid: str, db: Session = Depends(get_db)):
     canvas.audit(db, "-", "user", "watch_promote", {"video": vid, "ref_ad_no": ad.no})
     db.commit()
     spawn(monitor.ensure_covers([vid]))
+    if settings_store.llm_enabled() and not (ad.dna or {}).get("breakdown"):  # 入库就拆解视频，洗剧本时用
+        breakdown.start(ad.no)
+        db.refresh(ad)
     return ad_dict(ad)

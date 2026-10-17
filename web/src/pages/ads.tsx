@@ -4,6 +4,7 @@ import { Play } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState } from "react";
 
+import { BreakdownPanel } from "@/components/breakdown-panel";
 import { Card, Cover, PageTitle, TikTokPlayer } from "@/components/common";
 import { COVER_GRADIENTS } from "@/lib/constants";
 import { api, type RefAd } from "@/services/api";
@@ -75,7 +76,7 @@ export default function Ads() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
                 {ads.filter((a) => source === "全部" || (source === "账号监控") === (a.source === "TikTok 账号监控")).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
             </div>
-            <Drawer open={!!ad} width={640} onClose={() => setParams({})} title={ad ? `爆款 #${ad.no} · ${ad.title}` : ""}
+            <Drawer open={!!ad} width={760} onClose={() => setParams({})} title={ad ? `爆款 #${ad.no} · ${ad.title}` : ""}
                 footer={ad && (
                     <div className="flex justify-end gap-2">
                         <Button onClick={() => wash.mutate(ad.no)} loading={wash.isPending} type="primary">一键洗剧本</Button>
@@ -106,8 +107,9 @@ export default function Ads() {
                             <h4 className="mb-2 mt-0">创意 DNA</h4>
                             {[["钩子", ad.dna.hook], ["主卖点", ad.dna.selling_point], ["卖点出现", ad.dna.sp_at], ["人物", ad.dna.persona], ["BGM", ad.dna.bgm ?? ad.dna.music], ["CTA", ad.dna.cta]].filter(([, v]) => v).map(([k, v]) => <Tag key={k}>{k}：{v}</Tag>)}
                         </div>
-                        {Array.isArray(ad.dna.shots) ? <div>
-                            <h4 className="mb-2 mt-0">分镜时间轴</h4>
+                        <BreakdownPanel ad={ad} />
+                        {Array.isArray(ad.dna.shots) && !ad.dna.breakdown ? <div>
+                            <h4 className="mb-2 mt-0">分镜时间轴（根据封面和字幕推断，不如视频拆解准）</h4>
                             <div className="flex gap-2.5 overflow-x-auto pb-1">
                                 {(ad.dna.shots as string[][]).map((s, i) => (
                                     <div key={i} className="w-[150px] shrink-0 rounded-lg border border-line bg-elev p-2 text-xs">
@@ -116,7 +118,7 @@ export default function Ads() {
                                     </div>
                                 ))}
                             </div>
-                        </div> : <div className="text-sm text-ink2">分镜拆解：下一步由 AI 看视频自动生成；洗剧本时会参考上面的文案与数据。</div>}
+                        </div> : null}
                         {ad.dna.intent_ratio != null && <div className="text-sm text-ink2">评论洞察：购买意向词占比 {ad.dna.intent_ratio}%（price / how much / where to buy）</div>}
                     </div>
                 )}

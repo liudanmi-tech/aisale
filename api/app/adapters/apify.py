@@ -65,8 +65,23 @@ async def search_videos(queries: list[str], per_query: int = 30, timeout_seconds
     return await _run({"searchQueries": queries, "resultsPerPage": per_query, **NO_DOWNLOADS}, timeout_seconds, on_progress)
 
 
+async def post_media(url: str, timeout_seconds: float = 600) -> str:
+    """单条视频：让 Actor 把视频文件下载到 Apify 存储，返回可直接下载的地址（拆解爆款用）。"""
+    items = await _run_raw({"postURLs": [url], "resultsPerPage": 1, "shouldDownloadVideos": True,
+                            "shouldDownloadCovers": False, "shouldDownloadSubtitles": False}, timeout_seconds)
+    for i in items:
+        for u in i.get("mediaUrls") or []:
+            if u:
+                return u
+    raise RuntimeError("Apify 没有返回视频文件（视频可能已删除或设为私密）")
+
+
 async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dict]:
-    """启动 Actor 并等它跑完；on_progress 每轮收到 {run_id, status, items, elapsed}。"""
+    return [v for v in (normalize(i) for i in await _run_raw(body, timeout_seconds, on_progress)) if v]
+
+
+async def _run_raw(body: dict, timeout_seconds: float, on_progress=None) -> list[dict]:
+    """启动 Actor 并等它跑完，返回原始条目；on_progress 每轮收到 {run_id, status, items, elapsed}。"""
     actor = settings_store.get_models()["tiktok_actor"]
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
         r = await c.post(f"{BASE}/acts/{actor}/runs", headers=_headers(), json=body)
@@ -93,8 +108,7 @@ async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dic
             raise RuntimeError(f"Apify 运行失败：{run.get('status')}")
         r = await c.get(f"{BASE}/datasets/{run['defaultDatasetId']}/items", headers=_headers(), params={"clean": "true"})
         _check(r)
-        items = r.json()
-    return [v for v in (normalize(i) for i in items) if v]
+        return r.json()
 
 
 def _num(*vals) -> int:
