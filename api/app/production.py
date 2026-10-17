@@ -971,6 +971,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
 
 
 IDLE = ("完成", "失败", "已停止", "关键帧待确认", None)
+KEEP = ("kf_candidates", "kf_meta", "stats", "kf_history", "kf_edits")
 QC_TIMEOUT = 300  # 视频质检最长 5 分钟（下载视频 + 抽帧 + 模型看图）
 
 
@@ -983,6 +984,8 @@ def _finalize(video_id: str, cast: dict, shots: list, tasks: list) -> None:
         # 整条生成期间，用户可能单独重做了已经失败 / 做完的镜头：那几镜以数据库里的为准
         cur = list((v.data or {}).get("tasks") or [])
         tasks = [cur[k] if k < len(cur) and (cur[k] or {}).get("redo_seq", 0) > ((t or {}).get("redo_seq") or 0) else t for k, t in enumerate(tasks)]
+        # 生成过程中实时写进数据库的东西（关键帧候选、出图说明、可用率统计、重绘历史）不在返回结果里，别被覆盖掉
+        tasks = [{**{f: cur[k][f] for f in KEEP if f in (cur[k] or {})}, **t} if t and k < len(cur) and cur[k] else t for k, t in enumerate(tasks)]
         if any((t or {}).get("phase") not in IDLE for t in tasks):
             # 还有镜头在单独重做：先把其他镜头的结果写进去，等它做完由 _settle 收尾
             v.data = {**(v.data or {}), "shots": shots, "tasks": tasks, "stage": "单镜修改"}
@@ -1003,8 +1006,8 @@ def _finalize(video_id: str, cast: dict, shots: list, tasks: list) -> None:
             v.status, v.sub = "input", ("关键帧都画好了：逐镜调好后点「全部满意，生成视频」" if whole
                                         else f"第 {'、'.join(map(str, pending))} 镜关键帧已更新，确认后生成视频")
             if whole:
-                agent.say(db, v.project_id, f"{agent.ref(v)} 的 {len(pending)} 镜关键帧都画好了（每镜 {settings_store.get_retries().get('kf_candidates', 1)} 张候选里自动挑了质检最好的）。"
-                                            "先逐镜看：不满意可以换候选、局部重绘或重画；都满意了点「全部满意，生成视频」，这时才开始花视频的钱。")
+                agent.say(db, v.project_id, f"{agent.ref(v)} 的 {len(pending)} 镜关键帧都画好了（每镜 {settings_store.get_retries().get('kf_candidates', 1)} 张候选，先替你放上了质检最好的一张，还没确认）。"
+                                            "先逐镜看：卡片下面的小图是其他候选，点一下就换；不满意也可以局部重绘或重画；都满意了点「全部满意，生成视频」，这时才开始花视频的钱。")
             db.commit()
             emit(v.project_id, "canvas")
             return

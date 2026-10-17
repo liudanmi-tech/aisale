@@ -71,7 +71,8 @@ def test_gate_stops_before_video_and_generate_all(monkeypatch):
     clips = []
 
     async def fake_make_kf(video_id, i, sh, spec, cast, frame, market, comment, retries, *a):
-        production._shot(video_id, i, keyframe=f"/api/v1/media/keyframes/s{i}.png")
+        production._shot(video_id, i, keyframe=f"/api/v1/media/keyframes/s{i}.png",
+                         kf_candidates=[{"url": f"/api/v1/media/keyframes/s{i}.png", "status": "pass"}, {"url": f"/c{i}.png", "status": "warn"}])
         return f"/api/v1/media/keyframes/s{i}.png", {"status": "pass", "issues": [], "checks": {}}, 1, ""
 
     async def fake_make_clip(*a, **kw):
@@ -93,6 +94,8 @@ def test_gate_stops_before_video_and_generate_all(monkeypatch):
             v = db.get(Node, vid)
             phases = [t.get("phase") for t in v.data["tasks"]]
             status, sub = v.status, v.sub
+            cands = [len(t.get("kf_candidates") or []) for t in v.data["tasks"]]
+        assert cands == [2, 2, 2]  # 收尾不能把候选冲掉，人还要挑
         assert clips == [] and phases == ["关键帧待确认"] * 3 and status == "input" and "全部满意" in sub  # 没生成视频
         r = c.post(f"/api/v1/nodes/{vid}/clips", json={}).json()
         assert r["shots"] == [0, 1, 2] and len(spawned) == 3
