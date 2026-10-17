@@ -381,6 +381,42 @@ def redo_keyframe(nid: str, i: int, body: KeyframeIn, db: Session = Depends(get_
     return {"ok": True}
 
 
+class InpaintIn(BaseModel):
+    mask: str  # data URL：涂过的地方不透明 / 白色
+    prompt: str
+    engine: str = "auto"  # auto / flux / gemini
+    product: bool = False  # 带上商品实拍图（改手机时用）
+
+
+@router.post("/nodes/{nid}/shots/{i}/inpaint")
+def inpaint_keyframe(nid: str, i: int, body: InpaintIn, db: Session = Depends(get_db)):
+    """关键帧局部重绘：只重画涂过的地方，画完停下等你确认。"""
+    n = _shot_guard(db, nid, i)
+    t = ((n.data or {}).get("tasks") or [{}] * (i + 1))[i] or {}
+    if not t.get("keyframe"):
+        raise HTTPException(400, "这一镜还没有关键帧")
+    if not body.prompt.strip():
+        raise HTTPException(400, "写一句要把涂的地方改成什么")
+    if body.engine == "flux" and not settings_store.get_secret("fal"):
+        raise HTTPException(400, "FLUX Fill 走 fal：先在设置页填 fal Key，或改用 Gemini")
+    if body.engine in ("gemini", "auto") and not settings_store.llm_enabled() and not settings_store.get_secret("fal"):
+        raise HTTPException(400, "局部重绘需要 OpenRouter 或 fal 的 Key")
+    canvas.audit(db, n.project_id, "user", "inpaint_keyframe", {"node_id": nid, "shot": i, "prompt": body.prompt})
+    db.commit()
+    spawn(production.inpaint_keyframe(nid, i, body.mask, body.prompt.strip()[:600], body.engine, body.product))
+    return {"ok": True}
+
+
+@router.post("/nodes/{nid}/shots/{i}/keyframe-undo")
+def undo_keyframe(nid: str, i: int, db: Session = Depends(get_db)):
+    """撤回上一次局部重绘。"""
+    _shot_guard(db, nid, i)
+    kf = production.restore_keyframe(nid, i)
+    if not kf:
+        raise HTTPException(400, "没有可以撤回的版本")
+    return {"keyframe": kf}
+
+
 class ClipIn(BaseModel):
     prompt: str | None = None  # 浮窗里确认过的提示词；不传就按模式自动生成
     mode: str | None = None  # ref 全能参考 / first 首帧 / first_last 首尾帧

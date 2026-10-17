@@ -952,6 +952,57 @@ async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str |
     _settle(video_id)
 
 
+async def _inpaint_keyframe(video_id: str, i: int, mask: str, prompt: str, engine: str = "auto", with_product: bool = False) -> None:
+    """局部重绘第 i 镜的关键帧：只改涂过的地方，画完停下等人看（视频要重新生成）。旧关键帧进 kf_history，可撤回。"""
+    from app import inpaint
+    _begin_shot(video_id, i, "局部重绘")
+    try:
+        ctx = _context(video_id)
+        with SessionLocal() as db:
+            t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i] or {}
+        old = t.get("keyframe")
+        if not old:
+            raise ValueError("这一镜还没有关键帧")
+        raw, eng = await inpaint.redraw(old, mask, prompt, engine, ctx["cast"].get("product") if with_product else None)
+        kf = _save_keyframe(video_id, i, raw, "image/png")
+        hist = [*(t.get("kf_history") or []), old][-inpaint.HISTORY:]
+        edits = [*(t.get("kf_edits") or []), {"prompt": prompt, "engine": eng, "from": old, "to": kf, "at": time.time()}][-inpaint.HISTORY:]
+        _shot(video_id, i, keyframe=kf, kf_history=hist, kf_edits=edits, keyframe_error="", phase="关键帧待确认", status="keyframe_ready",
+              url=None, video_url=None, error=None, retry_error=None)
+    except Exception as e:  # noqa: BLE001
+        log.exception("局部重绘出错 %s #%d", video_id, i)
+        _shot(video_id, i, keyframe_error=f"局部重绘没成功（关键帧和视频保持原样）：{fal.describe(e)[:200]}")  # 原来的状态不动
+    _settle(video_id)
+
+
+async def inpaint_keyframe(video_id: str, i: int, mask: str, prompt: str, engine: str = "auto", with_product: bool = False) -> None:
+    try:
+        with _track(video_id):
+            await _inpaint_keyframe(video_id, i, mask, prompt, engine, with_product)
+    except asyncio.CancelledError:
+        _mark_stopped(video_id)
+        _settle(video_id)
+        raise
+
+
+def restore_keyframe(video_id: str, i: int) -> str | None:
+    """撤回上一次局部重绘：关键帧换回上一版（视频要重新生成）。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        tasks = list((v.data or {}).get("tasks") or [])
+        t = dict(tasks[i] or {})
+        hist = list(t.get("kf_history") or [])
+        if not hist:
+            return None
+        t.update(keyframe=hist.pop(), kf_history=hist, kf_edits=(t.get("kf_edits") or [])[:-1], phase="关键帧待确认", status="keyframe_ready",
+                 url=None, video_url=None, keyframe_error="")
+        tasks[i] = t
+        v.data = {**(v.data or {}), "tasks": tasks}
+        db.commit()
+        emit(v.project_id, "canvas")
+        return t["keyframe"]
+
+
 def _end_keyframe(video_id: str, i: int) -> str | None:
     """首尾帧模式的结尾画面：下一镜的关键帧。"""
     with SessionLocal() as db:

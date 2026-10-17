@@ -7,6 +7,7 @@ import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 }
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
+import { InpaintButton } from "@/components/canvas/inpaint-editor";
 import { WashBody } from "@/components/canvas/wash-body";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
@@ -873,6 +874,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}
                                 <ShotQcChips q={t.qc} keyframe={t.keyframe} shot={i + 1} />
                                 <div className="mt-0.5"><ShotEditor shot={s} disabled={!editable} onSave={(v, l) => saveShot(i, v, l)} /></div>
+                                {t.keyframe_error && !shotBusy && <div className="mt-0.5 line-clamp-3 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.keyframe_error}>{t.keyframe_error}</div>}
                                 {!confirming && locked && (
                                     <div className="mt-1 text-[10px] text-ink2">
                                         {shotBusy ? `这一镜正在${phase}，做完后可以重画关键帧或重做` : blockedByRun ? "正在拆分镜 / 选角，完成后可以单镜修改" : "等商品图上传后可以修改"}
@@ -885,6 +887,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                         {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })}
                                             addProduct={cast?.product && (spec?.product || (spec?.roles?.length && PHONE_RE.test(`${s[1]} ${spec?.line || ""}`)))
                                                 && !(t.kf_meta?.refs || []).some((r: KfRef) => r.kind === "product") ? (lib[cast.product]?.images || []).slice(0, 2) : []} />}
+                                        {t.keyframe && <InpaintButton nid={n.id} i={i} keyframe={t.keyframe} hasProduct={!!cast?.product} history={(t.kf_history || []).length} disabled={locked} onDone={refresh} />}
                                         <Btn icon={<RefreshCw size={10} />} disabled={locked || regen.isPending} onClick={() => regen.mutate(i)}>{t.keyframe ? "全部重做" : "重新生成"}</Btn>
                                     </div>
                                 )}

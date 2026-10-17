@@ -371,6 +371,9 @@ export const api = {
     buildStatus: () => get<{ stale: boolean; backend_stale?: boolean }>("/build-status"),
     redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     stopVideo: (nid: string) => post<{ ok: boolean; cancelled: number }>(`/nodes/${nid}/stop`),
+    inpaintKeyframe: (nid: string, i: number, body: { mask: string; prompt: string; engine: "auto" | "flux" | "gemini"; product: boolean }) =>
+        postSlow(`/nodes/${nid}/shots/${i}/inpaint`, body),
+    undoKeyframe: (nid: string, i: number) => post<{ keyframe: string }>(`/nodes/${nid}/shots/${i}/keyframe-undo`),
     redoClip: (nid: string, i: number, body: ClipRedo = {}) => post(`/nodes/${nid}/shots/${i}/clip`, body),
     videoPlan: (nid: string, i: number, body: { mode?: string; prompt?: string; suggestion?: string } = {}) => postSlow<VideoPlan>(`/nodes/${nid}/shots/${i}/video-plan`, body),
     composeCut: (nid: string, body: { captions?: boolean } = {}) => post(`/nodes/${nid}/compose`, body),
