@@ -82,6 +82,7 @@ def test_storyboard_follows_reference_frame(monkeypatch, tmp_path):
         text = first[0]["text"]
         assert "第 1 张参考图是原片第 1 镜" in text and "中景、正面平视" in text and "铲车在后方正对镜头" in text and "屏幕" in text
         assert "不要改成手机特写" in text and "这一镜是产品特写" not in text  # 有人出镜：按原片景别
+        assert text.startswith("COMPOSITION FIRST") and "MEDIUM SHOT" in text and "do not crop to hands only" in text  # 构图放最前面
         second = sent[1]  # 没有对应原片的镜头：只参考本片第 1 镜，仍是产品特写
         assert len(second) == 2 and "这一镜是产品特写" in second[0]["text"] and "原片" not in second[0]["text"]
         p = c.get(f"/api/v1/nodes/{nid}/storyboard/0/prompt").json()

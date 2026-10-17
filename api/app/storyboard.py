@@ -10,6 +10,8 @@ import hashlib
 import logging
 from datetime import datetime
 
+import httpx
+
 from app import config, settings_store
 from app.adapters import llm
 from app.db import SessionLocal
@@ -56,10 +58,38 @@ def ref_shot(data: dict, i: int) -> dict | None:
     return {**r, "no": k, "tier": w.get("tier")}
 
 
+SIZE_EN = [(r"大特写|极特写|ECU", "EXTREME CLOSE-UP: only the detail fills the frame"),
+           (r"特写|CU", "CLOSE-UP: the object or face fills most of the frame"),
+           (r"近景", "MEDIUM CLOSE-UP: people from the chest up"),
+           (r"中景|MS", "MEDIUM SHOT: people from the knees or waist up, with the surroundings visible"),
+           (r"全景|远景|WS|大全景", "WIDE SHOT: full bodies of everyone and the whole environment")]
+
+
+def _composition(rs: dict) -> str:
+    """原片这一镜的构图，写成画图模型最听得懂的英文硬要求，放在提示词最前面。"""
+    import re
+    cam = str(rs.get("camera") or "")
+    size = next((en for pat, en in SIZE_EN if re.search(pat, cam)), "")
+    bits = [f"COMPOSITION FIRST — copy the framing of reference image 1 (shot {rs['no']} of the original ad):" if rs.get("frame")
+            else f"COMPOSITION FIRST — shot {rs['no']} of the original ad:"]
+    if size:
+        bits.append(f"shot size {size};")
+    if rs.get("people") and rs["people"] not in ("无", "无人", "没有"):
+        bits.append(f"people in frame: {rs['people']} (draw them, do not crop to hands only);")
+    if rs.get("framing"):
+        bits.append(f"layout: {rs['framing']};")
+    if rs.get("phone_facing"):
+        bits.append(f"phone side facing camera: {rs['phone_facing']};")
+    bits.append("same camera angle and same direction of every person and prop (e.g. a vehicle seen from the front stays seen from the front).")
+    return " ".join(bits)
+
+
 def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod: set[int] | None = None, rs: dict | None = None) -> str:
     """rs：原片对应镜头（ref_shot）。有原片画面时，它是第 1 张参考图，照它的构图画；has_ref 时本片第 1 镜是后一张参考图。"""
     s = shots[i]
+    lead = _composition(rs) if rs and rs.get("tier") != "low" else ""
     parts = [
+        *([lead] if lead else []),
         STYLE,
         f"\n这是 {project.brand} 手机在{project.market}投放的 TikTok 竖屏广告分镜，目标人群：{project.market}的{aud}，人物都是{project.market}当地人。",
         f"全片 {len(shots)} 镜，现在画第 {i + 1} 镜（{s[0]}）。",
@@ -89,7 +119,8 @@ def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod
     if len(s) > 2 and s[2]:
         parts.append(f"这一镜的口播（只用来理解人物情绪，不要写进画面）：{s[2]}")
     if has_ref:
-        parts.append(f"{'第 2 张' if with_frame else ''}参考图是同一支广告的第 1 镜：保持同一主角的外形、发型、服装和完全相同的简笔画风。")
+        parts.append(f"{'第 2 张' if with_frame else ''}参考图是同一支广告的第 1 镜：只用来保持同一主角的外形、发型、服装和完全相同的简笔画风"
+                     + ("，不要照它的构图和景别（构图照第 1 张原片）。" if with_frame else "。"))
     return "\n".join(parts)
 
 
@@ -192,7 +223,13 @@ async def _run(node_id: str, indices: list[int] | None, prompts: dict[int, str])
         text = mine or _prompt(project, aud, shots, i, bool(ref), prod, rs if orig else ({**rs, "frame": None} if rs else None))
         imgs = [u for u in (orig, ref) if u]
         content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": u}} for u in imgs)] if imgs else text
-        img, mime = await llm.image(content, task="storyboard")
+        try:
+            img, mime = await llm.image(content, task="storyboard")
+        except (httpx.TransportError, httpx.TimeoutException):  # 网络抖一下：再试一次
+            try:
+                img, mime = await llm.image(content, task="storyboard")
+            except (httpx.TransportError, httpx.TimeoutException) as e:
+                raise RuntimeError(f"连不上 OpenRouter（{type(e).__name__}）：网络或代理不稳，点「重画失败的分镜」再试") from None
         ext = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime, "png")
         path = _file(node_id, i, shots[i][1], model, ext)
         path.write_bytes(img)
