@@ -54,9 +54,31 @@ def _headers(key: str | None = None) -> dict:
     return {"Authorization": f"Key {key or settings_store.get_secret('fal')}", "Content-Type": "application/json"}
 
 
+NET_RETRY_WAIT = 2.0  # 网络抖动重试的起始等待（秒），每次翻倍
+
+
+async def _get(c: httpx.AsyncClient, url: str, tries: int = 6) -> httpx.Response:
+    """轮询用的 GET：网络抖一下就等等再试（查状态可以重复查），连续失败 tries 次才算真的连不上。"""
+    for k in range(tries):
+        try:
+            return await c.get(url, headers=_headers())
+        except (httpx.TransportError, httpx.TimeoutException):
+            if k == tries - 1:
+                raise
+            await asyncio.sleep(NET_RETRY_WAIT * 2 ** k)
+    raise RuntimeError("unreachable")
+
+
 async def _submit(model: str, body: dict) -> dict:
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
-        r = await c.post(f"{BASE}/{model}", headers=_headers(), json=body)
+        for k in range(3):
+            try:
+                r = await c.post(f"{BASE}/{model}", headers=_headers(), json=body)
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout):  # 连接都没建立，请求没发出去，重试不会重复扣费
+                if k == 2:
+                    raise
+                await asyncio.sleep(NET_RETRY_WAIT * 2 ** k)
         _check(r)
         d = r.json()
     return {"model": model, "request_id": d["request_id"], "status_url": d.get("status_url") or f"{BASE}/{model}/requests/{d['request_id']}/status",
@@ -108,7 +130,8 @@ def describe(e: BaseException) -> str:
     if isinstance(e, httpx.TimeoutException):
         return f"连接 fal 超时（{type(e).__name__}）：网络或代理太慢，稍后点「重做视频」再试" + (f"：{msg}" if msg else "")
     if isinstance(e, httpx.TransportError):
-        return f"连不上 fal（{type(e).__name__}）：检查网络 / 代理" + (f"：{msg}" if msg else "")
+        return (f"连不上 fal（{type(e).__name__}，已自动重试）：本机网络连不到 queue.fal.run。开了 VPN / 代理的话，"
+                "Python 不会自动走系统代理，要在启动后端前设置 HTTPS_PROXY" + (f"：{msg}" if msg else ""))
     return msg or f"{type(e).__name__}（没有更多信息）"
 
 
@@ -145,11 +168,11 @@ async def _result(job: dict, timeout_seconds: float = 900) -> dict:
     waited = 0.0
     async with httpx.AsyncClient(timeout=30, transport=transport) as c:
         while waited < timeout_seconds:
-            r = await c.get(job["status_url"], headers=_headers())
+            r = await _get(c, job["status_url"])  # 任务在 fal 那边一直在跑，本地网络断一下不能就判失败
             _check(r)
             st = r.json().get("status")
             if st == "COMPLETED":
-                out = await c.get(job["response_url"], headers=_headers())
+                out = await _get(c, job["response_url"])
                 if out.status_code >= 400:
                     return {"status": "failed", "error": _message(out), "rejected": out.status_code == 422}
                 return {"status": "completed", "data": out.json()}

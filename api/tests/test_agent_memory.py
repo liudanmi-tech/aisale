@@ -298,3 +298,37 @@ def test_fal_failure_always_has_reason(monkeypatch):
     assert r["status"] == "failed" and "没有返回视频" in r["error"] and "content moderation" in r["error"]
     r = run({"status": "FAILED", "error": "Kling internal error"}, {})
     assert r["status"] == "failed" and "Kling internal error" in r["error"]
+
+
+def test_fal_polling_survives_network_blips(monkeypatch):
+    """视频在 fal 那边生成要几分钟：轮询中途网络断一两下不能判失败；一直连不上才报错。"""
+    import asyncio as _a
+
+    import httpx as _h
+
+    from app.adapters import fal as _fal
+    monkeypatch.setattr(_fal, "NET_RETRY_WAIT", 0.001)
+    monkeypatch.setattr(_fal, "POLL_SECONDS", 0.001)
+    monkeypatch.setattr(_fal, "_headers", lambda key=None: {})
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        if calls["n"] in (2, 3):
+            raise _h.ConnectError("All connection attempts failed")
+        if req.url.path.endswith("/status"):
+            return _h.Response(200, json={"status": "IN_PROGRESS" if calls["n"] < 5 else "COMPLETED"})
+        return _h.Response(200, json={"video": {"url": "https://v.fal/x.mp4"}})
+
+    monkeypatch.setattr(_fal, "transport", _h.MockTransport(handler))
+    job = {"model": _fal.FACE_REF, "status_url": "https://q.test/r/1/status", "response_url": "https://q.test/r/1"}
+    assert _a.run(_fal.wait(job, 5))["video_url"] == "https://v.fal/x.mp4"
+
+    def down(req):
+        raise _h.ConnectError("All connection attempts failed")
+    monkeypatch.setattr(_fal, "transport", _h.MockTransport(down))
+    try:
+        _a.run(_fal.wait(job, 5))
+        raise AssertionError("应该报错")
+    except _h.ConnectError as e:
+        assert "HTTPS_PROXY" in _fal.describe(e)
