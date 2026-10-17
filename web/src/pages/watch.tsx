@@ -24,11 +24,19 @@ const fmt = (n: number | null | undefined) => (n == null ? "—" : n >= 1e6 ? `$
 const when = (iso: string | null) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z")).toLocaleString() : "—");
 const GRADE_COLOR: Record<string, string> = { 爆款: "volcano", 精品: "purple", 观察中: "default" };
 
-function AddAccounts({ onDone }: { onDone: () => void }) {
+/** 选择市场：全部 + 按大区分组；带上每个市场已监控的账号数。 */
+const marketOptions = (counts: Record<string, number> = {}) => [
+    { value: "全部", label: "全部市场" },
+    ...REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: counts[m] ? `${m}（${counts[m]}）` : m })) })),
+];
+
+/** 添加账号时填的市场：跟着上面的市场筛选走（筛选是「全部」时不变）。 */
+function AddAccounts({ onDone, filter }: { onDone: () => void; filter: string }) {
     const { message } = App.useApp();
     const [handles, setHandles] = useState("");
     const [brand, setBrand] = useState("小米");
-    const [market, setMarket] = useState("尼日利亚");
+    const [market, setMarket] = useState(filter === "全部" ? "尼日利亚" : filter);
+    useEffect(() => { if (filter !== "全部") setMarket(filter); }, [filter]);
     const [kind, setKind] = useState("竞品官方");
     const add = useMutation({
         mutationFn: () => api.addWatchAccounts({ handles, brand, market, kind }),
@@ -40,7 +48,7 @@ function AddAccounts({ onDone }: { onDone: () => void }) {
             <Input.TextArea className="!w-[360px] max-[700px]:!w-full" autoSize={{ minRows: 1, maxRows: 4 }} value={handles} onChange={(e) => setHandles(e.target.value)}
                 placeholder="账号名或主页链接，多个用空格 / 逗号 / 换行分隔，如 @xiaomi" />
             <AutoComplete className="w-28" value={brand} onChange={setBrand} options={BRANDS.map((v) => ({ value: v }))} placeholder="品牌" />
-            <Select className="w-28" value={market} onChange={setMarket} options={MARKETS.map((v) => ({ value: v }))} />
+            <Tooltip title="新添加账号所属的市场"><Select className="w-28" value={market} onChange={setMarket} options={MARKETS.map((v) => ({ value: v }))} /></Tooltip>
             <Select className="w-28" value={kind} onChange={setKind} options={KINDS.map((v) => ({ value: v }))} />
             <Button type="primary" icon={<Plus size={14} />} disabled={!handles.trim()} loading={add.isPending} onClick={() => add.mutate()}>添加</Button>
         </div>
@@ -182,8 +190,7 @@ function ReportDialog({ open, onClose, brands }: { open: boolean; onClose: () =>
                     再汇总竞品主推产品与打法，给出对传音的建议。每条约 $0.002，30 条一份报告约 $0.1–0.3。
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <Select className="w-32" value={market} onChange={setMarket}
-                        options={[{ value: "全部", label: "全部市场" }, ...REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: m })) }))]} />
+                    <Select className="w-32" value={market} onChange={setMarket} options={marketOptions()} />
                     <Select allowClear className="w-32" placeholder="全部品牌" value={brand} onChange={setBrand} options={brands.map((v) => ({ value: v }))} />
                     <Segmented value={days} onChange={(v) => setDays(v as number)} options={[{ value: 7, label: "近 7 天" }, { value: 30, label: "近 30 天" }, { value: 90, label: "近 90 天" }]} />
                     <Select className="w-28" value={top} onChange={setTop} options={[10, 20, 30, 50].map((v) => ({ value: v, label: `前 ${v} 条` }))} />
@@ -279,6 +286,8 @@ export default function Watch() {
     });
     const open = videos.find((v) => v.id === openId);
     const brands = [...new Set((accs?.items ?? []).map((a) => a.brand).filter(Boolean))];
+    const counts = (accs?.items ?? []).reduce<Record<string, number>>((m, a) => ({ ...m, [a.market]: (m[a.market] ?? 0) + 1 }), {});
+    const shown = (accs?.items ?? []).filter((a) => market === "全部" || a.market === market);
 
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
@@ -286,14 +295,15 @@ export default function Watch() {
             {accs && !accs.ready && (
                 <Alert className="mb-3" type="warning" showIcon message={<>还没有填写 Apify Token，无法抓取数据。<Link to="/settings">去设置页添加</Link></>} />
             )}
-            <Card title="监控账号" className="mb-3" extra={<div className="flex gap-2">
+            <Card title="监控账号" className="mb-3" extra={<div className="flex flex-wrap items-center gap-2">
+                <Select size="small" className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} aria-label="按市场筛选" />
                 <Button size="small" type="primary" icon={<FileBarChart size={13} />} onClick={() => setReporting(true)}>分析报告</Button>
                 <Button size="small" icon={<Search size={13} />} disabled={!accs?.ready} onClick={() => setSearching(true)}>搜索账号</Button>
                 <Button size="small" icon={<RefreshCw size={13} />} disabled={!accs?.ready || !accs.items.length} loading={sync.isPending || syncing} onClick={() => sync.mutate(undefined)}>全部同步</Button>
             </div>}>
-                <AddAccounts onDone={refresh} />
-                <Table className="mt-3" size="small" rowKey="id" pagination={false} dataSource={accs?.items ?? []}
-                    locale={{ emptyText: "还没有监控账号：点右上角「搜索账号」，按市场一键找出三星、小米等竞品的 TikTok 官方号" }}
+                <AddAccounts onDone={refresh} filter={market} />
+                <Table className="mt-3" size="small" rowKey="id" pagination={false} dataSource={shown}
+                    locale={{ emptyText: accs?.items.length ? `${market}还没有监控账号：点右上角「搜索账号」找这个市场的竞品官方号和达人` : "还没有监控账号：点右上角「搜索账号」，按市场一键找出三星、小米等竞品的 TikTok 官方号" }}
                     columns={[
                         { title: "账号", render: (_, a) => (
                             <a href={`https://www.tiktok.com/@${a.handle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
@@ -323,8 +333,7 @@ export default function Watch() {
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <Segmented value={grade} onChange={(v) => setGrade(v as string)} options={["全部", "爆款", "精品", "观察中"]} />
-                    <Select className="w-32" value={market} onChange={setMarket}
-                        options={[{ value: "全部", label: "全部市场" }, ...REGIONS.map(([label, ms]) => ({ label, options: ms.map((m) => ({ value: m, label: m })) }))]} />
+                    <Select className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} />
                     <Select allowClear className="w-32" placeholder="全部品牌" value={brand} onChange={setBrand} options={brands.map((v) => ({ value: v }))} />
                     <Select className="w-36" value={sort} onChange={setSort} options={[
                         { value: "hot_score", label: "按爆款分" }, { value: "quality_score", label: "按精品分" }, { value: "plays", label: "按播放" },
