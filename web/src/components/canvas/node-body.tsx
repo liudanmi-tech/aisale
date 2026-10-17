@@ -266,7 +266,9 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
                                 )}
                                 <div className="mt-1 flex gap-1">
                                     <Btn icon={<RefreshCw size={10} />} disabled={rewrite.isPending || n.status === "run"} onClick={() => rewrite.mutate(i)}>口播</Btn>
-                                    <Btn icon={<Pencil size={10} />} disabled={drawing || n.status === "run"} onClick={() => draw.mutate([i])}>{f ? "重画" : "画"}</Btn>
+                                    <StoryboardRedraw nid={n.id} i={i} disabled={drawing || n.status === "run"} onDone={refresh}>
+                                        <Btn icon={<Pencil size={10} />} disabled={drawing || n.status === "run"} onClick={() => undefined}>{f ? "重画" : "画"}</Btn>
+                                    </StoryboardRedraw>
                                 </div>
                             </div>
                         </div>
@@ -406,6 +408,48 @@ function CastCard({ n, slot, k, a, uses, editable }: { n: CanvasNode; slot: Asse
 }
 
 /** 重画演员 / 场景：先看上一版的提示词，可以改（或恢复默认）再画；改过的提示词存在素材上，下次沿用 */
+/** 分镜「重画」：先看这一镜的提示词（上一轮用的、可以改），确认后按它重画。 */
+function StoryboardRedraw({ nid, i, disabled, onDone, children }: { nid: string; i: number; disabled: boolean; onDone: () => void; children: ReactNode }) {
+    const { message } = App.useApp();
+    const [open, setOpen] = useState(false);
+    const [prompt, setPrompt] = useState("");
+    const info = useQuery({ queryKey: ["sb-prompt", nid, i], queryFn: () => api.storyboardPrompt(nid, i), enabled: open, staleTime: 0 });
+    useEffect(() => { if (open && info.data) setPrompt(info.data.prompt); }, [open, info.data]);
+    const go = useMutation({
+        mutationFn: () => api.drawStoryboard(nid, [i], prompt.trim() && prompt.trim() !== info.data?.default.trim() ? prompt.trim() : undefined),
+        onSuccess: () => { setOpen(false); message.info(`镜 ${i + 1} 重画中`); onDone(); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    const d = info.data;
+    const body = (
+        <div data-ui className="flex w-[380px] flex-col gap-1.5 text-xs" onPointerDown={(e) => e.stopPropagation()}>
+            {info.isLoading ? <div className="py-6 text-center text-ink2">读取提示词…</div> : info.isError ? <div className="text-bad">{errMsg(info.error)}</div> : d && <>
+                <div className="flex gap-2">
+                    {d.frame && <img src={d.frame} alt="" className="h-16 w-9 shrink-0 rounded bg-white object-contain" />}
+                    <div className="text-[11px] leading-4 text-ink2">
+                        {d.custom ? "上一版用的是你改过的提示词。" : "上一版用的是默认提示词（按画面描述和口播拼的）。"}
+                        {d.has_ref ? "会参考第 1 镜的分镜图，保持同一主角和画风。" : i === 0 ? "第 1 镜定下主角和画风，其他镜头会参考它。" : ""}
+                        {d.stale && <span className="text-warn"> 画面描述改过了，下面是按新描述拼的。</span>}
+                    </div>
+                </div>
+                <Input.TextArea autoFocus autoSize={{ minRows: 7, maxRows: 16 }} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                <div className="flex items-center gap-1">
+                    <button data-ui disabled={prompt === d.default} onClick={() => setPrompt(d.default)}
+                        className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-brand2 disabled:cursor-default disabled:text-ink2">恢复默认提示词</button>
+                    <span className="flex-1" />
+                    <Btn onClick={() => setOpen(false)}>取消</Btn>
+                    <Btn primary disabled={disabled || !prompt.trim() || go.isPending} onClick={() => go.mutate()}>按这个重画</Btn>
+                </div>
+            </>}
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={(v) => !disabled && setOpen(v)} trigger="click" title={`重画镜 ${i + 1} 分镜`} content={body}>
+            <span>{children}</span>
+        </Popover>
+    );
+}
+
 function RedrawPrompt({ a, onDone, children }: { a: LibraryAsset; onDone: () => void; children: ReactNode }) {
     const { message } = App.useApp();
     const [open, setOpen] = useState(false);

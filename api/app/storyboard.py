@@ -80,13 +80,33 @@ def frame_path(url: str):
     return config.MEDIA_DIR / url.split("/api/v1/media/", 1)[1] if url and "/api/v1/media/" in url else None
 
 
-async def run(node_id: str, indices: list[int] | None = None) -> None:
-    """画分镜。indices 为空时画全部缺失或过期的镜头；指定时强制重画这些镜头。"""
+def preview(node_id: str, i: int) -> dict:
+    """「重画」浮窗：这一镜上一轮用的提示词（改过的就是改过的）和默认提示词。"""
+    with SessionLocal() as db:
+        n = db.get(Node, node_id)
+        if not n or n.type != "script":
+            raise KeyError(node_id)
+        project = db.get(Project, n.project_id)
+        d = n.data or {}
+    shots = [list(x) for x in d.get("shots", [])]
+    if not 0 <= i < len(shots):
+        raise IndexError(i)
+    frames = list(d.get("frames") or []) + [None] * len(shots)
+    has_ref = i != 0 and bool(frames[0])
+    default = _prompt(project, d.get("audience", "用户"), shots, i, has_ref, product_shots(d, len(shots)))
+    f = frames[i] or {}
+    custom = bool(f.get("custom")) and f.get("visual") == shots[i][1]
+    return {"prompt": f.get("prompt") if custom else default, "default": default, "custom": custom, "has_ref": has_ref,
+            "frame": f.get("url"), "stale": bool(f) and f.get("visual") != shots[i][1]}
+
+
+async def run(node_id: str, indices: list[int] | None = None, prompts: dict[int, str] | None = None) -> None:
+    """画分镜。indices 为空时画全部缺失或过期的镜头；指定时强制重画这些镜头。prompts：人改过的提示词（按镜号）。"""
     if node_id in _running or not settings_store.llm_enabled():
         return
     _running.add(node_id)
     try:
-        await _run(node_id, indices)
+        await _run(node_id, indices, prompts or {})
     except Exception as e:  # noqa: BLE001
         log.exception("分镜图生成失败")
         _update(node_id, storyboard={"status": "error", "error": (str(e) or type(e).__name__)[:200]})
@@ -94,7 +114,7 @@ async def run(node_id: str, indices: list[int] | None = None) -> None:
         _running.discard(node_id)
 
 
-async def _run(node_id: str, indices: list[int] | None) -> None:
+async def _run(node_id: str, indices: list[int] | None, prompts: dict[int, str]) -> None:
     with SessionLocal() as db:
         n = db.get(Node, node_id)
         if not n or n.type != "script":
@@ -118,7 +138,11 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
     _update(node_id, storyboard={"status": "running", "done": 0, "total": total, "error": ""})
 
     async def draw(i: int, ref: str | None) -> None:
-        content: list[dict] | str = _prompt(project, aud, shots, i, bool(ref), prod)
+        old = frames[i] or {}
+        # 人改过的提示词：这次传进来的优先；没传但上一轮是改过的、画面描述也没变，就沿用
+        mine = prompts.get(i) or (old.get("prompt") if old.get("custom") and old.get("visual") == shots[i][1] else None)
+        text = mine or _prompt(project, aud, shots, i, bool(ref), prod)
+        content: list[dict] | str = text
         if ref:
             content = [{"type": "text", "text": content}, {"type": "image_url", "image_url": {"url": ref}}]
         img, mime = await llm.image(content, task="storyboard")
@@ -134,7 +158,7 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
             fr += [None] * (len(cur) - len(fr))
             if i < len(cur) and cur[i][1] == shots[i][1]:  # 画的过程中这一镜被改了就作废，下次再画
                 fr[i] = {"url": f"/api/v1/media/storyboards/{path.name}", "visual": shots[i][1], "model": model,
-                         "at": datetime.utcnow().isoformat()}
+                         "at": datetime.utcnow().isoformat(), "prompt": text, "custom": bool(mine)}
             done["n"] += 1
             n.data = {**(n.data or {}), "frames": fr[: len(cur)],
                       "storyboard": {"status": "running", "done": done["n"], "total": total, "error": ""}}

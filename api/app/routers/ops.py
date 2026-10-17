@@ -158,6 +158,17 @@ async def rewrite_shot(nid: str, i: int, body: RewriteIn, db: Session = Depends(
 
 class StoryboardIn(BaseModel):
     indices: list[int] | None = None  # 不传：画缺失或过期的镜头；传：强制重画这些镜头
+    prompt: str | None = None  # 只重画一镜时：人改过的提示词
+
+
+@router.get("/nodes/{nid}/storyboard/{i}/prompt")
+def storyboard_prompt(nid: str, i: int):
+    try:
+        return storyboard.preview(nid, i)
+    except KeyError:
+        raise HTTPException(404, "script not found") from None
+    except IndexError:
+        raise HTTPException(404, "没有这一镜") from None
 
 
 @router.post("/nodes/{nid}/storyboard")
@@ -171,7 +182,12 @@ def draw_storyboard(nid: str, body: StoryboardIn, db: Session = Depends(get_db))
         raise HTTPException(409, "正在画分镜，请稍候")
     canvas.audit(db, n.project_id, "user", "storyboard", {"node_id": nid, "indices": body.indices})
     db.commit()
-    spawn(storyboard.run(nid, body.indices))
+    prompts = {}
+    if body.prompt and body.prompt.strip():
+        if not body.indices or len(body.indices) != 1:
+            raise HTTPException(400, "改提示词只能一次重画一镜")
+        prompts = {body.indices[0]: body.prompt.strip()[:4000]}
+    spawn(storyboard.run(nid, body.indices, prompts))
     return {"ok": True}
 
 
