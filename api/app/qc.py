@@ -46,7 +46,8 @@ RUBRIC = """你是短视频广告的质检员，检查一张 AI 生成的广告�
   "script": {{"status": "...", "reason": "画面是否符合这一镜的描述和景别"}}
 }}
 规则：这一镜{product_rule}；要求出场的主要角色 {roles}（共 {n_roles} 个角色）；景别 {size}；画面描述：{visual}
-- 商品检查从严：颜色、摄像头模组的形状 / 数量 / 排列、屏幕形态任何一项和实拍图不一致都判 fail。
+- 商品检查：颜色、摄像头模组的形状 / 数量 / 排列、屏幕形态逐项对照实拍图，有出入判 warn 并写清哪里不一样；
+  只有明显是另一款手机（如 实拍是圆形大模组，画面是 iPhone 式方形三摄）或出现竞品标志才判 fail。
 - 不是商品特写的镜头：人物拿着手机很正常，不算问题；只在出现竞品标志或明显不是一个牌子的多部手机时提出来。
 - 人物：背景里的路人、群演不算多出来的人；只看主要角色有没有出现、服装发型和定妆照是否一致；背对镜头的角色看服装体型。
 - 文字：手机自身的品牌 logo 可以有。判 fail 的只有：任何中文字符、乱码或拼错的假文字、大块清晰可读的店招；
@@ -201,12 +202,19 @@ async def vlm_check(frames: list[str], shot: list, spec: dict, cast: dict) -> di
             bad = [n for n, s in (v.get("items") or {}).items() if s != "pass"]
             if not v.get("present"):
                 st, v["reason"] = "fail", "这一镜要求出现商品，但画面里没有手机"
-            elif any((v.get("items") or {}).get(n) == "fail" for n in bad):
-                st = "fail"  # 从严：任何一项不一致就不合格
-            elif bad:
-                st = max(st, "warn", key=RANK.get)
+            elif "无多余手机或竞品标志" in bad and (v.get("items") or {}).get("无多余手机或竞品标志") == "fail":
+                st = "fail"  # 出现竞品标志：硬伤，重画
+            elif bad or st == "fail":
+                # 摄像头模组 / 颜色这类细节，生图模型几乎每张都画不准，重画几轮也一样，只会白花钱：
+                # 标「有问题待你看」，人在关键帧闸门上用「局部重绘 + 带商品实拍图」修
+                st = "warn"
         elif k == "product":
             st = {"fail": "warn"}.get(st, st)  # 不是商品镜头：出现手机不算错，只提示
+        elif k == "people":
+            # 只有主要角色没出现（人数不够）才算硬伤；服装发型和定妆照有出入只提示，交给人判断 / 局部重绘
+            cnt = v.get("count")
+            short = isinstance(cnt, int) and cnt < len(spec.get("roles") or [])
+            st = "fail" if st == "fail" and short else {"fail": "warn"}.get(st, st)
         elif k == "script":
             st = {"fail": "warn"}.get(st, st)  # 剧本符合度只提示，交给人判断，不触发重画
         res[k] = {"status": st, "reason": str(v.get("reason") or "")[:160], **({"items": v["items"]} if isinstance(v.get("items"), (dict, list)) else {})}
@@ -430,7 +438,7 @@ async def product_similarity(frames: list[Path], spec: dict, cast: dict) -> dict
                     pair = {}
                     log.warning("特写比对失败：%s", e)
                 mism = [str(x) for x in (pair.get("mismatches") or [])][:3]
-                if pair.get("same") is False:
+                if pair.get("same") is False and float(pair.get("confidence") or 0) >= 0.8 and sc["structure"] < 0.15:
                     r.update(status="fail", reason="特写比对：不是同一款 —— " + ("；".join(mism) or "外观不一致"))
                 elif pair.get("same") and not mism:
                     r.update(status="pass", reason=f"特写比对：同一款（结构吻合度 {sc['structure']:.2f}）")

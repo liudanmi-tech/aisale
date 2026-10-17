@@ -160,7 +160,10 @@ def test_similarity_rules(tmp_path, monkeypatch):
     r = asyncio.run(qc.product_similarity([frame], spec, cast))
     assert r["status"] == "pass" and "实拍商品" in r["reason"]
     r = asyncio.run(qc.product_similarity([other], spec, cast))
-    assert r["status"] == "fail" and "三颗" in r["reason"]
+    assert r["status"] == "warn" and "三颗" in r["reason"]  # 没把握 / 细节出入：交给人看，不触发重画
+    verdict.update(confidence=0.9)
+    r = asyncio.run(qc.product_similarity([other], spec, cast))
+    assert r["status"] == "fail" and "三颗" in r["reason"]  # 很有把握不是同一款：重画
     verdict.update(same=True, mismatches=[])
     assert asyncio.run(qc.product_similarity([other], spec, cast))["status"] == "pass"
     assert qc.summarize({"similarity": {"status": "fail", "reason": "x"}}, spec)["issues"] == ["商品相似度：x"]
@@ -203,3 +206,24 @@ def test_catalog_import(tmp_path, monkeypatch):
             assert c.post("/api/v1/library/catalog/import", json={"ids": ["tecno-pova-9"]}).json()["created"] == 0
     finally:
         catalog.transport = None
+
+
+def test_vlm_soft_fails(monkeypatch):
+    """多模态清单：商品细节出入、服装和定妆照有出入只提示；竞品标志、主角缺席才判不合格。"""
+    import json
+    out = {"product": {"present": True, "status": "fail", "items": {"颜色": "pass", "摄像头模组": "fail", "无多余手机或竞品标志": "pass"}, "reason": "镜头排列不同"},
+           "people": {"count": 2, "status": "fail", "reason": "衣服颜色不同"},
+           "artifacts": {"status": "pass"}, "text": {"status": "pass"}, "script": {"status": "pass"}}
+
+    async def chat(*a, **k):
+        return {"content": json.dumps(out, ensure_ascii=False)}
+    monkeypatch.setattr(qc.llm, "chat", chat)
+    monkeypatch.setattr(product, "good_views", lambda *a, **k: [])
+    monkeypatch.setattr(product, "spec_text", lambda *a: "")
+    spec, cast = {"product": True, "roles": ["a", "b"]}, {"product": "p", "roles": {}, "names": {}}
+    r = asyncio.run(qc.vlm_check([], ["1", "x"], spec, cast))
+    assert r["product"]["status"] == "warn" and r["people"]["status"] == "warn"
+    out["product"]["items"]["无多余手机或竞品标志"] = "fail"
+    out["people"]["count"] = 1
+    r = asyncio.run(qc.vlm_check([], ["1", "x"], spec, cast))
+    assert r["product"]["status"] == "fail" and r["people"]["status"] == "fail"
