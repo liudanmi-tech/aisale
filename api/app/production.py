@@ -339,9 +339,13 @@ def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = Fal
 
 
 async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, frame_url: str | None, market: str, comment: str,
-                   prompt: str | None = None, drop: set[str] | None = None, placeholder: bool = False) -> tuple[str, dict]:
-    """画一镜的关键帧。prompt 传入时代替自动生成的提示词主体；drop 里的参考图不用。返回 (关键帧地址, 本次用的提示词和参考图)。"""
+                   prompt: str | None = None, drop: set[str] | None = None, placeholder: bool = False, extra: list[dict] | None = None) -> tuple[str, dict]:
+    """画一镜的关键帧。prompt 传入时代替自动生成的提示词主体；drop 里的参考图不用；extra 是选来参考的其他镜头关键帧（放在草图后面）。
+    返回 (关键帧地址, 本次用的提示词和参考图)。"""
     refs = [r for r in keyframe_refs(spec, cast, frame_url, shot[1] if len(shot) > 1 else "") if r["url"] not in (drop or set())]
+    if extra:
+        at = 1 if refs and refs[0]["kind"] == "storyboard" else 0  # 草图必须留在第 1 张（构图锁按第 1 张）
+        refs = refs[:at] + [r for r in extra if r["url"] not in {x["url"] for x in refs}] + refs[at:]
     if placeholder:  # 两步走第一步：先画占位手机，商品图不参与，第二步再换成真实商品
         refs = [r for r in refs if r["kind"] != "product"]
     if not any(r["kind"] == "storyboard" for r in refs):  # 草图被去掉了：演员图的说明里不再提草图
@@ -771,7 +775,8 @@ def product_keyframe(video_id: str, i: int, cast: dict) -> str:
 
 
 async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict, frame: str | None, market: str,
-                        comment: str, retries: int, prompt: str | None = None, drop: set[str] | None = None) -> tuple[str | None, dict | None, int, str]:
+                        comment: str, retries: int, prompt: str | None = None, drop: set[str] | None = None,
+                        more_refs: list[dict] | None = None) -> tuple[str | None, dict | None, int, str]:
     """画一镜的关键帧并质检；不合格带着问题重画，最多重画 retries 次。返回 (关键帧, 质检, 画了几次, 错误)。"""
     mode = kf_source(spec, cast)
     if mode == "photo":
@@ -790,7 +795,7 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
     note0 = comment
 
     async def attempt(note: str) -> dict:
-        kf, meta = await keyframe(video_id, i, sh, spec, cast, frame, market, note, prompt, drop, placeholder=mode == "placement")
+        kf, meta = await keyframe(video_id, i, sh, spec, cast, frame, market, note, prompt, drop, placeholder=mode == "placement", extra=more_refs)
         if mode == "placement":
             base = kf
             kf, extra = await place_product(video_id, i, base, spec, cast, note, sh[1] if len(sh) > 1 else "")
@@ -1091,7 +1096,23 @@ def _settle(video_id: str) -> None:
     _finalize(video_id, ctx["cast"], ctx["shots"], tasks)
 
 
-async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
+def shot_refs(video_id: str, i: int, ref_shots: list[int] | None) -> list[dict]:
+    """别的镜头已经画好的关键帧，当这一镜的额外参考图（人物、服装、场景、光线跟它们保持一致；构图不跟）。"""
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        tasks = list((v.data or {}).get("tasks") or []) if v else []
+    out = []
+    for k in sorted(set(ref_shots or [])):
+        url = (tasks[k] or {}).get("keyframe") if 0 <= k < len(tasks) and k != i else None
+        if url and "/api/v1/media/" in url:
+            out.append({"kind": "shot", "label": f"镜 {k + 1} 关键帧", "url": url,
+                        "note": f"镜 {k + 1} 已经画好的关键帧：人物长相、服装、发型、场景和光线跟它保持一致（同一条广告的前后镜头）；"
+                                "构图、景别、姿势不要照它，照这一镜的分镜草图"})
+    return out
+
+
+async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None,
+                         ref_shots: list[int] | None = None) -> None:
     """只重画第 i 镜的关键帧（可带修改意见），画完停下等人看；满意了再 redo_clip 生成视频。"""
     _begin_shot(video_id, i, "重画关键帧")
     try:
@@ -1100,7 +1121,8 @@ async def _redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str |
         spec = _upgrade_spec(video_id, cast, i, sh)
         frame = (ctx["frames"][i] or {}).get("url") if i < len(ctx["frames"]) and ctx["frames"][i] else None
         kf, kf_qc, tries, err = await make_keyframe(video_id, i, sh, spec, cast, frame, ctx["market"], comment,
-                                                    settings_store.get_retries()["keyframe"], prompt, set(drop or []))
+                                                    settings_store.get_retries()["keyframe"], prompt, set(drop or []),
+                                                    more_refs=shot_refs(video_id, i, ref_shots))
         if kf:
             kq = qc.merge(kf_qc, None, spec, {"keyframe": tries})
             if (kf_qc or {}).get("source") == "product":
@@ -1251,10 +1273,11 @@ async def _redo_clip(video_id: str, i: int, prompt: str | None = None, mode: str
     _settle(video_id)
 
 
-async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None) -> None:
+async def redo_keyframe(video_id: str, i: int, comment: str = "", prompt: str | None = None, drop: list[str] | None = None,
+                        ref_shots: list[int] | None = None) -> None:
     try:
         with _track(video_id):
-            await _redo_keyframe(video_id, i, comment, prompt, drop)
+            await _redo_keyframe(video_id, i, comment, prompt, drop, ref_shots)
     except asyncio.CancelledError:
         _mark_stopped(video_id)
         _settle(video_id)

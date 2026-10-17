@@ -593,7 +593,7 @@ type KfRef = { kind: string; label: string; url: string; note: string };
 const PHONE_RE = /手机|屏幕|拍|合影|照片|相片|录像|录视频|直播|视频通话|刷|扫码|收款|付款|转账|导航|打电话|来电|发消息|回消息|whatsapp|tiktok|phone|selfie|photo|picture|camera|video call|scroll|screen/i;
 type KfMeta = { prompt: string; refs: KfRef[]; comment?: string; model?: string; custom_prompt?: boolean; composite?: boolean; dropped?: string[];
     mode?: "photo" | "placement" | "ai"; placeholder?: string; place_refs?: KfRef[] };
-type KfRedo = { comment: string; prompt?: string; drop_refs: string[] };
+type KfRedo = { comment: string; prompt?: string; drop_refs: string[]; ref_shots?: number[] };
 
 /** 视频模型 id → 好认的名字 */
 const modelName = (id?: string) => !id ? "—" : /kling/.test(id) ? `可灵 O3 Pro ${/reference/.test(id) ? "全能参考" : "图生视频"}`
@@ -699,13 +699,17 @@ function VideoRedo({ nid, i, disabled, primary, onDone }: { nid: string; i: numb
 }
 
 /** 回到关键帧：看上一版用了哪些参考图、什么提示词，去掉有问题的参考图 / 改提示词 / 写修改意见，重画后停下等确认 */
-function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [] }: { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean; addProduct?: string[] }) {
+function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [], others = [] }:
+    { meta?: KfMeta; onRedo: (r: KfRedo) => void; disabled: boolean; primary?: boolean; addProduct?: string[]; others?: { i: number; url: string }[] }) {
     const [open, setOpen] = useState(false);
     const [comment, setComment] = useState("");
     const [prompt, setPrompt] = useState("");
     const [drop, setDrop] = useState<string[]>([]);
-    const reset = () => { setComment(""); setPrompt(meta?.prompt || ""); setDrop([]); };
-    const refs = meta?.refs || [];
+    const [refShots, setRefShots] = useState<number[]>([]);
+    // 上一版选过的「其他镜头关键帧」默认还勾着
+    const prevShots = (meta?.refs || []).filter((r) => r.kind === "shot").map((r) => others.find((o) => o.url === r.url)?.i).filter((x): x is number => x !== undefined);
+    const reset = () => { setComment(""); setPrompt(meta?.prompt || ""); setDrop([]); setRefShots(prevShots); };
+    const refs = (meta?.refs || []).filter((r) => r.kind !== "shot");
     const body = (
         <div data-ui className="flex max-h-[70vh] w-[440px] flex-col gap-2 overflow-y-auto text-xs" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
             {!meta && <div className="rounded bg-elev px-2 py-1 text-ink2">这一版是旧版本生成的，没有记录提示词和参考图；重画后就能看到。</div>}
@@ -727,6 +731,25 @@ function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [] }: { me
                             );
                         })}
                     </div>
+                </div>
+            )}
+            {others.length > 0 && (
+                <div>
+                    <div className="mb-1 font-medium text-ink">参考其他镜头的关键帧 <span className="font-normal text-ink2">（勾上的会一起发给模型：人物长相、服装、场景、光线跟它保持一致；构图仍然照这一镜的草图）</span></div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {others.map((o) => {
+                            const on = refShots.includes(o.i);
+                            return (
+                                <label key={o.i} className={clsx("w-[60px] cursor-pointer rounded border p-0.5 text-[10px]", on ? "border-brand" : "border-line opacity-60 hover:opacity-100")}>
+                                    <img src={o.url} alt="" className="aspect-[9/16] w-full rounded object-cover" />
+                                    <span className="mt-0.5 flex items-center gap-0.5">
+                                        <input type="checkbox" checked={on} onChange={() => setRefShots(on ? refShots.filter((x) => x !== o.i) : [...refShots, o.i])} />镜 {o.i + 1}
+                                    </span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                    {refShots.length > 2 && <div className="mt-0.5 text-[10px] text-warn">参考图太多模型容易顾此失彼，建议最多选 2 张</div>}
                 </div>
             )}
             {addProduct.length > 0 && (
@@ -761,7 +784,7 @@ function KeyframeRedo({ meta, onRedo, disabled, primary, addProduct = [] }: { me
                 <Btn onClick={() => setOpen(false)}>取消</Btn>
                 <Btn primary onClick={() => {
                     const p = prompt.trim();
-                    onRedo({ comment: comment.trim(), prompt: meta && p && p !== meta.prompt ? p : undefined, drop_refs: drop });
+                    onRedo({ comment: comment.trim(), prompt: meta && p && p !== meta.prompt ? p : undefined, drop_refs: drop, ref_shots: refShots });
                     setOpen(false);
                 }}>重画关键帧</Btn>
             </div>
@@ -931,6 +954,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                         {waitingKf && <Btn primary icon={<Rocket size={10} />} disabled={redoClip.isPending} onClick={() => redoClip.mutate(i)}>用这张生成视频</Btn>}
                                         {t.keyframe && !waitingKf && <VideoRedo nid={n.id} i={i} primary={t.status === "failed"} disabled={locked} onDone={refresh} />}
                                         {t.keyframe && <KeyframeRedo meta={t.kf_meta} primary={!waitingKf && t.qc?.status === "fail"} disabled={locked || redoKf.isPending} onRedo={(r) => redoKf.mutate({ i, r })}
+                                            others={tasks.flatMap((x, k) => (k !== i && x?.keyframe?.includes("/api/v1/media/") ? [{ i: k, url: x.keyframe as string }] : []))}
                                             addProduct={cast?.product && (spec?.product || (spec?.roles?.length && PHONE_RE.test(`${s[1]} ${spec?.line || ""}`)))
                                                 && !(t.kf_meta?.refs || []).some((r: KfRef) => r.kind === "product") ? (lib[cast.product]?.images || []).slice(0, 2) : []} />}
                                         {t.keyframe && <InpaintButton nid={n.id} i={i} keyframe={t.keyframe} hasProduct={!!cast?.product} history={(t.kf_history || []).length} disabled={locked} onDone={refresh} />}

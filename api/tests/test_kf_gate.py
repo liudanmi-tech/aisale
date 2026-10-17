@@ -30,7 +30,7 @@ def _video(c, n_shots=2):
 def test_candidates_pick_best_and_stats(monkeypatch):
     drawn = []
 
-    async def fake_kf(video_id, i, sh, spec, cast, frame, market, note, prompt, drop, placeholder=False):
+    async def fake_kf(video_id, i, sh, spec, cast, frame, market, note, prompt, drop, placeholder=False, **kw):
         drawn.append(note)
         return f"/api/v1/media/keyframes/c{len(drawn)}.png", {"prompt": "p"}
 
@@ -102,3 +102,25 @@ def test_gate_stops_before_video_and_generate_all(monkeypatch):
         for co in spawned:
             co.close()
         settings_store.set_retries({"kf_candidates": 2})
+
+
+def test_ref_other_shots(monkeypatch):
+    """重画关键帧时选其他镜头的关键帧当参考：放在草图后面（草图仍是第 1 张），本镜和没画好的镜头不算。"""
+    with TestClient(app):
+        vid, _ = _video(TestClient(app), 3)
+        production._shot(vid, 0, keyframe="/api/v1/media/keyframes/a.png")
+        production._shot(vid, 2, keyframe="/api/v1/media/keyframes/c.png")
+        refs = production.shot_refs(vid, 2, [0, 1, 2])
+        assert [r["url"] for r in refs] == ["/api/v1/media/keyframes/a.png"] and refs[0]["kind"] == "shot"
+        sent = {}
+
+        async def fake_image(content, **kw):
+            sent["content"] = content
+            return b"\x89PNG", "image/png"
+        monkeypatch.setattr(production.llm, "image", fake_image)
+        monkeypatch.setattr(production, "keyframe_refs", lambda *a: [{"kind": "storyboard", "label": "分镜草图", "url": "/s.png", "note": "草图"},
+                                                                     {"kind": "actor", "label": "A", "url": "/a1.png", "note": "演员"}])
+        monkeypatch.setattr(production.assets, "jpeg_data_url", lambda u, **k: "data:image/jpeg;base64,eA==" + u)
+        _, meta = asyncio.run(production.keyframe(vid, 2, ["1", "画面"], {}, {"product": None}, "/s.png", "尼日利亚", "", extra=refs))
+        assert [r["kind"] for r in meta["refs"]] == ["storyboard", "shot", "actor"]
+        assert "镜 1 已经画好的关键帧" in sent["content"][0]["text"]

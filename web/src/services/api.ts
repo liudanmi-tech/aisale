@@ -369,7 +369,7 @@ export const api = {
     deleteAsset: (id: string) => http.delete(`/library/${id}`).then((r) => r.data),
     swapAsset: (nid: string, asset_id: string) => post(`/nodes/${nid}/asset`, { asset_id }),
     buildStatus: () => get<{ stale: boolean; backend_stale?: boolean }>("/build-status"),
-    redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
+    redoKeyframe: (nid: string, i: number, r: { comment: string; prompt?: string; drop_refs: string[]; ref_shots?: number[] } = { comment: "", drop_refs: [] }) => post(`/nodes/${nid}/shots/${i}/keyframe`, r),
     stopVideo: (nid: string) => post<{ ok: boolean; cancelled: number }>(`/nodes/${nid}/stop`),
     inpaintKeyframe: (nid: string, i: number, body: { mask: string; prompt: string; engine: "auto" | "flux" | "gemini"; product: boolean }) =>
         postSlow(`/nodes/${nid}/shots/${i}/inpaint`, body),
