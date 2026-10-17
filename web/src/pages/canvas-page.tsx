@@ -137,7 +137,10 @@ function AdPicker({ open, onClose, onPick, loading }: { open: boolean; onClose: 
             <div className="grid max-h-[60vh] grid-cols-2 gap-2 overflow-auto">
                 {list.map((a) => (
                     <button key={a.no} disabled={loading} onClick={() => onPick(a.no)} className="flex cursor-pointer gap-3 rounded-xl border border-line bg-surface p-2 text-left text-ink hover:border-brand disabled:opacity-50">
-                        <span className="h-[72px] w-[48px] shrink-0 rounded-md" style={{ background: COVER_GRADIENTS[a.no % COVER_GRADIENTS.length] }} />
+                        <span className="relative h-[72px] w-[48px] shrink-0 overflow-hidden rounded-md" style={{ background: COVER_GRADIENTS[a.no % COVER_GRADIENTS.length] }}>
+                            {a.cover && <img src={a.cover} alt="" referrerPolicy="no-referrer" loading="lazy" className="absolute inset-0 h-full w-full object-cover"
+                                onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                        </span>
                         <span className="min-w-0 text-xs leading-5">
                             <b className="block truncate text-sm">#{a.no} {a.title}</b>
                             <span className="text-ink2">{a.brand} · {a.market} · {a.hook} · {a.selling_point}</span><br />
