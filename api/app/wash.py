@@ -48,7 +48,10 @@ WRITE_PROMPT = """你是 {brand} 手机的海外短视频广告编剧，正在�
 - 台词重新写，不要翻译或照抄参考的原话，用 {lang} 的地道说法。
 - 画面描述只写人物动作、手机的角度和姿态、场景，不写屏幕上显示什么、不写画面里的文字（AI 画不准文字）；电池容量、价格这类数字放进口播。
 - 至少有一镜是产品特写或手持展示，放在参考里产品出现的位置。
-- 核心看点（清单「替换」第 1 条的新方案）必须在画面里拍足，规模和夸张程度不能比原片弱。"""
+- 核心看点（清单「替换」第 1 条的新方案）必须在画面里拍足，规模和夸张程度不能比原片弱。
+- 一镜只有一个景别、一个机位：画面描述以景别开头（如「特写：」「中景：」），不许写「随后切中景」「再切到…」这种一镜两个画面，要切就拆成两镜。
+- 每镜的景别、画面里露出几个人，跟 map 里对应的参考镜头（camera、people）一致：参考是手部特写，就写手部特写，不要写成两人中景。
+- 特写 / 手部特写只拍一个主体：手和手机（最多露出袖子），不要写两个人的表情同框；要拍两人的反应就单独写一镜中景。"""
 
 
 def _tokens(s: str) -> list[str]:
@@ -146,6 +149,34 @@ def _clean(out: dict, n: int) -> tuple[list, list, list[int]]:
     return shots, mapping, prod
 
 
+CUT = re.compile(r"[，,。；;\s]*(?:随后|然后|接着|紧接着|再|之后)\s*切(?:到|至|换到|成)?\s*(?=(?:大特写|特写|近景|中景|全景|远景|大全景|手部|俯拍|仰拍|镜头))")
+SPAN = re.compile(r"^\s*([\d.]+)\s*[–-]\s*([\d.]+)\s*s?\s*$")
+
+
+def split_cuts(shots: list, mapping: list | None = None, prod: list[int] | None = None) -> tuple[list, list, list[int]]:
+    """一镜里写了两个画面（「特写……随后切中景……」）：拆成两镜，时长平分，口播留在前一镜。
+    一镜两个景别时，分镜草图只能画其中一个，关键帧和剧本必然对不上。"""
+    mapping = list(mapping or [{} for _ in shots])
+    out, out_map, out_prod = [], [], []
+    for i, s in enumerate(shots):
+        parts = CUT.split(str(s[1]), maxsplit=1)
+        m = SPAN.match(str(s[0]))
+        if len(parts) < 2 or not parts[0].strip() or not parts[1].strip() or not m:
+            if i in (prod or []):
+                out_prod.append(len(out))
+            out.append(s)
+            out_map.append(mapping[i] if i < len(mapping) else {})
+            continue
+        a, b = float(m.group(1)), float(m.group(2))
+        mid = round((a + b) / 2, 1)
+        if i in (prod or []):
+            out_prod.append(len(out))
+        out += [[f"{a:g}–{mid:g}s", parts[0].strip(" ，,。；;"), *s[2:]], [f"{mid:g}–{b:g}s", parts[1].strip(), "", ""]]
+        mp = mapping[i] if i < len(mapping) else {}
+        out_map += [mp, {**mp, "changed": (mp.get("changed") or "") + "（原来一镜写了两个画面，拆成两镜）"} if mp else {}]
+    return out, out_map, out_prod
+
+
 def competitor_hits(shots: list, brand: str) -> list[int]:
     """台词或画面里出现竞品品牌 / 机型的镜头（镜号从 1 开始）。"""
     from app.wash_plan import COMPETITORS
@@ -208,4 +239,7 @@ async def write(bd: dict, plan: dict, ours: str, brand: str, lang: str, comment:
     if not prod:  # 模型没标产品镜头：用参考里产品出现的那一镜对应的新镜头，再不行用第 3 镜
         ref_prod = {i + 1 for i, s in enumerate(bd.get("shots") or []) if isinstance(s, dict) and (s.get("product") or s.get("beat") == "产品展示")}
         prod = [i for i, m in enumerate(mapping) if m["ref"] in ref_prod][:1] or [min(2, len(shots) - 1)]
+    if len(split_cuts(shots)[0]) != len(shots):
+        shots, mapping, prod = split_cuts(shots, mapping, prod)
+        sim = similarity(shots, bd)
     return {"shots": shots, "map": mapping, "product_shots": prod, "similarity": sim, "check": {**check, "rewrote": fixed} if check else None}

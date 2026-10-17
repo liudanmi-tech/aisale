@@ -101,10 +101,12 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                 out = await llm.chat_json(
                     "你是 TECNO 手机的海外短视频广告编剧。只输出 JSON：{\"shots\": [[时长, 画面描述(中文), 口播(" + lang + "), 中文对照], ...]}，4 镜共 15 秒，第 3 镜为产品特写。"
                     "画面描述只写人物动作、手机的角度和姿态、场景，不写屏幕上显示什么、不写画面里的文字（AI 画不准文字）；"
+                    "一镜只有一个景别，以景别开头（如「特写：」），不写「随后切…」，要切就拆成两镜；特写只拍手和手机，不写两人同框；"
                     "电池容量、价格、门店这类卖点数字放进口播，后期做成字幕贴片。",
                     f"参考爆款结构：{ad.dna if ad else '对比实测钩子'}；主卖点：{sp}；目标人群：{market} {aud}{extra}；修改意见：{comment or '无'}{revise}")
                 if isinstance(out.get("shots"), list) and len(out["shots"]) >= 3:
-                    shots = _normalize_shots(out["shots"])
+                    from app.wash import split_cuts
+                    shots = split_cuts(_normalize_shots(out["shots"]))[0]  # 一镜两个画面的拆成两镜
             except Exception:
                 pass
         elif comment:

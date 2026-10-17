@@ -105,7 +105,7 @@ def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod
             (f"构图可以按上面的画面描述调整，原片只作参考（{facts}）。" if loose else
              f"照原片的景别、机位角度、人物数量和站位、道具的位置大小和朝向、手机哪一面朝镜头来画（{facts}）；"
              "画面描述和原片冲突时，人物、服装、手机型号按画面描述，构图按原片。") +
-            "人物换成画面描述里的当地人，不要照着原片人物的长相画；手机画成没有任何标识的手机；不要画原片里的品牌、logo、字幕和任何文字。")
+            "人物换成画面描述里的当地人，不要照着原片人物的长相画；手机画成通用占位手机：简单的圆角长方形机身，背面只用一个小方块代表摄像头，不要画 iPhone、三星这类具体机型的镜头排列和造型，也不要任何标识；不要画原片里的品牌、logo、字幕和任何文字。")
     people_in_shot = bool(rs and rs.get("people") and rs["people"] not in ("无", "无人", "没有"))
     if i in (prod if prod is not None else {PRODUCT_SHOT}) and not people_in_shot:
         parts.append("这一镜是产品特写：画手机本身的特写（可以有手持），画手机的角度和姿态即可。不要画屏幕上的界面、参数、数字或任何文字，不要画品牌字样。")

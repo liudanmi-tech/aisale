@@ -288,7 +288,7 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "
         if _first_image(aid):
             refs.append({"kind": "actor", "label": f"{name} 定妆照", "url": _first_image(aid), "note": f"角色「{name}」：长相、发型、服装必须和它一致"
                          + ("；只参考长相和服装，不要照它的姿势、站位和机位（姿势和构图照分镜草图）" if frame_url else "")})
-        if _turnaround_url(aid):
+        if _turnaround_url(aid) and spec.get("size") not in ("CU", "ECU"):  # 特写用不上多角度，三视图的多格排版反而让模型画成拼图
             refs.append({"kind": "turnaround", "label": f"{name} 三视图", "url": _turnaround_url(aid), "note": f"「{name}」的三视图：不同角度下都必须是这同一个人"
                          + ("；不要照它的姿势" if frame_url else "")})
     sid = cast["scenes"].get(spec.get("scene"))
@@ -310,7 +310,9 @@ COMPOSITION_LOCK = ("COMPOSITION LOCK — reference image 1 is the storyboard sk
                     "same camera distance and shot size, same camera angle and height, same number of people, the same position, pose, gesture "
                     "and facing direction of every person, the same placement, size and direction of every prop and vehicle. "
                     "Only turn the pencil sketch into a real photograph, using the actors, location and product from the other reference images. "
-                    "Do NOT crop in closer, do NOT zoom out, do NOT re-pose anyone.\n")
+                    "Do NOT crop in closer, do NOT zoom out, do NOT re-pose anyone. "
+                    "If the text below disagrees with the sketch about shot size or how many people are visible, follow the sketch. "
+                    "Phones drawn in the sketch are only placeholders: ignore their shape, camera layout and brand.\n")
 
 
 def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = False, sketch: bool = False) -> str:
@@ -324,6 +326,9 @@ def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = Fal
             + ("画面描述里提到的参数、数字、标识和文字都不要画出来（后期做成字幕贴片），只画手机和人物本身。\n"
                if re.search(TEXTY, shot[1] if len(shot) > 1 else "") else "")
             + "画面中不要出现任何文字、字幕、品牌标志。\n"
+            + ("这是特写：一个连续的画面，最多拍清一个人的脸；其他角色最多露出手、手臂或肩膀，"
+               "绝对不要分屏、画中画、上下拼接或把两个人的脸都塞进画面。\n"
+               if spec.get("size") in ("CU", "ECU") and len(spec.get("roles") or []) > 1 else "")
             + (f"画面里的人物只有本镜的 {len(spec.get('roles') or [])} 个角色（长相照演员参考图），不要多画别人的正脸；背景路人只能是虚化的远景。\n"
                if spec.get("roles") else "这一镜没有出场角色：不要画人物的正脸（商品镜头最多出现一只手）。\n")
             + ("画面里出现的手机都必须是商品实拍里的这台手机，不要画别的手机。" + facing_text(spec, shot[1] if len(shot) > 1 else "") + PHONE_PHYSICS + "\n" if phone else "")
