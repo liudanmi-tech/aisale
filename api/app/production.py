@@ -29,7 +29,8 @@ GENRES = ["情景剧", "真人测评", "痛点对比", "开箱", "搞笑段子",
 PRODUCT_SHOT = 2
 TEXTY = r"参数|标识|字样|数字|文字|界面|显示|mAh|价格|￥|\$|%|logo|Logo|LOGO"  # 画面描述里出现这些，说明在要求画文字
 VIDEO_STYLE = "vertical 9:16 smartphone ad shot, photorealistic, natural light, no on-screen text, no watermark"
-_slots = asyncio.Semaphore(2)
+VIDEO_SLOTS = 3  # 同时向 fal 提交几条视频；其余镜头排队，卡片上显示「排队中」
+_slots = asyncio.Semaphore(VIDEO_SLOTS)
 
 CAST_PROMPT = f"""你是短视频广告的制片和选角导演。根据剧本分镜拆出拍摄需要的角色、场景和每镜的拍法，只输出 JSON：
 {{
@@ -390,9 +391,13 @@ def kling_prompt(prompt: str) -> str:
     return re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "@Element1", prompt.replace("@Image1 is the opening frame", "The video starts from the first frame"))
 
 
-async def clip(prompt: str, image: str | None, refs: list[str] | None = None, engine: str = "auto", end_image: str | None = None) -> dict:
+async def clip(prompt: str, image: str | None, refs: list[str] | None = None, engine: str = "auto", end_image: str | None = None,
+               on_start=None) -> dict:
+    """on_start：排到队、真正开始提交时回调（卡片从「排队中」变成「生成视频」）。"""
     provider = settings_store.video_provider()
     async with _slots:
+        if on_start:
+            on_start()
         if provider == "fal" and engine not in ("auto", "seedance-2.5", None):
             # 浮窗里指定了模型：只用它，不自动换
             plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
@@ -858,9 +863,12 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
     end_image = assets.jpeg_data_url(end_kf) if mode == "first_last" and end_kf else None
     best, retry_error, clip_qc, res, clip_tries = None, "", None, {}, 0
     for clip_tries in range(1, retries + 2):
-        _shot(video_id, i, phase="生成视频" if clip_tries == 1 else "质检不合格，重新生成视频", qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}),
-              fallback=None, error=None)  # 上一轮「改用备用模型」的记录作废，免得和这一轮混在一起
-        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs, engine=engine, end_image=end_image)
+        label = "生成视频" if clip_tries == 1 else "质检不合格，重新生成视频"
+        # 状态一起改成「生成中」：只清报错不改状态，浮窗会显示「失败：没有记下原因」
+        _shot(video_id, i, phase=f"排队中（同时最多 {VIDEO_SLOTS} 条）" if _slots.locked() else label, status="running",
+              qc=qc.merge(kf_qc, None, spec, {"keyframe": tries}), fallback=None, error=None)  # 上一轮「改用备用模型」的记录作废
+        res = await clip(prompt, assets.jpeg_data_url(kf) if kf else None, refs, engine=engine, end_image=end_image,
+                         on_start=lambda: _shot(video_id, i, phase=label))
         if res.get("status") == "failed" and not (res.get("error") or "").strip():
             res = {**res, "error": f"{res.get('model') or '视频模型'} 返回失败，但没有给出原因（任务 {res.get('task_id') or '未提交'}）"}
         record(video_id, i, clip=1, fails=[f"视频：{res['error']}"] if res.get("status") == "failed" else [])

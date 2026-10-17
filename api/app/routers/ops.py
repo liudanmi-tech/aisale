@@ -361,7 +361,7 @@ def _shot_guard(db: Session, nid: str, i: int) -> Node:
         raise HTTPException(409, "视频还在拆分镜 / 选角或等待确认，稍后再试")
     t = (d.get("tasks") or [])[i] if i < len(d.get("tasks") or []) else {}
     if t.get("phase") not in production.IDLE:
-        raise HTTPException(409, f"第 {i + 1} 镜正在{t.get('phase')}，稍后再试")
+        raise HTTPException(409, f"第 {i + 1} 镜正在{t.get('phase')}，稍后再试（等太久可以点视频节点上的「停止生成」再重做）")
     return n
 
 
