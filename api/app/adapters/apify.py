@@ -16,6 +16,28 @@ transport: httpx.AsyncBaseTransport | None = None  # 测试时注入
 POLL_SECONDS = 5.0
 
 
+HINTS = {
+    401: "Apify Token 无效，去设置页重新填写",
+    402: "Apify 账户额度不够了（免费额度每月 $5，用完或余额不足就会被拒）：去 console.apify.com → Billing 充值或升级套餐，下个月额度重置后也会恢复",
+    403: "Apify 拒绝请求：Token 没有权限，或这个 Actor 需要先在 Apify 上订阅",
+    404: "Apify 找不到这个 Actor，检查设置里的 TikTok Actor 名称",
+    429: "Apify 请求太频繁，稍等一会再试",
+}
+
+
+def _check(r: httpx.Response) -> None:
+    """失败时说清楚原因（raise_for_status 只有英文状态码和网址）。"""
+    if r.status_code < 400:
+        return
+    try:
+        err = r.json().get("error") or {}
+        why = err.get("message") or err.get("type") or ""
+    except Exception:  # noqa: BLE001
+        why = r.text[:200]
+    hint = HINTS.get(r.status_code, f"Apify 返回错误（HTTP {r.status_code}）")
+    raise RuntimeError(f"{hint}{'（' + why[:200] + '）' if why else ''}")
+
+
 def _headers(token: str | None = None) -> dict:
     return {"Authorization": f"Bearer {token or settings_store.get_secret('apify')}"}
 
@@ -25,7 +47,7 @@ async def check_key(token: str) -> tuple[bool, str]:
         r = await c.get(f"{BASE}/users/me", headers=_headers(token))
     if r.status_code in (401, 403):
         return False, "Token 无效或无权限"
-    r.raise_for_status()
+    _check(r)
     name = (r.json().get("data") or {}).get("username") or ""
     return True, f"连接成功{'，账号 ' + name if name else ''}"
 
@@ -48,7 +70,7 @@ async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dic
     actor = settings_store.get_models()["tiktok_actor"]
     async with httpx.AsyncClient(timeout=60, transport=transport) as c:
         r = await c.post(f"{BASE}/acts/{actor}/runs", headers=_headers(), json=body)
-        r.raise_for_status()
+        _check(r)
         run = r.json()["data"]
         waited = 0.0
         while run.get("status") in ("READY", "RUNNING"):
@@ -57,7 +79,7 @@ async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dic
             await asyncio.sleep(POLL_SECONDS)
             waited += POLL_SECONDS
             r = await c.get(f"{BASE}/actor-runs/{run['id']}", headers=_headers())
-            r.raise_for_status()
+            _check(r)
             run = r.json()["data"]
             if on_progress:
                 items = None
@@ -70,7 +92,7 @@ async def _run(body: dict, timeout_seconds: float, on_progress=None) -> list[dic
         if run.get("status") != "SUCCEEDED":
             raise RuntimeError(f"Apify 运行失败：{run.get('status')}")
         r = await c.get(f"{BASE}/datasets/{run['defaultDatasetId']}/items", headers=_headers(), params={"clean": "true"})
-        r.raise_for_status()
+        _check(r)
         items = r.json()
     return [v for v in (normalize(i) for i in items) if v]
 
