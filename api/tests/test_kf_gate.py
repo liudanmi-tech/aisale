@@ -36,7 +36,7 @@ def test_candidates_pick_best_and_stats(monkeypatch):
 
     verdict = {"/api/v1/media/keyframes/c1.png": "fail", "/api/v1/media/keyframes/c2.png": "pass", "/api/v1/media/keyframes/c3.png": "warn"}
 
-    async def fake_qc(kf, sh, spec, cast):
+    async def fake_qc(kf, sh, spec, cast, sketch=None):
         st = verdict[kf]
         return {"status": st, "issues": [] if st == "pass" else ["商品外观不对"], "checks": {"product": {"status": st, "reason": "x"}}}
 

@@ -328,10 +328,10 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
 type QcState = "pass" | "warn" | "fail" | "skip";
 type QcCheck = { status: QcState; reason?: string; scores?: any; items?: any };
 type ShotQc = { status: QcState; checks?: Record<string, QcCheck>; issues?: string[]; manual_confirm?: boolean; attempts?: { keyframe?: number; clip?: number } };
-const QC_GROUPS: [string, string[]][] = [["商品", ["similarity", "product"]], ["人物", ["face", "people"]], ["画质", ["artifacts", "text", "tech"]], ["剧本", ["script"]]];
+const QC_GROUPS: [string, string[]][] = [["商品", ["similarity", "product"]], ["人物", ["face", "people"]], ["画质", ["artifacts", "text", "tech"]], ["剧本", ["composition", "script"]]];
 const QC_RANK: Record<QcState, number> = { skip: 0, pass: 1, warn: 2, fail: 3 };
 const QC_MARK: Record<QcState, [string, string]> = { pass: ["✓", "text-good"], warn: ["⚠", "text-warn"], fail: ["✗", "text-bad"], skip: ["–", "text-ink2"] };
-const QC_ITEM: Record<string, string> = { similarity: "商品特写比对", product: "商品外观", face: "人脸相似度", people: "服装与人数", artifacts: "畸形与穿模", text: "乱码文字", tech: "规格与画质", script: "符合剧本" };
+const QC_ITEM: Record<string, string> = { similarity: "商品特写比对", product: "商品外观", face: "人脸相似度", people: "服装与人数", artifacts: "畸形与穿模", text: "乱码文字", tech: "规格与画质", script: "符合剧本", composition: "构图与草图一致" };
 
 function ShotQcChips({ q, keyframe, shot }: { q?: ShotQc; keyframe?: string; shot: number }) {
     if (!q?.checks) return null;

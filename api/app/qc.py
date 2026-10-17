@@ -33,7 +33,7 @@ MODELS = {
     "rec": ("face_recognition_sface_2021dec.onnx", "https://huggingface.co/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx"),
 }
 media_transport: httpx.AsyncBaseTransport | None = None  # 测试时注入（下载成片）
-LABELS = {"similarity": "商品相似度", "product": "商品一致", "people": "人物一致", "artifacts": "画面质量", "text": "无乱码文字", "script": "符合剧本", "face": "人脸相似度", "tech": "规格与画质"}
+LABELS = {"composition": "构图与草图一致", "similarity": "商品相似度", "product": "商品一致", "people": "人物一致", "artifacts": "画面质量", "text": "无乱码文字", "script": "符合剧本", "face": "人脸相似度", "tech": "规格与画质"}
 RANK = {"pass": 0, "skip": 0, "warn": 1, "fail": 2}
 
 RUBRIC = """你是短视频广告的质检员，检查一张 AI 生成的广告画面（第 1 张图）。后面的参考图依次是：{refs}
@@ -456,10 +456,37 @@ def summarize(checks: dict, spec: dict) -> dict:
     return {"status": status, "checks": checks, "issues": issues, "manual_confirm": bool(spec.get("product"))}
 
 
-async def check_keyframe(keyframe_url: str, shot: list, spec: dict, cast: dict) -> dict:
-    """关键帧质检：人脸（本地）+ 清单（多模态模型）。"""
+COMPOSITION_PROMPT = """第 1 张是一镜广告的分镜草图（铅笔稿），第 2 张是照着它画的写实关键帧。只比构图，不管画风、长相和颜色：
+景别（远近）、机位角度、画面里的人数、每个人的位置 / 姿势 / 手势 / 朝向、主要道具和车辆的位置与朝向、手机在画面里的位置和哪一面朝镜头。
+只输出 JSON：{"score": 0-10 的整数（10 = 构图完全一致）, "diffs": ["不一致的地方，具体，如 草图是两人全身中景，关键帧是手部特写"]}"""
+
+
+async def composition_check(keyframe_url: str, sketch_url: str) -> dict:
+    """关键帧和分镜草图的构图是否一致（多模态模型对比）。score ≥ 7 通过，4–6 有问题，≤ 3 不合格。"""
+    a, b = assets.media_data_url(sketch_url), assets.media_data_url(keyframe_url)
+    if not a or not b:
+        return {"status": "skip", "reason": "没有草图，未比对构图"}
+    msg = await llm.chat([{"role": "user", "content": [{"type": "text", "text": COMPOSITION_PROMPT},
+                                                        {"type": "image_url", "image_url": {"url": a}}, {"type": "image_url", "image_url": {"url": b}}]}],
+                         json_mode=True, task="qc", timeout=60)
+    out = llm.parse_json(msg.get("content") or "")
+    score = int(out["score"]) if str(out.get("score", "")).lstrip("-").isdigit() else None
+    if score is None:
+        return {"status": "skip", "reason": "构图比对没给出分数"}
+    diffs = [str(d) for d in out.get("diffs") or [] if d][:3]
+    status = "pass" if score >= 7 else "warn" if score >= 4 else "fail"
+    return {"status": status, "score": score, "reason": f"{score}/10" + (f"：{'；'.join(diffs)}" if diffs and status != "pass" else "")}
+
+
+async def check_keyframe(keyframe_url: str, shot: list, spec: dict, cast: dict, sketch: str | None = None) -> dict:
+    """关键帧质检：人脸（本地）+ 清单（多模态模型）+ 和分镜草图的构图是否一致。"""
     path = _local(keyframe_url)
     checks: dict = {}
+    if sketch and settings_store.llm_enabled():
+        try:
+            checks["composition"] = await composition_check(keyframe_url, sketch)
+        except Exception as e:  # noqa: BLE001
+            checks["composition"] = {"status": "skip", "reason": f"构图比对没完成：{str(e)[:80]}"}
     if path:
         checks["face"] = await asyncio.to_thread(face_check, path, spec, cast)
         try:

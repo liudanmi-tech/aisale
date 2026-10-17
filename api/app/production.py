@@ -286,9 +286,11 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "
         name = cast["names"].get(key, key)
         aid = cast["roles"].get(key)
         if _first_image(aid):
-            refs.append({"kind": "actor", "label": f"{name} 定妆照", "url": _first_image(aid), "note": f"角色「{name}」：长相、发型、服装必须和它一致"})
+            refs.append({"kind": "actor", "label": f"{name} 定妆照", "url": _first_image(aid), "note": f"角色「{name}」：长相、发型、服装必须和它一致"
+                         + ("；只参考长相和服装，不要照它的姿势、站位和机位（姿势和构图照分镜草图）" if frame_url else "")})
         if _turnaround_url(aid):
-            refs.append({"kind": "turnaround", "label": f"{name} 三视图", "url": _turnaround_url(aid), "note": f"「{name}」的三视图：不同角度下都必须是这同一个人"})
+            refs.append({"kind": "turnaround", "label": f"{name} 三视图", "url": _turnaround_url(aid), "note": f"「{name}」的三视图：不同角度下都必须是这同一个人"
+                         + ("；不要照它的姿势" if frame_url else "")})
     sid = cast["scenes"].get(spec.get("scene"))
     if _first_image(sid):
         name = cast["names"].get(spec.get("scene"), "")
@@ -304,13 +306,21 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "
     return refs
 
 
-def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = False) -> str:
+COMPOSITION_LOCK = ("COMPOSITION LOCK — reference image 1 is the storyboard sketch of this exact shot. Copy its composition exactly: "
+                    "same camera distance and shot size, same camera angle and height, same number of people, the same position, pose, gesture "
+                    "and facing direction of every person, the same placement, size and direction of every prop and vehicle. "
+                    "Only turn the pencil sketch into a real photograph, using the actors, location and product from the other reference images. "
+                    "Do NOT crop in closer, do NOT zoom out, do NOT re-pose anyone.\n")
+
+
+def keyframe_prompt(shot: list, spec: dict, market: str, placeholder: bool = False, sketch: bool = False) -> str:
     """关键帧提示词的主体（不含参考图说明和修改意见），重画时可以在画布上直接改。placeholder：两步走第一步，手机先画占位。"""
     phone = shows_phone(spec, shot[1] if len(shot) > 1 else "") and not placeholder
     return (f"ONE photorealistic photograph of a single moment (never a collage, grid, split screen or before/after panels) — "
             f"a keyframe for a TikTok smartphone ad in {market}. Vertical 9:16. {VIDEO_STYLE}.\n"
             "如果画面描述里包含一段时间（如「从早到晚」「一边…一边…」），只挑其中最有代表性的一个瞬间来拍。\n"
-            f"镜头：{SIZE_ZH.get(spec.get('size'), '中景')}，运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n"
+            + (f"镜头：景别、机位、人物姿势照第 1 张参考图（分镜草图），运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n" if sketch else
+               f"镜头：{SIZE_ZH.get(spec.get('size'), '中景')}，运镜：{spec.get('move', '固定')}。画面：{shot[1]}\n")
             + ("画面描述里提到的参数、数字、标识和文字都不要画出来（后期做成字幕贴片），只画手机和人物本身。\n"
                if re.search(TEXTY, shot[1] if len(shot) > 1 else "") else "")
             + "画面中不要出现任何文字、字幕、品牌标志。\n"
@@ -331,9 +341,14 @@ async def keyframe(video_id: str, i: int, shot: list, spec: dict, cast: dict, fr
     refs = [r for r in keyframe_refs(spec, cast, frame_url, shot[1] if len(shot) > 1 else "") if r["url"] not in (drop or set())]
     if placeholder:  # 两步走第一步：先画占位手机，商品图不参与，第二步再换成真实商品
         refs = [r for r in refs if r["kind"] != "product"]
+    if not any(r["kind"] == "storyboard" for r in refs):  # 草图被去掉了：演员图的说明里不再提草图
+        refs = [{**r, "note": r["note"].split("；只参考长相和服装")[0].split("；不要照它的姿势")[0]} if r["kind"] in ("actor", "turnaround") else r for r in refs]
     sent = [(r, assets.jpeg_data_url(r["url"], max_w=1280)) for r in refs]
     sent = [(r, d) for r, d in sent if d]
-    core = (prompt or "").strip() or keyframe_prompt(shot, spec, market, placeholder)
+    sketch = bool(sent) and sent[0][0]["kind"] == "storyboard"
+    core = (prompt or "").strip() or keyframe_prompt(shot, spec, market, placeholder, sketch)
+    if sketch and not core.startswith("COMPOSITION LOCK"):
+        core = COMPOSITION_LOCK + core  # 草图是这一镜的构图依据：放在最前面，压过其他参考图
     if placeholder:
         core += ("\nThe person holds a plain generic black smartphone with no logo and a dark screen (a placeholder that will be replaced "
                  "by the real product later). Show the phone clearly and large enough, not hidden by fingers. "
@@ -382,8 +397,38 @@ async def place_product(video_id: str, i: int, base_url: str, spec: dict, cast: 
     text += f"\n修改意见：{comment}" if comment else ""
     raw, mime = await llm.image([{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": d}} for d in imgs)],
                                 task="keyframe", aspect_ratio="9:16")
-    return _save_keyframe(video_id, i, raw, mime), {"place_prompt": text, "place_refs": [{"kind": "product", "label": f"商品{product.VIEWS.get(v.get('view'), '')}图",
-                                                                                         "url": v.get("cutout") or v["url"], "note": "换入画面的真实商品"} for v in views]}
+    edited = _save_keyframe(video_id, i, raw, mime)
+    meta = {"place_prompt": text, "place_refs": [{"kind": "product", "label": f"商品{product.VIEWS.get(v.get('view'), '')}图",
+                                                  "url": v.get("cutout") or v["url"], "note": "换入画面的真实商品"} for v in views]}
+    local = await _keep_outside_phone(video_id, i, base_url, edited)
+    return (local or edited), {**meta, "place_local": bool(local)}
+
+
+async def _keep_outside_phone(video_id: str, i: int, base_url: str, edited_url: str) -> str | None:
+    """换真机只许改手机那一块：找出两张图里手机的位置，手机区域用编辑后的图，其余（人物姿势、构图、背景）用第一步的原图。
+    找不到手机就返回 None（沿用整张编辑结果）。"""
+    try:
+        import cv2
+        import numpy as np
+
+        from app import inpaint
+        base, new = inpaint._load(base_url), inpaint._load(edited_url)
+        h, w = base.shape[:2]
+        boxes = [b for b in [await qc.phone_box(qc._local(base_url)), await qc.phone_box(qc._local(edited_url))] if b]
+        if not boxes:
+            return None
+        mask = np.zeros((h, w), np.uint8)
+        for y0, x0, y1, x1 in boxes:
+            y0, y1, x0, x1 = y0 * h / 1000, y1 * h / 1000, x0 * w / 1000, x1 * w / 1000
+            py, px = max(24, (y1 - y0) * 0.25), max(24, (x1 - x0) * 0.25)  # 留一圈余量：手指和手机边缘一起换
+            mask[int(max(0, y0 - py)):int(min(h, y1 + py)), int(max(0, x0 - px)):int(min(w, x1 + px))] = 255
+        if mask.mean() > 0.6 * 255:  # 手机几乎占满画面（商品特写）：整张用编辑结果
+            return None
+        ok, buf = cv2.imencode(".png", inpaint.composite(base, new, mask, feather=11))
+        return _save_keyframe(video_id, i, buf.tobytes(), "image/png") if ok else None
+    except Exception as e:  # noqa: BLE001  定位失败不影响出图
+        log.warning("换真机局部贴回失败 %s #%d：%s", video_id, i, e)
+        return None
 
 
 def kling_prompt(prompt: str) -> str:
@@ -590,15 +635,18 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
 
     _set(video_id, data={"stage": "关键帧", "shots": shots, "need_product": None})
     specs = cast.get("specs") or []
+    with SessionLocal() as db:
+        sdata = dict((db.get(Node, script_id).data or {}))
+    sized = [_size_from_ref(sdata, k, sp) for k, sp in enumerate(specs)]
     if cast.get("product"):
-        up = [phone_spec(sp, shots[k][1] if k < len(shots) and len(shots[k]) > 1 else "") for k, sp in enumerate(specs)]
-        if up != specs:  # 旧剧本：有人用手机的镜头补成手持商品镜头，存回剧本（画布上能看到「商品 · 手持」）
-            specs = up
-            cast = {**cast, "specs": specs}
-            with SessionLocal() as db:
-                s = db.get(Node, script_id)
-                s.data = {**(s.data or {}), "cast": cast}
-                db.commit()
+        sized = [phone_spec(sp, shots[k][1] if k < len(shots) and len(shots[k]) > 1 else "") for k, sp in enumerate(sized)]
+    if sized != specs:  # 景别跟原片 / 有人用手机的镜头补成手持商品镜头，存回剧本（画布上的标签跟着变）
+        specs = sized
+        cast = {**cast, "specs": specs}
+        with SessionLocal() as db:
+            s = db.get(Node, script_id)
+            s.data = {**(s.data or {}), "cast": cast}
+            db.commit()
     for i in range(len(shots)):
         if only is None or i in only:
             _shot(video_id, i, phase="排队中", status=None)
@@ -638,6 +686,19 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
     # 带上开始时这一镜的重做序号：收尾时只有「这一轮开始之后又单独重做过」的镜头才以数据库为准
     tasks = [{**t, "redo_seq": seqs[k]} if seqs[k] and t else t for k, t in enumerate(tasks)]
     _finalize(video_id, cast, shots, tasks)
+
+
+SIZE_FROM = [(r"大特写|极特写", "ECU"), (r"特写", "CU"), (r"中景|近景|半身", "MS"), (r"全景|远景|全身|大全景", "WS")]
+
+
+def _size_from_ref(script_data: dict, i: int, spec: dict) -> dict:
+    """洗稿剧本：这一镜的景别跟原片（分镜草图照的就是原片构图）走，避免选角时定的「特写」和草图的「中景」打架。"""
+    rs = storyboard.ref_shot(script_data, i)
+    cam = str((rs or {}).get("camera") or "")
+    size = next((v for pat, v in SIZE_FROM if re.search(pat, cam)), None)
+    if not size or (rs or {}).get("tier") == "low" or spec.get("size") == size:
+        return spec
+    return {**spec, "size": size, "size_from": "原片"}
 
 
 def _spec(specs: list, i: int) -> dict:
@@ -733,7 +794,7 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
             meta = {**meta, **extra, "placeholder": base, "mode": "placement"}
         else:
             meta = {**meta, "mode": "ai"}
-        return {"url": kf, "meta": meta, "qc": await qc.check_keyframe(kf, sh, spec, cast)}
+        return {"url": kf, "meta": meta, "qc": await qc.check_keyframe(kf, sh, spec, cast, frame if frame and (drop is None or frame not in drop) else None)}
 
     cands: list[dict] = []
     err, tries = "", 0
@@ -773,14 +834,15 @@ QC_ORDER = {"pass": 0, "warn": 1, "skip": 2, "fail": 3}
 
 def _best(cands: list[dict]) -> dict:
     """候选里质检最好的一张：通过 > 有问题待看 > 未执行 > 不合格；同级取问题少的。"""
-    return min(cands, key=lambda c: (QC_ORDER.get(c["qc"].get("status"), 2), len(c["qc"].get("issues") or [])))
+    return min(cands, key=lambda c: (QC_ORDER.get(c["qc"].get("status"), 2), -(((c["qc"].get("checks") or {}).get("composition") or {}).get("score") or 0),
+                                     len(c["qc"].get("issues") or [])))
 
 
 def fail_kind(reason: str) -> str:
     """失败原因归类，统计「可用率」时用。"""
     r = reason or ""
     for kind, pat in (("网络", r"连不上|超时|Timeout|ConnectError|网络"), ("余额 / 额度", r"余额|额度|402|Billing"),
-                      ("模型拒收", r"422|不接受|拒收|Invalid|参数"), ("商品外观", r"商品|手机|logo|品牌|比对"),
+                      ("模型拒收", r"422|不接受|拒收|Invalid|参数"), ("构图不一致", r"构图"), ("商品外观", r"商品|手机|logo|品牌|比对"),
                       ("人物", r"人脸|人物|服装|人数|长相"), ("画质 / 畸形", r"畸形|穿模|乱码|文字|模糊|画质|规格"),
                       ("不符合剧本", r"剧本|画面描述|不符")):
         if re.search(pat, r, re.I):
@@ -967,10 +1029,14 @@ def _context(video_id: str) -> dict:
 def _upgrade_spec(video_id: str, cast: dict, i: int, sh: list) -> dict:
     """单镜重做时：画面里有人用手机的镜头补成手持商品镜头，并存回剧本（画布上显示「商品 · 手持」，质检也按商品镜头查）。"""
     spec = _spec(cast.get("specs") or [], i)
-    if not cast.get("product"):
-        return spec
-    up = phone_spec(spec, sh[1] if len(sh) > 1 else "")
-    if up is not spec and i < len(cast.get("specs") or []):
+    with SessionLocal() as db:
+        v = db.get(Node, video_id)
+        s0 = db.get(Node, (v.data or {}).get("script_id")) if v else None
+        sdata = dict((s0.data or {})) if s0 else {}
+    up = _size_from_ref(sdata, i, spec)  # 景别跟原片
+    if cast.get("product"):
+        up = phone_spec(up, sh[1] if len(sh) > 1 else "")
+    if up != spec and i < len(cast.get("specs") or []):
         with SessionLocal() as db:
             v = db.get(Node, video_id)
             s = db.get(Node, (v.data or {}).get("script_id")) if v else None
