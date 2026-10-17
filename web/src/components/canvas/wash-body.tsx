@@ -1,10 +1,46 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { App, Input, Popconfirm, Popover, Segmented, Select, Tooltip } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { App, Input, Popconfirm, Popover, Segmented, Select, Tooltip, Upload } from "antd";
 import clsx from "clsx";
-import { Check, Pencil } from "lucide-react";
+import { Check, Film, Pencil, RefreshCw, Upload as UploadIcon } from "lucide-react";
 import { useState } from "react";
 
 import { api, type CanvasNode, type WashAction, type WashNodeData, type WashRow, type WashTier } from "@/services/api";
+
+const readFile = (f: File) => new Promise<string>((ok, bad) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result));
+    r.onerror = () => bad(r.error);
+    r.readAsDataURL(f);
+});
+
+/** 爆款节点上的「视频拆解」状态：洗稿要先看过视频。点一下开始拆解。 */
+export function AdVideoChip({ no }: { no?: number }) {
+    const { message } = App.useApp();
+    const qc = useQueryClient();
+    const { data: ad } = useQuery({
+        queryKey: ["ref-ad", no], queryFn: () => api.refAd(no!), enabled: !!no,
+        refetchInterval: (q) => (q.state.data?.dna?.breakdown_status === "running" ? 3000 : false),
+    });
+    const start = useMutation({
+        mutationFn: () => api.startBreakdown(no!),
+        onSuccess: () => { message.info("开始看视频：下载 → 抽帧 + 音轨 → 模型逐镜拆解"); qc.invalidateQueries({ queryKey: ["ref-ad", no] }); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    if (!ad) return null;
+    const st = ad.dna?.breakdown ? "done" : ad.dna?.breakdown_status;
+    const [label, cls] = st === "done" ? ["已看视频", "bg-good/15 text-good"] : st === "running" ? ["看视频中…", "bg-brand/20 text-[#b5a3ff]"]
+        : st === "failed" ? ["视频拆解失败", "bg-bad/15 text-bad"] : ["未看视频", "bg-warn/15 text-warn"];
+    const tip = st === "done" ? `已多模态拆解：${ad.dna.breakdown.shots?.length ?? 0} 镜${ad.dna.breakdown.core?.device ? `，看点「${ad.dna.breakdown.core.device}」` : ""}`
+        : st === "failed" ? `${ad.dna.breakdown_error}（点击重试，或在洗稿方案上上传视频）` : st === "running" ? "正在下载视频、抽帧、模型逐镜看" : "洗稿要先看过视频：点击开始多模态拆解";
+    return (
+        <Tooltip title={tip}>
+            <button data-ui disabled={st === "running" || st === "done" || start.isPending} onPointerDown={(e) => e.stopPropagation()} onClick={() => start.mutate()}
+                className={clsx("flex cursor-pointer items-center gap-0.5 rounded border-0 px-1.5 py-px text-[10px] disabled:cursor-default", cls)}>
+                <Film size={10} />{label}
+            </button>
+        </Tooltip>
+    );
+}
 
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
 const TIER_ZH: Record<WashTier, string> = { high: "高 · 几乎照拍", mid: "中 · 保钩子", low: "低 · 只保结构" };
@@ -33,6 +69,26 @@ function Step({ n, title, children, right }: { n: number; title: string; childre
     );
 }
 
+function CoreEditor({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+    const [open, setOpen] = useState(false);
+    const [v, setV] = useState(value);
+    const body = (
+        <div data-ui className="flex w-[320px] flex-col gap-1.5 text-xs" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="text-[11px] text-ink2">模型看错了就直接改，写剧本和复查都按你写的来</div>
+            <Input.TextArea autoFocus autoSize={{ minRows: 2, maxRows: 5 }} value={v} onChange={(e) => setV(e.target.value)} placeholder="如：用铲车往手机上倒一整斗水" />
+            <div className="flex justify-end">
+                <button data-ui disabled={!v.trim()} className="cursor-pointer rounded-md border-0 bg-brand px-2 py-0.5 text-[11px] text-white disabled:opacity-50"
+                    onClick={() => { onSave(v.trim()); setOpen(false); }}>保存</button>
+            </div>
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={(o) => { if (o) setV(value); setOpen(o); }} trigger="click" title="改核心看点" content={body}>
+            <button data-ui className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-ink2 hover:text-ink" aria-label="改核心看点"><Pencil size={11} /></button>
+        </Popover>
+    );
+}
+
 function RowEditor({ row, onSave }: { row: WashRow; onSave: (r: WashRow) => void }) {
     const [open, setOpen] = useState(false);
     const [ours, setOurs] = useState(row.ours);
@@ -57,6 +113,33 @@ function RowEditor({ row, onSave }: { row: WashRow; onSave: (r: WashRow) => void
 }
 
 /** 洗稿方案节点：① 要素拆分 ② 相似度评估 ③ 核心看点 ④ 按档位逐行保留 / 替换，人确认后剧本才写。 */
+function NeedVideo({ no, why, onDone }: { no: number; why?: string; onDone: () => void }) {
+    const { message } = App.useApp();
+    const go = useMutation({
+        mutationFn: (video?: string) => api.startBreakdown(no, video),
+        onSuccess: () => { message.info("开始拆解视频，拆完自动接着出方案"); onDone(); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    return (
+        <div data-ui className="flex flex-col gap-2 rounded-lg bg-warn/10 p-3 text-[12px] leading-5" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="font-medium text-warn">洗稿要先看视频：爆款 #{no} 的视频拆解没成功</div>
+            <div className="text-ink2">原因：{why || "未知"}</div>
+            <div className="text-ink2">只看文案会漏掉画面里的看点（比如铲车倒水），所以没有出方案。把这条视频的 mp4 传上来，拆完会自动接着出方案。</div>
+            <div className="flex gap-2">
+                <Upload accept="video/*" showUploadList={false} beforeUpload={(f) => {
+                    if (f.size > 80e6) { message.error("视频太大（超过 80MB）"); return false; }
+                    readFile(f).then((v) => go.mutate(v)).catch(() => message.error("读取视频失败"));
+                    return false;
+                }}>
+                    <button data-ui disabled={go.isPending} className="flex cursor-pointer items-center gap-1 rounded-md border-0 bg-brand px-2.5 py-1 text-[11px] text-white disabled:opacity-50"><UploadIcon size={12} />上传视频</button>
+                </Upload>
+                <button data-ui disabled={go.isPending} onClick={() => go.mutate(undefined)}
+                    className="flex cursor-pointer items-center gap-1 rounded-md border border-line bg-transparent px-2.5 py-1 text-[11px] text-ink disabled:opacity-50"><RefreshCw size={12} />重新下载拆解</button>
+            </div>
+        </div>
+    );
+}
+
 export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const { message } = App.useApp();
     const qc = useQueryClient();
@@ -74,6 +157,8 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
         mutationFn: () => api.washConfirm(n.id),
         onSuccess: () => { message.success("已确认，开始按方案写剧本"); refresh(); }, onError: (e) => message.error(errMsg(e)),
     });
+    if (busy && d.stage === "breakdown") return <div className="py-8 text-center text-xs text-ink2">正在看视频：下载 → 每秒抽帧 + 听音轨 → 模型逐镜拆解。看完自动出方案（通常 1–3 分钟）</div>;
+    if (d.need_video) return <NeedVideo no={d.ref_ad_no} why={d.breakdown_error} onDone={refresh} />;
     if (busy && !rows.length) return <div className="py-8 text-center text-xs text-ink2">正在拆分要素、评估相似度、写替换方案…</div>;
     if (!rows.length) return <div className="py-8 text-center text-xs text-ink2">{d.error || "还没有方案"}</div>;
     const cur = d.tier ?? d.fit?.recommended ?? "mid";
@@ -86,7 +171,7 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
 
     return (
         <div className={clsx("flex flex-col gap-2 text-[11px] leading-[17px]", busy && "pointer-events-none opacity-60")}>
-            {d.inferred && <div className="rounded bg-warn/10 px-2 py-1 text-warn">这条爆款还没做视频拆解，原片一列是按文案推断的：建议先去爆款库点「拆解视频」，再在这里换一次档位重新出方案。</div>}
+            {d.inferred && <div className="rounded bg-warn/10 px-2 py-1 text-warn">这份方案是在没看视频时出的，原片一列只是按文案推断，可能漏掉画面里的看点：点下面的「按视频重新出方案」，会先看视频再出。</div>}
             {d.error && <div className="rounded bg-bad/10 px-2 py-1 text-bad">模型没生成成功（{d.error}）：「我方」一列请手动填写，或换个档位重试。</div>}
 
             <Step n={1} title="相似度评估：参考和我们这次的需求有多像" right={d.fit && <span className="text-ink2">综合 {Math.round(d.fit.score * 100)}%</span>}>
@@ -118,6 +203,10 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 </Popconfirm>
                             ) : `${TIER_ZH[t]}${t === rec ? " · 推荐" : ""}`,
                         }))} />
+                    <button data-ui disabled={busy || tier.isPending} onClick={() => tier.mutate({ t: cur, reset: false })}
+                        className={clsx("cursor-pointer rounded-md px-2 py-0.5 text-[11px] disabled:opacity-50", d.inferred ? "border-0 bg-warn text-black" : "border border-line bg-transparent text-ink")}>
+                        {d.inferred ? "按视频重新出方案" : "重新出方案"}
+                    </button>
                     {d.tier_source === "agent" && <span className="text-ink2">Agent 按三档各写一个</span>}
                     {d.tier_source === "user" && <span className="text-ink2">你选的</span>}
                 </div>
@@ -126,7 +215,10 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
 
             {d.analysis?.core && (
                 <Step n={3} title="核心看点：洗稿不能把它洗没">
-                    <div>原片：<b>「{d.analysis.core}」</b><span className="text-ink2"> · {d.analysis.why} · 强度：{d.analysis.intensity}</span></div>
+                    <div className="flex items-start gap-1">
+                        <div className="min-w-0 flex-1">原片：<b>「{d.analysis.core}」</b><span className="text-ink2"> · {d.analysis.why} · 强度：{d.analysis.intensity}</span></div>
+                        <CoreEditor value={d.analysis.core} onSave={(core) => save.mutate({ analysis: { ...d.analysis!, core } })} />
+                    </div>
                     {!!d.options?.length && (
                         <div className="mt-1 flex flex-col gap-0.5">
                             {d.options.map((o, k) => {

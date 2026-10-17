@@ -248,3 +248,58 @@ def test_wash_node_confirm_then_script(monkeypatch):
         assert sd["wash"]["tier"] == "high" and sd["wash"]["from_node"] == wid
         assert sd["shots"][0][2] == "Can your phone ever survive this?"  # 竞品品牌那版被换掉；高档台词像原片不重写
         assert sd["similarity"]["note"].startswith("高相似档") and not sd["similarity"].get("competitor_shots")
+
+
+def test_wash_waits_for_video_breakdown(monkeypatch):
+    """洗稿方案必须看过视频：没拆解就先拆；拆不了（比如下载失败）就停下要视频，上传拆完自动接着出方案。"""
+    from app import breakdown as bdm
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    monkeypatch.setattr(workflows, "BREAKDOWN_POLL", 0.01)
+    spawned = []
+    monkeypatch.setattr(bdm, "spawn", lambda coro: spawned.append(coro))
+    monkeypatch.setattr(workflows, "spawn", lambda coro: coro.close())
+    rows = {k: {"ref": f"原片{k}", "ours": f"我方{k}"} for k in ("hook", "cast", "scene", "rhythm", "lines", "camera")}
+    seen = []
+
+    async def fake_json(system, user, task="script", timeout=90):
+        seen.append(user)
+        return {"rows": rows, "analysis": {"core": "用铲车往手机上倒一整斗水"}}
+
+    monkeypatch.setattr(llm, "chat_json", fake_json)
+    state = {"ok": False}
+
+    async def fake_run(no):  # 第一次下载失败；上传视频后成功
+        if state["ok"]:
+            bdm._set(no, breakdown={"shots": REF_SHOTS, "core": {"device": "用铲车往手机上倒一整斗水"}, "video_duration": 14}, breakdown_status="done")
+        else:
+            bdm._set(no, breakdown_status="failed", breakdown_error="Apify 账户额度不够了")
+        bdm._resume_washes(no)
+
+    monkeypatch.setattr(bdm, "run", fake_run)
+    with TestClient(app) as c:
+        no = _ad(url="https://www.tiktok.com/@x/video/9")
+        pid = c.post("/api/v1/projects", json={"name": "要看视频"}).json()["id"]
+        with SessionLocal() as db:
+            wid = canvas.create_node(db, db.get(Project, pid), "wash", data={"ref_ad_no": no, "selling_point": "续航", "audience": "学生"}).id
+            db.commit()
+
+        async def go():
+            task = asyncio.create_task(workflows.plan_wash(wid))
+            while not spawned:
+                await asyncio.sleep(0.01)
+            await spawned.pop()
+            await task
+        asyncio.run(go())
+        with SessionLocal() as db:
+            n = db.get(Node, wid)
+            assert n.status == "input" and n.data["need_video"] and "额度" in n.data["breakdown_error"] and not n.data.get("rows")
+        assert not seen  # 没看过视频，不出方案
+
+        # 上传视频 → 拆解成功 → 自动接着出方案（用的是视频拆解）
+        state["ok"] = True
+        resumed = []
+        monkeypatch.setattr(workflows, "plan_wash", lambda nid, comment="": resumed.append(nid) or asyncio.sleep(0))
+        monkeypatch.setattr(bdm, "spawn", lambda coro: asyncio.run(coro) if not asyncio.iscoroutine(coro) or "fake_run" in repr(coro) else coro.close())
+        r = c.post(f"/api/v1/ref-ads/{no}/breakdown", json={"video": "data:video/mp4;base64," + base64.b64encode(b"x" * 20000).decode()})
+        assert r.status_code == 200 and resumed == [wid]
+        bdm.upload_path(no).unlink(missing_ok=True)

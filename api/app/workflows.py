@@ -131,6 +131,40 @@ async def generate_script(node_id: str, comment: str = "") -> None:
     # 分镜图等剧本审核通过后再画（生成视频前会补画缺的），改稿不用每次都重画、花钱；想先看可以点「画分镜」
 
 
+BREAKDOWN_POLL = 3.0
+BREAKDOWN_WAIT = 900  # 下载 + 抽帧 + 模型看，最多等 15 分钟
+
+
+async def _wait_breakdown(node_id: str, no: int) -> str:
+    """确保爆款 #no 有视频拆解：没在拆就开始拆，然后等。成功返回空字符串，失败返回原因。"""
+    from app import breakdown
+    with SessionLocal() as db:
+        a = db.query(RefAd).filter(RefAd.no == no).first()
+        dna = dict(a.dna or {}) if a else {}
+        n = db.get(Node, node_id)
+        if n:
+            n.data = {**(n.data or {}), "stage": "breakdown", "need_video": False}
+            n.sub = "正在看视频：下载 → 每秒抽帧 + 听音轨 → 模型逐镜拆解…"
+            db.commit()
+            emit(n.project_id, "canvas")
+    if not breakdown.running(no):
+        if not dna.get("url") and not breakdown.upload_path(no).exists():
+            return "这条爆款没有 TikTok 链接，需要上传视频文件"
+        breakdown.start(no)
+    waited = 0.0
+    while waited < BREAKDOWN_WAIT:
+        await asyncio.sleep(BREAKDOWN_POLL)
+        waited += BREAKDOWN_POLL
+        with SessionLocal() as db:
+            a = db.query(RefAd).filter(RefAd.no == no).first()
+            dna = dict(a.dna or {}) if a else {}
+        if dna.get("breakdown") and dna.get("breakdown_status") == "done":
+            return ""
+        if dna.get("breakdown_status") == "failed" and not breakdown.running(no):
+            return dna.get("breakdown_error") or "拆解失败"
+    return "拆解超时（超过 15 分钟）"
+
+
 async def plan_wash(node_id: str, comment: str = "") -> None:
     """洗稿方案：要素拆分 → 相似度评估定档位 → 按档位写每行我方怎么做 → 提交人工确认。"""
     await _sleep()
@@ -152,9 +186,29 @@ async def plan_wash(node_id: str, comment: str = "") -> None:
         sku = (d.get("model_sku") or (proj.model_sku if proj else "") or "").strip()
         ours = (f"品牌机型：{brand} {sku}；主卖点：{sp}；目标市场：{market}；目标人群：{aud}"
                 + (f"；人群标签：{'、'.join(d['audience_tags'])}" if d.get("audience_tags") else "") + f"；口播语言：{lang}")
+        pid, no = n.project_id, ad_row.no
+        has_bd = bool((ad_row.dna or {}).get("breakdown"))
+    if settings_store.llm_enabled() and not has_bd:
+        # 洗稿要看过视频：没拆解就先多模态拆解（下载视频 → 每秒抽帧 + 音轨 → 模型逐镜看），等它拆完再出方案
+        why = await _wait_breakdown(node_id, no)
+        if why:
+            with SessionLocal() as db:
+                n = db.get(Node, node_id)
+                if n:
+                    n.data = {**(n.data or {}), "need_video": True, "breakdown_error": why, "stage": None}
+                    n.status, n.sub = "input", "需要看视频：拆解没成功"
+                    db.commit()
+                    agent.say(db, pid, f"{agent.ref(n)} 停下了：洗稿要先看视频，但爆款 #{no} 的视频拆解没成功（{why[:120]}）。"
+                                       "在节点上点「上传视频」把 mp4 传上来，拆完会自动接着出方案。")
+                    db.commit()
+            emit(pid, "canvas")
+            emit(pid, "chat")
+            return
+    with SessionLocal() as db:
+        ad_row = db.query(RefAd).filter(RefAd.no == no).first()
         ad = {"market": ad_row.market, "selling_point": ad_row.selling_point, "breakdown": (ad_row.dna or {}).get("breakdown")}
         bd = wash_plan.ref_breakdown(ad_row)
-        pid = n.project_id
+        title = ad_row.title
     raw: dict = {}
     err = ""
     if settings_store.llm_enabled():
@@ -184,12 +238,12 @@ async def plan_wash(node_id: str, comment: str = "") -> None:
         if not n:
             return
         d = dict(n.data or {})
-        d.update(tier=tier, tier_source=d.get("tier_source") or "recommended", fit=f, rows=rows, error=err,
+        d.update(tier=tier, tier_source=d.get("tier_source") or "recommended", fit=f, rows=rows, error=err, need_video=False, breakdown_error="", stage=None,
                  analysis={k: str(a.get(k) or "") for k in ("core", "why", "intensity", "must_not_lose")} if a else d.get("analysis"),
                  options=opts or d.get("options") or [], chosen=chosen if opts else d.get("chosen"),
-                 inferred=bool(bd.get("inferred")), ref_title=ad_row.title, version=d.get("version", 0) + 1)
+                 inferred=bool(bd.get("inferred")), ref_title=title, version=d.get("version", 0) + 1)
         n.data = d
-        n.sub = f"{wash_plan.TIERS[tier]['label']} · 参考爆款 #{ad_row.no}"
+        n.sub = f"{wash_plan.TIERS[tier]['label']} · 参考爆款 #{no}"
         _done(db, n, wash_plan.summary(d) + ("（模型没生成成功，「我方」一列请手动填写）" if err or not raw else ""),
               f.get("reason", "") + ("；这条爆款没做视频拆解，要素按文案推断" if bd.get("inferred") else "") + (f"；出错：{err}" if err else ""))
     emit(pid, "canvas")

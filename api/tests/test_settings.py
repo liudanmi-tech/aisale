@@ -16,6 +16,7 @@ from app import compose, product, settings_store  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
+from tests._watched import watch_all_ads  # noqa: E402
 from app.models import Secret  # noqa: E402
 
 FAL_KEY = "fal-test-key-1234abcd"
@@ -112,6 +113,7 @@ def test_settings_and_real_call_paths():
             assert m["eval"] == "google/gemini-2.5-pro" and "bogus" not in m
 
             # 新项目跑通：剧本（大模型）→ 视频（fal）→ 评测（大模型 40 人）
+            watch_all_ads()  # 爆款都已经看过视频（多模态拆解），洗稿方案直接出
             pid = c.post("/api/v1/projects", json={"name": "真实调用路径", "market": "尼日利亚"}).json()["id"]
             P = f"/api/v1/projects/{pid}"
             c.post(f"{P}/wash", json={"ref_ad_no": 13})

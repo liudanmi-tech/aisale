@@ -157,7 +157,7 @@ export interface WashNodeData {
     fit?: { score: number; items: Record<"selling_point" | "market" | "audience" | "product", WashFitItem>; recommended: WashTier; reason: string };
     rows?: WashRow[]; analysis?: { core: string; why: string; intensity: string; must_not_lose: string } | null;
     options?: { idea: string; intensity: string; fit: string; risk: string }[]; chosen?: number | null;
-    notes?: string[]; inferred?: boolean; error?: string; version?: number;
+    notes?: string[]; inferred?: boolean; error?: string; version?: number; need_video?: boolean; breakdown_error?: string; stage?: string | null;
 }
 export interface RefAd {
     id: string;

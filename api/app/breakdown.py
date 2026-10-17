@@ -201,7 +201,17 @@ def _secs(t: str) -> float:
     return float(m[1]) if m else 0.0
 
 
+_running: set[int] = set()  # 同一条爆款同时只拆一次（三个洗稿方案会同时要它）
+
+
+def running(no: int) -> bool:
+    return no in _running
+
+
 async def run(no: int) -> None:
+    if no in _running:
+        return
+    _running.add(no)
     _set(no, breakdown_status="running", breakdown_error="", breakdown_started=datetime.utcnow().isoformat())
     try:
         with SessionLocal() as db:
@@ -227,8 +237,33 @@ async def run(no: int) -> None:
     except Exception as e:  # noqa: BLE001
         log.exception("拆解爆款 #%s 失败", no)
         _set(no, breakdown_status="failed", breakdown_error=(str(e) or type(e).__name__)[:400])
+    finally:
+        _running.discard(no)
+    _resume_washes(no)
+
+
+def _resume_washes(no: int) -> None:
+    """拆解有结果了（成功或失败）：画布上因为缺视频停住的洗稿方案接着走（失败的会再停下、显示原因）。"""
+    from app import workflows  # workflows 依赖本模块，延迟导入
+    from app.events import emit
+    from app.models import Node
+    with SessionLocal() as db:
+        ns = [n for n in db.query(Node).filter(Node.type == "wash", Node.status == "input") if (n.data or {}).get("ref_ad_no") == no]
+        a = db.query(RefAd).filter(RefAd.no == no).first()
+        if not ns or not a or (a.dna or {}).get("breakdown_status") != "done":
+            return
+        for n in ns:
+            n.status, n.sub = "run", "视频拆解好了，正在出方案…"
+        db.commit()
+        for pid in {n.project_id for n in ns}:
+            emit(pid, "canvas")
+        ids = [n.id for n in ns]
+    for nid in ids:
+        spawn(workflows.plan_wash(nid))
 
 
 def start(no: int) -> None:
+    if no in _running:
+        return
     _set(no, breakdown_status="running", breakdown_error="")
     spawn(run(no))

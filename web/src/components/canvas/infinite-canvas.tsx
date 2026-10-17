@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useEvalHeadline } from "@/components/canvas/eval-panel";
 import { NodeBody } from "@/components/canvas/node-body";
 import { StatusBadge } from "@/components/common";
+import { AdVideoChip } from "@/components/canvas/wash-body";
 import { COVER_GRADIENTS, EXPANDED_W, NODE_H, NODE_META, NODE_W } from "@/lib/constants";
 import { useCollapseStore } from "@/stores/collapse-store";
 import type { CanvasEdge, CanvasNode, Patch } from "@/services/api";
@@ -334,6 +335,7 @@ function NodeCard({ n, pid, open, width, onToggle, onSize, selected, dim, lit, a
                 {preview && !open && <div className="mt-0.5 truncate text-[11px] italic text-ink/70">“{preview}”</div>}
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap">
                     <StatusBadge status={n.ghost ? "preview" : n.status} />
+                    {n.type === "ad" && !n.ghost && <AdVideoChip no={n.data?.ref_ad_no} />}
                     {n.status === "wait" && !n.ghost && (
                         <span className="ml-auto flex gap-1" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                             <button data-ui title="写下理由，Agent 会按理由重做" className="cursor-pointer whitespace-nowrap rounded-md border border-line bg-transparent px-2 py-0.5 text-[11px] text-ink hover:border-bad hover:text-bad"

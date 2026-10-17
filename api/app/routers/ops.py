@@ -1,6 +1,6 @@
 """爆款库、节点详情编辑、审核、投放、数据、资产与设置。"""
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -59,8 +59,7 @@ def start_breakdown(no: int, body: BreakdownIn, db: Session = Depends(get_db)):
     a = db.query(RefAd).filter(RefAd.no == no).first()
     if not a:
         raise HTTPException(404, "not found")
-    started = (a.dna or {}).get("breakdown_started") or ""
-    if (a.dna or {}).get("breakdown_status") == "running" and started > (datetime.utcnow() - timedelta(minutes=15)).isoformat():
+    if breakdown.running(no):
         raise HTTPException(409, "正在拆解，稍等")
     if body.video:
         m = re.match(r"data:video/[\w.+-]+;base64,(.+)", body.video, re.S)

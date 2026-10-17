@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config  # noqa: E402
 from app.adapters import llm  # noqa: E402
 from app.main import app  # noqa: E402
+from tests._watched import watch_all_ads  # noqa: E402
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n fake").decode()
 calls: list[dict] = []
@@ -45,6 +46,7 @@ def test_storyboard(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
     llm.transport = httpx.MockTransport(handler)
     with TestClient(app) as c:
+        watch_all_ads()  # 爆款都已经看过视频（多模态拆解），洗稿方案直接出
         pid = c.post("/api/v1/projects", json={"name": "分镜", "market": "尼日利亚", "selling_point": "续航"}).json()["id"]
         P = f"/api/v1/projects/{pid}"
         c.post(P + "/agent/chat", json={"text": "给小商贩写 1 个续航剧本"})

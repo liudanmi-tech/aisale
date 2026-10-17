@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config, product, qc  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
 from app.main import app  # noqa: E402
+from tests._watched import watch_all_ads  # noqa: E402
 
 PNG = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n img").decode()
 images: list[dict] = []
@@ -98,6 +99,7 @@ def test_production(tmp_path, monkeypatch):
     llm.transport, fal.transport, fal.POLL_SECONDS = httpx.MockTransport(llm_handler), httpx.MockTransport(fal_handler), 0.01
     product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=base64.b64decode(PNG.split(",", 1)[1])))
     with TestClient(app) as c:
+        watch_all_ads()  # 爆款都已经看过视频（多模态拆解），洗稿方案直接出
         c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
         c.put("/api/v1/settings/secrets/fal", json={"value": "fal-test-key-1234abcd"})
         pid = c.post("/api/v1/projects", json={"name": "制作", "market": "尼日利亚", "brand": "TECNO", "model_sku": "Spark 40", "selling_point": "续航"}).json()["id"]
