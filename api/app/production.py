@@ -802,7 +802,8 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
     for rnd in range(retries + 1):
         k = n if rnd == 0 else 1
         note = "；".join(x for x in (note0, "" if rnd == 0 else "上一张没通过质检，必须改正：" + "；".join(_best(cands)["qc"]["issues"])[:400]) if x)
-        _shot(video_id, i, phase=(f"画关键帧（{k} 张候选）" if k > 1 else "画关键帧" if rnd == 0 else f"重画关键帧（第 {rnd + 1} 轮）")
+        _shot(video_id, i, phase=(f"画关键帧（{k} 张候选）" if k > 1 else "画关键帧" if rnd == 0 else f"上一张没过质检（{fail_kind((_best(cands)['qc'].get('issues') or [''])[0])}），重画第 {rnd + 1} 轮" if cands
+                                    else f"重画关键帧（第 {rnd + 1} 轮）")
               + ("：先画占位手机再换真机" if mode == "placement" else ""))
         got = await asyncio.gather(*(attempt(note) for _ in range(k)), return_exceptions=True)
         tries += k
@@ -818,15 +819,22 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
                + [f"关键帧质检：{(g['qc'].get('issues') or ['不合格'])[0]}" for g in got if isinstance(g, dict) and g["qc"]["status"] == "fail"])
         if not cands and err:
             break
-        if cands and _best(cands)["qc"]["status"] != "fail":
-            break
+        if cands:  # 每轮画完就把目前最好的一张和全部候选放到卡片上，重画期间也能看到画成什么样、哪里没过
+            b = _best(cands)
+            _show(video_id, i, cands, b)
+            if b["qc"]["status"] != "fail":
+                break
     if not cands:
         return None, None, tries, err
     best = _best(cands)
-    _shot(video_id, i, keyframe=best["url"], kf_meta=best["meta"], phase="关键帧质检",
-          kf_candidates=[{"url": c["url"], "status": c["qc"]["status"], "issues": (c["qc"].get("issues") or [])[:3], "qc": c["qc"], "meta": c["meta"]}
-                         for c in cands][-6:])
+    _show(video_id, i, cands, best, phase="关键帧质检")
     return best["url"], best["qc"], tries, ""
+
+
+def _show(video_id: str, i: int, cands: list[dict], best: dict, **kw) -> None:
+    _shot(video_id, i, keyframe=best["url"], kf_meta=best["meta"], qc=best["qc"],
+          kf_candidates=[{"url": c["url"], "status": c["qc"]["status"], "issues": (c["qc"].get("issues") or [])[:3], "qc": c["qc"], "meta": c["meta"]}
+                         for c in cands][-6:], **kw)
 
 
 QC_ORDER = {"pass": 0, "warn": 1, "skip": 2, "fail": 3}

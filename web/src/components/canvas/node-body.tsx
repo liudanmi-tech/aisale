@@ -886,7 +886,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                                     {t.source === "official" ? "官方产品镜头" : running ? "分镜绘制中…" : "模拟镜头"}
                                                 </div>}
                                     <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white">
-                                        {(t.url || "").startsWith("http") ? "视频" : t.keyframe ? "关键帧" : f ? "分镜" : ""}
+                                        {(t.url || "").startsWith("http") ? "视频" : t.keyframe ? (shotBusy ? "关键帧草稿 · 质检中" : "关键帧") : f ? (shotBusy ? "分镜（关键帧画好前先显示这张）" : "分镜") : ""}
                                     </span>
                                     {(live || phase === "失败" || t.status === "failed") && (
                                         <span className={clsx("absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded px-1 py-0.5 text-[10px]", phase === "失败" || t.status === "failed" ? "bg-bad text-white" : "bg-black/75 text-white")}>
