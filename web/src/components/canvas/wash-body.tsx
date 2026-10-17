@@ -271,7 +271,7 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
             </Step>
 
             <div className="flex items-center gap-2">
-                <span className="text-ink2">{n.status === "pass" ? "已确认。改了表要再点确认，下游剧本会按新表重写。" : "确认后才按这张表写剧本；剧本审核通过后才画分镜图。"}</span>
+                <span className="text-ink2">{n.status === "pass" ? "已确认。改了表要再点确认，下游剧本会按新表重写。" : "确认后才按这张表写剧本、画手绘分镜。"}</span>
                 <button data-ui disabled={busy || confirm.isPending} onClick={() => confirm.mutate()}
                     className="ml-auto cursor-pointer whitespace-nowrap rounded-md border-0 bg-brand px-2.5 py-1 text-[11px] text-white disabled:opacity-50">
                     {n.status === "pass" ? "重新确认并重写剧本" : "确认方案，开始写剧本"}

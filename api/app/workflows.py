@@ -128,7 +128,8 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                     if ad else "没有参考爆款，未做相似度比对")
         _done(db, n, f"{sp}卖点 · {aud}，{len(shots)} 镜 {total:g} 秒" + ("，台词和参考太像，建议修改" if sim["line_max"] > sim["threshold"] else ""),
               f"{ref}；{sim_text}" + (f"；洗稿失败原因：{wash_err}" if wash_err else ""))
-    # 分镜图等剧本审核通过后再画（生成视频前会补画缺的），改稿不用每次都重画、花钱；想先看可以点「画分镜」
+    if settings_store.llm_enabled():  # 剧本好了接着画手绘分镜（不阻塞审核；改过的镜头才重画）
+        spawn(storyboard.run(node_id))
 
 
 BREAKDOWN_POLL = 3.0

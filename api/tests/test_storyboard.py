@@ -59,7 +59,7 @@ def test_storyboard(tmp_path, monkeypatch):
         wait_until(lambda: wash()["status"] == "wait")
         c.post("/api/v1/reviews/pass-nodes", json={"node_ids": [wash()["id"]]})  # 确认洗稿方案 → 写剧本
         wait_until(lambda: script()["status"] == "wait")
-        assert not script()["data"].get("frames")  # 剧本写好不自动画分镜图（审核通过 / 生成视频前才画）
+        wait_until(lambda: (script()["data"].get("storyboard") or {}).get("status") == "done")  # 剧本写好自动画手绘分镜
         nid = script()["id"]
         c.post(f"/api/v1/nodes/{nid}/storyboard", json={})
         wait_until(lambda: (script()["data"].get("storyboard") or {}).get("status") == "done")

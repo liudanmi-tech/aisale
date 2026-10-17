@@ -246,18 +246,13 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
             <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(6, Math.max(4, shots.length))}, minmax(0, 1fr))` }}>
                 {shots.map((s, i) => {
                     const f = frames[i];
-                    // 还没画分镜图（审核通过后才画）：先放参考原片对应那一镜的画面，标明是参考
-                    const m = wash?.map?.[i];
-                    const refFrame = !f && m?.ref ? wash?.ref?.[m.ref - 1]?.frame : undefined;
                     return (
                         <div key={i} className="min-w-0 overflow-hidden rounded-lg border border-line bg-elev">
                             <div className="relative aspect-[9/16] overflow-hidden" style={{ background: f ? "#fff" : COVER_GRADIENTS[(i + 1) % COVER_GRADIENTS.length] }}>
                                 {f && <img src={f.url} alt={`镜 ${i + 1} 分镜`} draggable={false} className="absolute inset-0 h-full w-full object-contain" />}
-                                {refFrame && <img src={refFrame} alt={`参考原片镜 ${m!.ref}`} draggable={false} className="absolute inset-0 h-full w-full object-cover opacity-80" />}
-                                {!f && !refFrame && <span className="absolute inset-x-0 top-7 bottom-6 flex items-center justify-center overflow-hidden px-2 text-center text-[11px] leading-4 text-white/90">
+                                {!f && <span className="absolute inset-x-0 top-7 bottom-6 flex items-center justify-center overflow-hidden px-2 text-center text-[11px] leading-4 text-white/90">
                                     <span className="line-clamp-6">{drawing ? "分镜绘制中…" : s[1]}</span></span>}
-                                {!f && <span className="absolute inset-x-1 bottom-1 truncate rounded bg-black/65 px-1 text-center text-[10px] text-white/90">
-                                    {drawing ? "分镜绘制中…" : refFrame ? `参考原片镜 ${m!.ref} · 分镜图通过后画` : "分镜图审核通过后画"}</span>}
+                                {!f && !drawing && <span className="absolute inset-x-1 bottom-1 truncate rounded bg-black/65 px-1 text-center text-[10px] text-white/90">还没画手绘分镜</span>}
                                 <span className="absolute left-1 top-1 max-w-[calc(100%-8px)] truncate rounded bg-black/60 px-1 text-[10px] text-white">镜 {i + 1} · {s[0]}</span>
                                 {prodShots.includes(i) && <span className="absolute right-1 top-6 rounded bg-brand/80 px-1 text-[10px] text-white">产品</span>}
                                 {f && f.visual !== s[1] && <span className="absolute inset-x-1.5 bottom-1.5 rounded bg-warn px-1 text-center text-[10px] text-black">画面已改，需重画</span>}

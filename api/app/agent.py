@@ -170,7 +170,7 @@ async def parse_intent(db: Session, project: Project, text: str, selection: list
 
 
 def revise_scripts(db: Session, project: Project, intent: dict, selection: list[str]) -> str:
-    """在原剧本节点上按意见修改：没提到的镜头保留，改完重新提交审核；分镜图在审核通过后补画。"""
+    """在原剧本节点上按意见修改：没提到的镜头保留，改完重新提交审核，改过的镜头自动重画分镜。"""
     from app import workflows  # workflows 依赖本模块，延迟导入
     scripts = canvas.nodes_of(db, project.id, "script")
     ids = intent.get("script_node_ids") or [i for i in selection if any(n.id == i for n in scripts)]
@@ -199,7 +199,7 @@ def revise_scripts(db: Session, project: Project, intent: dict, selection: list[
     parts = []
     if todo:
         washed = [n for n in todo if any(u.type == "wash" for u in canvas.upstream(db, n.id))]
-        parts.append(f"好的，正在按「{instruction}」修改 {' '.join(ref(n) for n in todo)}：没提到的镜头保持不变，改完重新提交你审核，审核通过后再画改过的分镜图。"
+        parts.append(f"好的，正在按「{instruction}」修改 {' '.join(ref(n) for n in todo)}：没提到的镜头保持不变，改完重新提交你审核，改过的镜头会自动重画手绘分镜。"
                      + ("这条意见也记进了它的洗稿方案，以后按方案重写也会照做。" if washed else ""))
     if busy:
         parts.append(f"{' '.join(ref(n) for n in busy)} 还在生成中，等它完成后再改。")
@@ -278,7 +278,7 @@ def compile_scripts(db: Session, project: Project, intent: dict, selection: list
         steps.append(f"新建人群包「{aud}」" + (f"：{'、'.join(tags)}" if tags else ""))
     steps += [f"新增 {count} 个洗稿方案（{'、'.join(wash_plan.TIERS[t]['label'] for t in tiers) if tiers[0] else '按相似度推荐档位'}）：拆分钩子、人物、场景、节奏、台词、镜头，评估相似度",
               f"每个方案后面接一个剧本节点（{sp} · {aud}{' · ' + model if model else ''}），编号 #{k0 + 1}–#{k0 + count}",
-              "方案提交你确认（可以改档位、改每一行）→ 确认后按方案写分镜与" + (lang or "本地语言") + "口播 → 剧本审核通过后画分镜图"]
+              "方案提交你确认（可以改档位、改每一行）→ 确认后按方案写分镜与" + (lang or "本地语言") + "口播，并画手绘分镜 → 提交你审核"]
     return _propose(db, project, intent, "写剧本", steps, "约 0.2 积分（文本生成）", ops)
 
 
@@ -427,7 +427,7 @@ def auto_advance(db: Session, project: Project, node: Node) -> list[tuple[str, s
         if not scripts:
             say(db, project.id, f"{ref(node)} 已确认，但后面没有连着剧本节点。")
             return []
-        say(db, project.id, f"{ref(node)} 已确认，开始按方案写 " + " ".join(ref(x) for x in scripts) + "。写好后提交你审核，审核通过才画分镜图。")
+        say(db, project.id, f"{ref(node)} 已确认，开始按方案写 " + " ".join(ref(x) for x in scripts) + "。写好后画手绘分镜，提交你审核。")
         return [(x.id, "generate_script") for x in scripts]
     if node.type == "script":
         res = compile_videos(db, project, {"script_node_ids": [node.id]}, [])
