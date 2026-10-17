@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import agent, breakdown, canvas, config, monitor, production, settings_store, storyboard, workflows
+from app import agent, breakdown, canvas, config, monitor, production, settings_store, storyboard, wash, workflows
 from app.adapters import llm
 from app.db import SessionLocal, get_db
 from app.events import emit, spawn
@@ -81,8 +81,9 @@ def start_breakdown(no: int, body: BreakdownIn, db: Session = Depends(get_db)):
 
 
 class WashPlanIn(BaseModel):
-    keep: list[str]
-    replace: list[str]
+    keep: list[str] = []
+    replace: list[str] = []
+    idea: str | None = None  # 换核心看点的方案：候选里的另一个，或者自己写的
 
 
 @router.post("/nodes/{nid}/wash-plan")
@@ -94,13 +95,17 @@ def rewrite_with_plan(nid: str, body: WashPlanIn, db: Session = Depends(get_db))
     d = dict(n.data or {})
     if not d.get("wash"):
         raise HTTPException(400, "这个剧本不是按爆款拆解洗的，没有洗稿清单")
-    keep = [x.strip() for x in body.keep if x.strip()][:8]
-    replace = [x.strip() for x in body.replace if x.strip()][:10]
+    old = d["wash"].get("plan") or {}
+    keep = [x.strip() for x in body.keep if x.strip()][:8] or old.get("keep") or []
+    replace = [x.strip() for x in body.replace if x.strip()][:10] or old.get("replace") or []
     if not keep or not replace:
         raise HTTPException(400, "保留和替换至少各写一条")
     if n.status == "run":
         raise HTTPException(409, "剧本正在生成，稍等")
-    d["wash"] = {**d["wash"], "plan": {"keep": keep, "replace": replace}, "plan_edited": True}
+    plan = {**old, "keep": keep, "replace": replace}
+    if body.idea and body.idea.strip():
+        plan = wash.choose(plan, body.idea.strip()[:200])
+    d["wash"] = {**d["wash"], "plan": plan, "plan_edited": True}
     n.data, n.status = d, "run"
     canvas.audit(db, n.project_id, "user", "wash_plan", {"node_id": nid})
     db.commit()

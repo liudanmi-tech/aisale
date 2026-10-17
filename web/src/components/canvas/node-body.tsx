@@ -94,11 +94,12 @@ function WashBar({ n, wash, sim, onDone }: { n: CanvasNode; wash?: WashInfo; sim
     const [open, setOpen] = useState(false);
     const [keep, setKeep] = useState("");
     const [replace, setReplace] = useState("");
+    const [idea, setIdea] = useState("");
     useEffect(() => {
         if (open && wash) { setKeep(wash.plan.keep.join("\n")); setReplace(wash.plan.replace.join("\n")); }
     }, [open, wash]);
     const save = useMutation({
-        mutationFn: () => api.washPlan(n.id, { keep: keep.split("\n"), replace: replace.split("\n") }),
+        mutationFn: (pick?: string) => api.washPlan(n.id, pick ? { idea: pick } : { keep: keep.split("\n"), replace: replace.split("\n") }),
         onSuccess: () => { setOpen(false); message.info("按改过的清单重写剧本，完成后重新提交审核"); onDone(); },
         onError: (e) => message.error(errMsg(e)),
     });
@@ -106,16 +107,60 @@ function WashBar({ n, wash, sim, onDone }: { n: CanvasNode; wash?: WashInfo; sim
     if (!refNo && !sim) return null;
     const over = sim && sim.line_max > sim.threshold;
     const pct = (x: number) => `${Math.round(x * 100)}%`;
+    const a = wash?.plan.analysis;
+    const opts = wash?.plan.options ?? [];
+    const chk = wash?.check;
+    const lost = !!chk && (!chk.kept_core || /弱/.test(chk.intensity));
     const body = wash && (
-        <div data-ui className="w-[420px] text-[12px] leading-5" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="mb-1 font-medium">洗稿清单：按爆款 #{wash.ref_no} 的逐镜拆解{wash.plan_edited ? "（你改过）" : ""}</div>
+        <div data-ui className="max-h-[70vh] w-[460px] overflow-y-auto text-[12px] leading-5" onPointerDown={(e) => e.stopPropagation()}>
+            {a?.core && (
+                <div className="mb-2 rounded-lg bg-elev p-2">
+                    <div className="mb-1 font-medium">① 分析：原片最大的看点</div>
+                    <div className="text-ink">「{a.core}」</div>
+                    <div><span className="text-ink2">为什么有效：</span>{a.why}</div>
+                    <div><span className="text-ink2">强度：</span>{a.intensity}</div>
+                    <div><span className="text-ink2">不能丢：</span><span className="text-warn">{a.must_not_lose}</span></div>
+                </div>
+            )}
+            {opts.length > 0 && (
+                <div className="mb-2">
+                    <div className="mb-1 font-medium">② 替换方案（和原片比强度，更弱的不选）</div>
+                    {opts.map((o, k) => {
+                        const on = k === wash.plan.chosen;
+                        return (
+                            <div key={k} className={clsx("mb-1 flex items-start gap-2 rounded-lg border p-1.5", on ? "border-brand bg-brand/10" : "border-line")}>
+                                <span className={clsx("shrink-0 rounded px-1 text-[11px]", /强/.test(o.intensity) ? "bg-good/20 text-good" : /弱/.test(o.intensity) ? "bg-bad/20 text-bad" : "bg-surface text-ink2")}>{o.intensity || "—"}</span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-ink">{o.idea}</div>
+                                    {(o.fit || o.risk) && <div className="text-[11px] text-ink2">{o.fit}{o.fit && o.risk ? "；" : ""}{o.risk && `难点：${o.risk}`}</div>}
+                                    {on && wash.plan.chosen_why && <div className="text-[11px] text-brand2">选它：{wash.plan.chosen_why}</div>}
+                                </div>
+                                {on ? <span className="shrink-0 text-[11px] text-brand2">当前</span>
+                                    : <Button size="small" disabled={n.status === "run" || save.isPending} onClick={() => save.mutate(o.idea)}>用这个重写</Button>}
+                            </div>
+                        );
+                    })}
+                    <div className="flex gap-1.5">
+                        <Input size="small" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="自己写一个，如：直升机吊着水箱往手机上倒" />
+                        <Button size="small" disabled={!idea.trim() || n.status === "run"} loading={save.isPending} onClick={() => save.mutate(idea.trim())}>用我的</Button>
+                    </div>
+                </div>
+            )}
+            {chk && (
+                <div className={clsx("mb-2 rounded-lg p-2", lost ? "bg-bad/10 text-bad" : "bg-good/10")}>
+                    <div className="font-medium">③ 复查：看点{chk.kept_core ? "保住了" : "丢了"} · 和原片比{chk.intensity || "—"}{chk.score ? ` · ${chk.score}/5` : ""}{chk.rewrote ? " · 已按复查意见自动重写" : ""}</div>
+                    {chk.problems && <div>{chk.problems}</div>}
+                    {lost && chk.fix && <div className="text-ink">建议：{chk.fix}</div>}
+                </div>
+            )}
+            <div className="mb-1 font-medium">{a?.core ? "④ " : ""}洗稿清单：按爆款 #{wash.ref_no} 的逐镜拆解{wash.plan_edited ? "（你改过）" : ""}</div>
             <div className="mb-1 text-good">保留（爆款精髓，一行一条）</div>
             <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} value={keep} onChange={(e) => setKeep(e.target.value)} />
             <div className="mb-1 mt-2 text-brand2">替换（写成「原来的 → 换成的」，一行一条）</div>
             <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} value={replace} onChange={(e) => setReplace(e.target.value)} />
             <div className="mt-2 flex items-center gap-2">
                 <span className="text-[11px] text-ink2">改完点重写：镜头数和节奏仍跟着参考，按新清单重写台词和画面</span>
-                <Button size="small" type="primary" className="ml-auto" loading={save.isPending} disabled={n.status === "run"} onClick={() => save.mutate()}>按清单重写</Button>
+                <Button size="small" type="primary" className="ml-auto" loading={save.isPending} disabled={n.status === "run"} onClick={() => save.mutate(undefined)}>按清单重写</Button>
             </div>
         </div>
     );
@@ -123,6 +168,8 @@ function WashBar({ n, wash, sim, onDone }: { n: CanvasNode; wash?: WashInfo; sim
         <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-elev px-2.5 py-1.5 text-[11px] leading-4">
             {wash ? <span>按 <b>爆款 #{wash.ref_no}</b> 逐镜拆解洗稿 · 参考 {wash.ref_shots} 镜 → {n.data.shots?.length} 镜 · 保留 {wash.plan.keep.length} 条 · 替换 {wash.plan.replace.length} 条</span>
                 : <span className="text-warn">参考爆款 #{refNo} 还没做视频拆解，只参考了文案和钩子{n.data.wash_error ? `（洗稿失败：${n.data.wash_error}）` : ""}：去爆款库点「拆解视频」后再优化剧本</span>}
+            {a?.core && <span className="truncate" title={a.core}>看点「{a.core}」→「{opts[wash!.plan.chosen ?? -1]?.idea ?? "见清单"}」</span>}
+            {chk && <span className={lost ? "text-bad" : "text-good"}>{lost ? `⚠ 看点被洗弱了（${chk.intensity}）` : `✓ 看点保住（${chk.intensity}${chk.score ? ` ${chk.score}/5` : ""}）`}</span>}
             {sim && <span className={over ? "text-bad" : "text-ink2"} title="新台词和参考原话逐镜按词比对，取最像的一镜；画面的场景和动作本来就要沿用参考的结构，不算抄">台词和参考最高相似 {pct(sim.line_max)}（阈值 {pct(sim.threshold)}）{sim.rewrote?.length ? ` · 已自动重写镜 ${sim.rewrote.join("、")}` : ""}</span>}
             {wash && <Popover trigger="click" open={open} onOpenChange={setOpen} content={body} placement="bottomLeft">
                 <span className="ml-auto"><Btn icon={<Pencil size={10} />} onClick={() => setOpen(true)}>洗稿清单</Btn></span>

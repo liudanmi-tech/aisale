@@ -78,9 +78,9 @@ def test_wash_script_follows_breakdown(monkeypatch):
 
     async def fake_json(system, user, task="script", timeout=90):
         calls.append((system, user))
-        if "列出洗稿清单" in system:
+        if "所以先分析，再出清单" in system:
             return {"keep": ["前 2 秒反问痛点", "第 3 镜产品特写"], "replace": ["小米 → TECNO POVA 6", "拉各斯 → 内罗毕"]}
-        if len([x for x in calls if "列出洗稿清单" not in x[0]]) == 1:  # 第一版：第 1 镜照抄了参考原话
+        if len([x for x in calls if "所以先分析，再出清单" not in x[0]]) == 1:  # 第一版：第 1 镜照抄了参考原话
             return {"shots": [[3, "女孩举着手机", "Can your phone ever survive this?", ""], *new_shots[1:]],
                     "map": [{"ref": 1, "kept": "提问钩子", "changed": "场景"}] * 4, "product_shots": [3]}
         return {"shots": new_shots, "map": [{"ref": k + 1, "kept": "提问钩子", "changed": "场景和语言"} for k in range(4)], "product_shots": [3]}
@@ -102,7 +102,7 @@ def test_wash_script_follows_breakdown(monkeypatch):
         assert d["wash"]["similarity"]["rewrote"] == [1] and d["similarity"]["line_max"] < wash.THRESHOLD
         assert d["product_shots"] == [2] and storyboard.product_shots(d, 4) == {2} and "14s" in sub
         assert [m["ref"] for m in d["wash"]["map"]] == [1, 2, 3, 4]
-        assert sum(1 for x in calls if "列出洗稿清单" in x[0]) == 1
+        assert sum(1 for x in calls if "所以先分析，再出清单" in x[0]) == 1
 
         # 改清单后重写：不再重新出清单，用改过的
         r = c.post(f"/api/v1/nodes/{nid}/wash-plan", json={"keep": ["保留提问钩子"], "replace": ["小米 → TECNO SPARK 30", " "]})
@@ -113,8 +113,8 @@ def test_wash_script_follows_breakdown(monkeypatch):
         asyncio.run(workflows.generate_script(nid))
         with SessionLocal() as db:
             d = db.get(Node, nid).data
-        assert d["wash"]["plan"] == {"keep": ["保留提问钩子"], "replace": ["小米 → TECNO SPARK 30"]} and d["wash"]["plan_edited"]
-        assert sum(1 for x in calls if "列出洗稿清单" in x[0]) == 1 and "TECNO SPARK 30" in calls[-1][1]
+        assert (d["wash"]["plan"]["keep"], d["wash"]["plan"]["replace"]) == (["保留提问钩子"], ["小米 → TECNO SPARK 30"]) and d["wash"]["plan_edited"]
+        assert sum(1 for x in calls if "所以先分析，再出清单" in x[0]) == 1 and "TECNO SPARK 30" in calls[-1][1]
 
 
 def test_similarity_is_real():
@@ -123,3 +123,49 @@ def test_similarity_is_real():
     s = wash.similarity([["0–3s", "厨房", "Totally new words here", ""]], None, {"text": "Can your phone ever survive this?"})
     assert s["line_max"] < 0.4 and not s["has_breakdown"]
     assert wash._ratio("Mvua kubwa leo", "Rain, mud, water") == 0 and wash._ratio("Can your phone survive dis?", "Can your phone ever survive this?") > 0.6
+
+
+def test_wash_keeps_core_hook(monkeypatch):
+    """原片看点是「铲车倒一整斗水」：不能选更弱的方案；复查发现洗弱了就带着问题重写；可以换成自己写的方案。"""
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    monkeypatch.setattr(workflows, "spawn", lambda coro: coro.close())
+    calls = []
+    weak = [[3, "女孩拿着手机", "Your phone fit survive?", ""], [4, "朋友用水桶往手机上浇水", "Water dey come!", ""],
+            [3, "空的台面上手机特写", "6000mAh", ""], [4, "大家比赞", "Buy am today", ""]]
+    strong = [weak[0], [4, "农用无人机从空中对着手机猛喷", "Drone don come!", ""], *weak[2:]]
+
+    async def fake_json(system, user, task="script", timeout=90):
+        calls.append((system, user))
+        if "所以先分析，再出清单" in system:
+            return {"analysis": {"core": "用铲车往手机上倒一整斗水", "why": "规模荒诞，反差极大", "intensity": "工程机械级别", "must_not_lose": "考验规模远超日常"},
+                    "options": [{"idea": "用水桶浇水", "intensity": "更弱"}, {"idea": "农用无人机从空中喷洒", "intensity": "更强"}, {"idea": "消防车高压水枪", "intensity": "相当"}],
+                    "chosen": 1, "keep": ["保持工程级别的荒诞规模"], "replace": ["用铲车往手机上倒一整斗水 → 用水桶浇水", "小米 → TECNO"]}
+        if "检查一版洗稿剧本" in system:
+            bad = "水桶" in user
+            return {"kept_core": not bad, "intensity": "更弱" if bad else "更强", "score": 2 if bad else 5,
+                    "problems": "第 2 镜水桶浇水，反差没了" if bad else "", "fix": "改成无人机从空中喷"}
+        written = [x for x in calls if "改写成我方剧本" in x[0]]
+        return {"shots": weak if len(written) == 1 else strong, "map": [{"ref": k + 1, "kept": "", "changed": ""} for k in range(4)], "product_shots": [3]}
+
+    monkeypatch.setattr(llm, "chat_json", fake_json)
+    with TestClient(app) as c:
+        no = _ad(url="https://www.tiktok.com/@x/video/2", breakdown={"shots": REF_SHOTS, "video_duration": 14})
+        pid = c.post("/api/v1/projects", json={"name": "看点"}).json()["id"]
+        with SessionLocal() as db:
+            nid = canvas.create_node(db, db.get(Project, pid), "script", data={"ref_ad_no": no, "selling_point": "续航", "audience": "学生"}).id
+            db.commit()
+        asyncio.run(workflows.generate_script(nid))
+        with SessionLocal() as db:
+            w = db.get(Node, nid).data["wash"]
+            shots = db.get(Node, nid).data["shots"]
+        assert w["plan"]["chosen"] == 1  # 模型选了「更弱」的水桶，自动换成更强的无人机
+        assert w["plan"]["analysis"]["core"] == "用铲车往手机上倒一整斗水"
+        assert "无人机" in shots[1][1] and w["check"]["rewrote"] and w["check"]["score"] == 5
+        assert any("核心看点分析" in u for s_, u in calls if "改写成我方剧本" in s_)
+
+        # 自己写一个方案：替换清单第 1 条跟着换，按它重写
+        assert c.post(f"/api/v1/nodes/{nid}/wash-plan", json={"idea": "直升机吊着水箱往下倒"}).status_code == 200
+        with SessionLocal() as db:
+            p = db.get(Node, nid).data["wash"]["plan"]
+        assert p["replace"][0] == "用铲车往手机上倒一整斗水 → 直升机吊着水箱往下倒" and p["options"][p["chosen"]]["idea"] == "直升机吊着水箱往下倒"
+        assert "小米 → TECNO" in p["replace"] and len(p["replace"]) == 2

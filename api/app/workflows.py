@@ -77,7 +77,7 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                 plan = old["plan"] if old.get("plan_edited") and old.get("plan") and old.get("ref_no") == ad.no else await wash.make_plan(bd, ours, comment)
                 washed = await wash.write(bd, plan, ours, brand, lang, comment, current)
                 d["wash"] = {"ref_no": ad.no, "plan": plan, "plan_edited": bool(old.get("plan_edited") and old.get("plan") is plan),
-                             "map": washed["map"], "similarity": washed["similarity"], "ref_shots": len(bd.get("shots") or []),
+                             "map": washed["map"], "similarity": washed["similarity"], "check": washed.get("check"), "ref_shots": len(bd.get("shots") or []),
                              "ref": [{k: x.get(k) for k in ("t", "frame", "scene", "action", "line", "beat")} for x in bd.get("shots") or [] if isinstance(x, dict)]}
                 shots = washed["shots"]
                 d["product_shots"] = washed["product_shots"]

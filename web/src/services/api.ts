@@ -133,7 +133,13 @@ export interface Breakdown {
     frames?: { t: number; url: string }[]; inputs?: string[]; at?: string;
 }
 export interface WashInfo {
-    ref_no: number; plan: { keep: string[]; replace: string[] }; plan_edited?: boolean; ref_shots: number;
+    ref_no: number; plan_edited?: boolean; ref_shots: number;
+    plan: {
+        keep: string[]; replace: string[];
+        analysis?: { core: string; why: string; intensity: string; must_not_lose: string };
+        options?: { idea: string; intensity: string; fit: string; risk: string }[]; chosen?: number | null; chosen_why?: string;
+    };
+    check?: { kept_core: boolean; intensity: string; score: number | null; problems: string; fix: string; rewrote?: boolean } | null;
     map: { ref: number | null; kept: string; changed: string }[];
     similarity: Similarity;
     ref?: { t?: string; frame?: string; scene?: string; action?: string; line?: string; beat?: string }[];
@@ -326,7 +332,7 @@ export const api = {
     node: (nid: string) => get<CanvasNode & { review_id: string | null; upstream: CanvasNode[]; project_id: string }>(`/nodes/${nid}`),
     startBreakdown: (no: number, video?: string) => postSlow<RefAd>(`/ref-ads/${no}/breakdown`, { video }),
     refAd: (no: number) => get<RefAd>(`/ref-ads/${no}`),
-    washPlan: (nid: string, body: { keep: string[]; replace: string[] }) => post(`/nodes/${nid}/wash-plan`, body),
+    washPlan: (nid: string, body: { keep?: string[]; replace?: string[]; idea?: string }) => post(`/nodes/${nid}/wash-plan`, body),
     rewriteShot: (nid: string, i: number, hint: string) => postSlow(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
     drawStoryboard: (nid: string, indices?: number[]) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null }),
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
