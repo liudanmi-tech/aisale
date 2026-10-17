@@ -120,6 +120,27 @@ export interface Review {
     created_at: string;
     decided_at: string | null;
 }
+export interface BreakdownShot {
+    t: string; scene?: string; people?: string; action?: string; camera?: string; line?: string;
+    text_on_screen?: string; emotion?: string; beat?: string; product?: boolean; frame?: string;
+}
+export interface Breakdown {
+    summary?: string; duration?: number; video_duration?: number; people_count?: number;
+    cast?: { role: string; count?: number; look?: string }[];
+    shots: BreakdownShot[];
+    structure?: Record<string, string>;
+    selling_point?: string; why_viral?: string; essence?: string[]; replaceable?: string[]; confidence?: string;
+    frames?: { t: number; url: string }[]; inputs?: string[]; at?: string;
+}
+export interface WashInfo {
+    ref_no: number; plan: { keep: string[]; replace: string[] }; plan_edited?: boolean; ref_shots: number;
+    map: { ref: number | null; kept: string; changed: string }[];
+    similarity: Similarity;
+    ref?: { t?: string; frame?: string; scene?: string; action?: string; line?: string; beat?: string }[];
+}
+export interface Similarity {
+    per_shot: { line: number; visual: number }[]; line_max: number; visual_max: number; threshold: number; has_breakdown: boolean; rewrote?: number[];
+}
 export interface RefAd {
     id: string;
     no: number;
@@ -303,6 +324,9 @@ export const api = {
     wash: (pid: string, ref_ad_no: number) => post<{ node_id: string; prompt: string }>(`/projects/${pid}/wash`, { ref_ad_no }),
     flow: (pid: string) => get<FlowStep[]>(`/projects/${pid}/flow`),
     node: (nid: string) => get<CanvasNode & { review_id: string | null; upstream: CanvasNode[]; project_id: string }>(`/nodes/${nid}`),
+    startBreakdown: (no: number, video?: string) => postSlow<RefAd>(`/ref-ads/${no}/breakdown`, { video }),
+    refAd: (no: number) => get<RefAd>(`/ref-ads/${no}`),
+    washPlan: (nid: string, body: { keep: string[]; replace: string[] }) => post(`/nodes/${nid}/wash-plan`, body),
     rewriteShot: (nid: string, i: number, hint: string) => postSlow(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
     drawStoryboard: (nid: string, indices?: number[]) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null }),
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),

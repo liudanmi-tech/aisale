@@ -40,21 +40,23 @@ CAST_PROMPT = f"""你是短视频广告的制片和选角导演。根据剧本�
              "product_tier": "商品镜头填 hero（纯商品特写，没有人）或 hand（人物拿着 / 使用这台手机）；不是商品镜头填 null",
              "line": "这一镜的话术（口播原文）", "overlay": "后期叠在画面上的卖点文字，用和口播相同的语言、越短越好（如 6000mAh Big Battery），没有写空字符串"}}]
 }}
-规则：specs 每镜一条、顺序与分镜一致；人物都是目标市场的当地人；第 {PRODUCT_SHOT + 1} 镜是产品特写，product 为 true；
+规则：specs 每镜一条、顺序与分镜一致；人物都是目标市场的当地人；用户消息里标出的产品镜头 product 为 true；
 同一个人物在不同镜头用同一个 key；已有素材合适就复用（reuse 填它的 id），不要重复造人。
 场景是空的布景：description 只写环境、陈设和光线，不写人物，也不写手机或任何电子设备（人物用演员，手机用商品实拍，画关键帧时再放进去）；
 商品特写用的展示台 / 桌面要写成「空的台面」。
 画面里不出现任何文字：屏幕上显示的参数、价格、卖点数字一律写进 overlay（后期做成字幕贴片），不要让画面去画。"""
 
 
-def _fallback_cast(shots: list) -> dict:
+def _fallback_cast(shots: list, prod: set[int] | None = None) -> dict:
+    prod = prod if prod is not None else {PRODUCT_SHOT}
     return {"genre": "情景剧", "roles": [{"key": "r1", "name": "主角", "description": "25 岁左右的当地年轻人，生活化穿着", "reuse": None}],
             "scenes": [{"key": "s1", "name": "主场景", "description": shots[0][1] if shots else "", "reuse": None}],
-            "specs": [{"shot": i, "size": ["WS", "MS", "CU", "MS"][i % 4], "move": "固定", "roles": [] if i == PRODUCT_SHOT else ["r1"],
-                       "scene": "s1", "product": i == PRODUCT_SHOT, "line": s[2] if len(s) > 2 else ""} for i, s in enumerate(shots)]}
+            "specs": [{"shot": i, "size": ["WS", "MS", "CU", "MS"][i % 4], "move": "固定", "roles": [] if i in prod else ["r1"],
+                       "scene": "s1", "product": i in prod, "line": s[2] if len(s) > 2 else ""} for i, s in enumerate(shots)]}
 
 
-def _norm_specs(specs: list, shots: list, roles: set[str], scenes: set[str]) -> list[dict]:
+def _norm_specs(specs: list, shots: list, roles: set[str], scenes: set[str], prod: set[int] | None = None) -> list[dict]:
+    prod = prod if prod is not None else {PRODUCT_SHOT}
     by = {int(s.get("shot", i)): s for i, s in enumerate(specs or []) if isinstance(s, dict)}
     out = []
     for i, sh in enumerate(shots):
@@ -62,7 +64,7 @@ def _norm_specs(specs: list, shots: list, roles: set[str], scenes: set[str]) -> 
         out.append({"shot": i, "size": s.get("size") if s.get("size") in SIZES else "MS",
                     "move": s.get("move") if s.get("move") in MOVES else "固定",
                     "roles": [r for r in (s.get("roles") or []) if r in roles], "scene": s.get("scene") if s.get("scene") in scenes else next(iter(scenes), None),
-                    "product": bool(s.get("product", i == PRODUCT_SHOT)), "line": s.get("line") or (sh[2] if len(sh) > 2 else ""),
+                    "product": bool(s.get("product", i in prod)), "line": s.get("line") or (sh[2] if len(sh) > 2 else ""),
                     "product_tier": s.get("product_tier") if s.get("product_tier") in ("hero", "hand") else None,
                     "overlay": str(s.get("overlay") or "")[:60]})
     out = [phone_spec(x, sh[1] if len(sh) > 1 else "") for x, sh in zip(out, shots)]
@@ -78,17 +80,18 @@ async def cast_script(script_id: str) -> dict:
         s = db.get(Node, script_id)
         project = db.get(Project, s.project_id)
         shots = [list(x) for x in (s.data or {}).get("shots", [])]
+        prod = storyboard.product_shots(s.data or {}, len(shots))
         used = _project_assets(db, project.id)
         brand, sku, market = project.brand, project.model_sku, project.market
     existing = "\n".join(f"- {a['id']} | {a['kind']} | {a['name']} | {a['description'][:80]}" for a in used if a["kind"] in ("actor", "scene")) or "（无）"
     raw = None
     if settings_store.llm_enabled():
         try:
-            raw = await llm.chat_json(CAST_PROMPT, f"目标市场：{market}；品牌机型：{brand} {sku}\n分镜（时长, 画面, 口播, 中文）：{json.dumps(shots, ensure_ascii=False)}\n"
+            raw = await llm.chat_json(CAST_PROMPT, f"目标市场：{market}；品牌机型：{brand} {sku}\n产品镜头：第 {'、'.join(str(i + 1) for i in sorted(prod))} 镜\n分镜（时长, 画面, 口播, 中文）：{json.dumps(shots, ensure_ascii=False)}\n"
                                                    f"本项目已有素材（id | 类型 | 名称 | 描述）：\n{existing}", task="script", timeout=120)
         except Exception as e:  # noqa: BLE001
             log.warning("选角拆解失败，用默认方案：%s", e)
-    raw = raw if isinstance(raw, dict) and raw.get("roles") is not None else _fallback_cast(shots)
+    raw = raw if isinstance(raw, dict) and raw.get("roles") is not None else _fallback_cast(shots, prod)
     valid = {a["id"]: a for a in used}
     roles, scenes, to_draw = {}, {}, []
     for kind, items, target in (("actor", raw.get("roles") or [], roles), ("scene", raw.get("scenes") or [], scenes)):
@@ -102,7 +105,7 @@ async def cast_script(script_id: str) -> dict:
             target[key] = a.id
             to_draw.append(a.id)
     product = _find_product(brand, sku)
-    specs = _norm_specs(raw.get("specs"), shots, set(roles), set(scenes))
+    specs = _norm_specs(raw.get("specs"), shots, set(roles), set(scenes), prod)
     cast = {"genre": raw.get("genre") if raw.get("genre") in GENRES else "情景剧", "roles": roles, "scenes": scenes,
             "product": product if any(x["product"] for x in specs) else None, "specs": specs,
             "names": {k: _name(v) for k, v in {**roles, **scenes}.items()}}

@@ -1,16 +1,16 @@
 /** 画布节点展开后的内容：剧本分镜、视频镜头、评测结论、投放方案、数据、优化建议都直接平铺在画布上。
  *  可点击的控件都带 data-ui，避免触发拖拽节点。 */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Image, Input, Popover, Select, Switch } from "antd";
+import { App, Button, Image, Input, Popover, Select, Switch, Tooltip } from "antd";
 import clsx from "clsx";
 import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { EvalPanel } from "@/components/canvas/eval-panel";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
 import { consentDialog, COVER_GRADIENTS, GENRES, MOVES, SIZE_ZH } from "@/lib/constants";
-import { api, type VideoPlan, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec } from "@/services/api";
+import { api, type VideoPlan, type AssetKind, type CanvasNode, type Cast, type LibraryAsset, type ShotSpec, type Similarity, type WashInfo } from "@/services/api";
 
 export interface BodyActions {
     /** 选中节点并把「优化 xx：」填进左侧 Agent 输入框 */
@@ -88,6 +88,72 @@ function SpecChips({ spec, cast, onChange }: { spec: ShotSpec; cast: Cast; onCha
     );
 }
 
+/** 剧本是按哪条爆款洗的、洗稿清单（可改了重写）、和参考的相似度。 */
+function WashBar({ n, wash, sim, onDone }: { n: CanvasNode; wash?: WashInfo; sim?: Similarity; onDone: () => void }) {
+    const { message } = App.useApp();
+    const [open, setOpen] = useState(false);
+    const [keep, setKeep] = useState("");
+    const [replace, setReplace] = useState("");
+    useEffect(() => {
+        if (open && wash) { setKeep(wash.plan.keep.join("\n")); setReplace(wash.plan.replace.join("\n")); }
+    }, [open, wash]);
+    const save = useMutation({
+        mutationFn: () => api.washPlan(n.id, { keep: keep.split("\n"), replace: replace.split("\n") }),
+        onSuccess: () => { setOpen(false); message.info("按改过的清单重写剧本，完成后重新提交审核"); onDone(); },
+        onError: (e) => message.error(errMsg(e)),
+    });
+    const refNo: number | undefined = wash?.ref_no ?? n.data.ref_ad_no;
+    if (!refNo && !sim) return null;
+    const over = sim && sim.line_max > sim.threshold;
+    const pct = (x: number) => `${Math.round(x * 100)}%`;
+    const body = wash && (
+        <div data-ui className="w-[420px] text-[12px] leading-5" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="mb-1 font-medium">洗稿清单：按爆款 #{wash.ref_no} 的逐镜拆解{wash.plan_edited ? "（你改过）" : ""}</div>
+            <div className="mb-1 text-good">保留（爆款精髓，一行一条）</div>
+            <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} value={keep} onChange={(e) => setKeep(e.target.value)} />
+            <div className="mb-1 mt-2 text-brand2">替换（写成「原来的 → 换成的」，一行一条）</div>
+            <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} value={replace} onChange={(e) => setReplace(e.target.value)} />
+            <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-ink2">改完点重写：镜头数和节奏仍跟着参考，按新清单重写台词和画面</span>
+                <Button size="small" type="primary" className="ml-auto" loading={save.isPending} disabled={n.status === "run"} onClick={() => save.mutate()}>按清单重写</Button>
+            </div>
+        </div>
+    );
+    return (
+        <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-elev px-2.5 py-1.5 text-[11px] leading-4">
+            {wash ? <span>按 <b>爆款 #{wash.ref_no}</b> 逐镜拆解洗稿 · 参考 {wash.ref_shots} 镜 → {n.data.shots?.length} 镜 · 保留 {wash.plan.keep.length} 条 · 替换 {wash.plan.replace.length} 条</span>
+                : <span className="text-warn">参考爆款 #{refNo} 还没做视频拆解，只参考了文案和钩子{n.data.wash_error ? `（洗稿失败：${n.data.wash_error}）` : ""}：去爆款库点「拆解视频」后再优化剧本</span>}
+            {sim && <span className={over ? "text-bad" : "text-ink2"} title="新台词和参考原话逐镜按词比对，取最像的一镜；画面的场景和动作本来就要沿用参考的结构，不算抄">台词和参考最高相似 {pct(sim.line_max)}（阈值 {pct(sim.threshold)}）{sim.rewrote?.length ? ` · 已自动重写镜 ${sim.rewrote.join("、")}` : ""}</span>}
+            {wash && <Popover trigger="click" open={open} onOpenChange={setOpen} content={body} placement="bottomLeft">
+                <span className="ml-auto"><Btn icon={<Pencil size={10} />} onClick={() => setOpen(true)}>洗稿清单</Btn></span>
+            </Popover>}
+        </div>
+    );
+}
+
+function RefMap({ m, refShot: ref, sim, threshold }: { m?: WashInfo["map"][number]; refShot?: { t?: string; frame?: string; scene?: string; action?: string; line?: string; beat?: string }; sim?: { line: number }; threshold: number }) {
+    if (!m) return null;
+    const tip = (
+        <div className="w-[260px] text-[12px] leading-5">
+            {ref && <div className="mb-1 flex gap-2">
+                {ref.frame && <img src={ref.frame} alt="" className="h-[96px] w-[54px] shrink-0 rounded object-cover" />}
+                <div className="min-w-0"><b>参考镜 {m.ref} · {ref.t}</b>{ref.beat ? `（${ref.beat}）` : ""}<div className="text-ink2">{ref.scene}；{ref.action}</div>{ref.line && <div>“{ref.line}”</div>}</div>
+            </div>}
+            <div><span className="text-good">保留：</span>{m.kept || "—"}</div>
+            <div><span className="text-brand2">换了：</span>{m.changed || "—"}</div>
+        </div>
+    );
+    return (
+        <Tooltip title={tip} color="#1c1c22">
+            <div className="mt-1 flex cursor-default items-center gap-1 rounded bg-surface px-1 text-[10px] text-ink2">
+                {ref?.frame && <img src={ref.frame} alt="" className="h-5 w-3 rounded-sm object-cover" />}
+                <span className="truncate">↔ 参考镜 {m.ref ?? "—"} · {m.kept || "—"}</span>
+                {sim && <span className={`ml-auto shrink-0 ${sim.line > threshold ? "text-bad" : ""}`}>{Math.round(sim.line * 100)}%</span>}
+            </div>
+        </Tooltip>
+    );
+}
+
 function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: BodyActions }) {
     const { message } = App.useApp();
     const refresh = useRefresh(n);
@@ -99,6 +165,10 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
     const drawing = sb.status === "running" || draw.isPending;
     const cast: Cast | undefined = n.data.cast;
     const saveCast = useMutation({ mutationFn: (c: Cast) => api.updateNodeData(pid, n.id, { cast: c }), onSuccess: refresh });
+    const wash: WashInfo | undefined = n.data.wash;
+    const sim: Similarity | undefined = n.data.similarity;
+    const prodShots: number[] = n.data.product_shots ?? [2];
+    const total = shots.reduce((t, s) => { const m = String(s[0]).match(/([\d.]+)\s*[–\-~]\s*([\d.]+)/); return m ? Math.max(t, Number(m[2])) : t; }, 0);
     if (!shots.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "Agent 正在写剧本…" : "还没有分镜"}</div>;
     return (
         <div>
@@ -115,7 +185,7 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
                 )}
                 <span className="ml-auto truncate text-[11px] text-ink2">
                     {sb.status === "running" ? `正在画分镜 ${sb.done ?? 0}/${sb.total ?? shots.length}` : sb.status === "error" ? <span className="text-bad" title={sb.error}>{frames.some(Boolean) ? "部分分镜失败" : "分镜失败"}</span>
-                        : `v${n.data.version || 1} · ${shots.length} 镜 · 15 秒 · 9:16`}
+                        : `v${n.data.version || 1} · ${shots.length} 镜 · ${total || 15} 秒 · 9:16`}
                 </span>
             </div>
             {sb.status === "error" && sb.error && !drawing && (
@@ -124,7 +194,8 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
                     <Btn icon={<RefreshCw size={11} />} disabled={n.status === "run"} onClick={() => draw.mutate(shots.flatMap((_, i) => (frames[i] ? [] : [i])))}>重画失败的分镜</Btn>
                 </div>
             )}
-            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(4, shots.length)}, minmax(0, 1fr))` }}>
+            <WashBar n={n} wash={wash} sim={sim} onDone={refresh} />
+            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(6, Math.max(4, shots.length))}, minmax(0, 1fr))` }}>
                 {shots.map((s, i) => {
                     const f = frames[i];
                     return (
@@ -133,13 +204,14 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
                                 {f && <img src={f.url} alt={`镜 ${i + 1} 分镜`} draggable={false} className="absolute inset-0 h-full w-full object-contain" />}
                                 {!f && <span className="absolute inset-0 flex items-center justify-center px-2 text-center text-[11px] text-white/90">{drawing ? "分镜绘制中…" : s[1]}</span>}
                                 <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1 text-[10px] text-white">镜 {i + 1} · {s[0]}</span>
-                                {i === 2 && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1 text-[10px] text-white">官方素材</span>}
+                                {prodShots.includes(i) && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1 text-[10px] text-white">产品镜头</span>}
                                 {f && f.visual !== s[1] && <span className="absolute inset-x-1.5 bottom-1.5 rounded bg-warn px-1 text-center text-[10px] text-black">画面已改，需重画</span>}
                             </div>
                             <div className="p-1.5 text-[11px] leading-[17px]">
                                 <div className="line-clamp-3 text-ink2" title={s[1]}>{s[1]}</div>
                                 <div className="mt-1 line-clamp-3 text-ink" title={s[2]}>“{s[2]}”</div>
                                 <div className="line-clamp-2 text-ink2" title={s[3]}>{s[3]}</div>
+                                {wash && <RefMap m={wash.map[i]} refShot={wash.map[i]?.ref ? wash.ref?.[wash.map[i].ref! - 1] : undefined} sim={sim?.per_shot[i]} threshold={sim?.threshold ?? 0.4} />}
                                 {cast?.specs?.[i] && (
                                     <div className="mt-1">
                                         <SpecChips spec={cast.specs[i]} cast={cast} onChange={(spec) => saveCast.mutate({ ...cast, specs: cast.specs.map((x, k) => (k === i ? spec : x)) })} />

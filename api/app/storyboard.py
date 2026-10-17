@@ -26,10 +26,16 @@ STYLE = (
     "hand-drawn border. The only text allowed is a tiny handwritten shot size (WS / MS / CU / ECU) in the top-left corner; use simple "
     "arrows to show camera or subject movement. Do not write dialogue, captions, brand names or any other words."
 )
-PRODUCT_SHOT = 2  # 第 3 镜是产品特写（成片用官方素材），分镜里画手机特写示意
+PRODUCT_SHOT = 2  # 默认第 3 镜是产品特写；洗剧本时按参考爆款的产品位置写在剧本 data.product_shots
 
 
-def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool) -> str:
+def product_shots(data: dict, n: int) -> set[int]:
+    """剧本里手机是画面主体的镜头（从 0 开始）。"""
+    ps = {int(i) for i in (data or {}).get("product_shots") or [] if isinstance(i, int) and 0 <= i < n}
+    return ps or ({PRODUCT_SHOT} if n > PRODUCT_SHOT else {max(0, n - 1)})
+
+
+def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod: set[int] | None = None) -> str:
     s = shots[i]
     parts = [
         STYLE,
@@ -37,7 +43,7 @@ def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool) -> s
         f"全片 {len(shots)} 镜，现在画第 {i + 1} 镜（{s[0]}）。",
         f"画面：{s[1]}",
     ]
-    if i == PRODUCT_SHOT:
+    if i in (prod if prod is not None else {PRODUCT_SHOT}):
         parts.append("这一镜是产品特写：画手机本身的特写（可以有手持），画手机的角度和姿态即可。不要画屏幕上的界面、参数、数字或任何文字，不要画品牌字样。")
     if len(s) > 2 and s[2]:
         parts.append(f"这一镜的口播（只用来理解人物情绪，不要写进画面）：{s[2]}")
@@ -97,6 +103,7 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
         shots = [list(s) for s in (n.data or {}).get("shots", [])]
         frames = list((n.data or {}).get("frames") or [])
         aud = (n.data or {}).get("audience", "用户")
+        prod = product_shots(n.data or {}, len(shots))
     frames += [None] * (len(shots) - len(frames))
     frames = frames[: len(shots)]
     if indices is None:
@@ -111,7 +118,7 @@ async def _run(node_id: str, indices: list[int] | None) -> None:
     _update(node_id, storyboard={"status": "running", "done": 0, "total": total, "error": ""})
 
     async def draw(i: int, ref: str | None) -> None:
-        content: list[dict] | str = _prompt(project, aud, shots, i, bool(ref))
+        content: list[dict] | str = _prompt(project, aud, shots, i, bool(ref), prod)
         if ref:
             content = [{"type": "text", "text": content}, {"type": "image_url", "image_url": {"url": ref}}]
         img, mime = await llm.image(content, task="storyboard")

@@ -10,7 +10,7 @@ import logging
 import random
 from datetime import date, timedelta
 
-from app import agent, canvas, config, panel, production, settings_store, storyboard
+from app import agent, canvas, compose, config, panel, production, settings_store, storyboard, wash
 from app.adapters import llm, tiktok
 from app.db import SessionLocal
 from app.events import emit, spawn
@@ -64,8 +64,27 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         extra = (f"；人群标签：{'、'.join(d['audience_tags'])}" if d.get("audience_tags") else "") + (f"；机型：{d['model_sku']}" if d.get("model_sku") else "")
         current = [list(s) for s in d.get("shots") or []]
         shots = [s[:] for s in SHOTS.get(sp, SHOTS["续航"])]
-        if settings_store.llm_enabled():
-            ad = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first()
+        ad = db.query(RefAd).filter(RefAd.no == d.get("ref_ad_no")).first() if d.get("ref_ad_no") else None
+        bd = ((ad.dna or {}).get("breakdown") if ad else None) or None
+        washed, wash_err = None, ""
+        if settings_store.llm_enabled() and bd:
+            # 有多模态拆解：先出洗稿清单（用户改过就用改过的），再按清单写，镜头数和节奏跟着参考走
+            brand = proj.brand if proj else "TECNO"
+            ours = (f"品牌机型：{brand} {(d.get('model_sku') or (proj.model_sku if proj else '') or '').strip()}；主卖点：{sp}；"
+                    f"目标市场：{market}；目标人群：{aud}{extra}；口播语言：{lang}")
+            old = d.get("wash") or {}
+            try:
+                plan = old["plan"] if old.get("plan_edited") and old.get("plan") and old.get("ref_no") == ad.no else await wash.make_plan(bd, ours, comment)
+                washed = await wash.write(bd, plan, ours, brand, lang, comment, current)
+                d["wash"] = {"ref_no": ad.no, "plan": plan, "plan_edited": bool(old.get("plan_edited") and old.get("plan") is plan),
+                             "map": washed["map"], "similarity": washed["similarity"], "ref_shots": len(bd.get("shots") or []),
+                             "ref": [{k: x.get(k) for k in ("t", "frame", "scene", "action", "line", "beat")} for x in bd.get("shots") or [] if isinstance(x, dict)]}
+                shots = washed["shots"]
+                d["product_shots"] = washed["product_shots"]
+            except Exception as e:  # noqa: BLE001
+                log.warning("按拆解洗剧本失败，改用普通写法：%s", e)
+                wash_err = str(e)[:200]
+        if settings_store.llm_enabled() and not washed:
             # 改稿：在现有剧本上按意见改，没提到的镜头原样保留
             revise = (f"\n当前剧本（JSON）：{json.dumps(current, ensure_ascii=False)}\n请在当前剧本上按修改意见修改，"
                       "意见没涉及的镜头、画面和口播保持原样；时长写成秒数。") if comment and current else ""
@@ -82,11 +101,24 @@ async def generate_script(node_id: str, comment: str = "") -> None:
         elif comment:
             shots = current or shots
             shots[0][3] = f"{shots[0][3]}（已按意见修改：{comment}）"
-        d.update(shots=shots, version=d.get("version", 1) + (1 if comment else 0))
+        if not washed:
+            d.pop("wash", None)
+            d.pop("product_shots", None)
+        sim = washed["similarity"] if washed else wash.similarity(shots, None, ad.dna if ad else None)
+        total = sum(compose.secs(s[0]) for s in shots)
+        d.update(shots=shots, version=d.get("version", 1) + (1 if comment else 0), similarity=sim)
+        if wash_err:
+            d["wash_error"] = wash_err
+        else:
+            d.pop("wash_error", None)
         n.data = d
-        n.sub = f"{sp} · {aud} · 15s" + (f" · v{d['version']}" if d["version"] > 1 else "")
-        _done(db, n, f"{sp}卖点 · {aud}，{len(shots)} 镜 15 秒，合规自检通过",
-              "参考爆款的创意结构；卖点表述取自卖点库；与参考素材相似度 18%（阈值 40%）；禁用词 0 处")
+        n.sub = f"{sp} · {aud} · {total:g}s" + (f" · v{d['version']}" if d["version"] > 1 else "")
+        ref = f"按爆款 #{ad.no} 的逐镜拆解洗稿（参考 {d['wash']['ref_shots']} 镜 → 新剧本 {len(shots)} 镜）" if washed else \
+            (f"参考爆款 #{ad.no} 的文案和钩子（这条还没做视频拆解）" if ad else "按卖点模板写")
+        sim_text = (f"台词和参考原话最高相似度 {sim['line_max']:.0%}（阈值 {sim['threshold']:.0%}，逐镜按词比对）"
+                    if ad else "没有参考爆款，未做相似度比对")
+        _done(db, n, f"{sp}卖点 · {aud}，{len(shots)} 镜 {total:g} 秒" + ("，台词和参考太像，建议修改" if sim["line_max"] > sim["threshold"] else ""),
+              f"{ref}；{sim_text}" + (f"；洗稿失败原因：{wash_err}" if wash_err else ""))
     if settings_store.llm_enabled():  # 剧本好了接着画分镜图（不阻塞审核）
         spawn(storyboard.run(node_id))
 
