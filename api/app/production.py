@@ -956,10 +956,12 @@ async def _inpaint_keyframe(video_id: str, i: int, mask: str, prompt: str, engin
     """局部重绘第 i 镜的关键帧：只改涂过的地方，画完停下等人看（视频要重新生成）。旧关键帧进 kf_history，可撤回。"""
     from app import inpaint
     _begin_shot(video_id, i, "局部重绘")
+    with SessionLocal() as db:
+        t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i] or {}
+    before = {"phase": t.get("phase"), "status": t.get("status")}
+    _shot(video_id, i, phase="局部重绘中", keyframe_error="")  # 卡片上马上能看到在画
     try:
         ctx = _context(video_id)
-        with SessionLocal() as db:
-            t = ((db.get(Node, video_id).data or {}).get("tasks") or [{}] * (i + 1))[i] or {}
         old = t.get("keyframe")
         if not old:
             raise ValueError("这一镜还没有关键帧")
@@ -971,7 +973,7 @@ async def _inpaint_keyframe(video_id: str, i: int, mask: str, prompt: str, engin
               url=None, video_url=None, error=None, retry_error=None)
     except Exception as e:  # noqa: BLE001
         log.exception("局部重绘出错 %s #%d", video_id, i)
-        _shot(video_id, i, keyframe_error=f"局部重绘没成功（关键帧和视频保持原样）：{fal.describe(e)[:200]}")  # 原来的状态不动
+        _shot(video_id, i, **before, keyframe_error=f"局部重绘没成功（关键帧和视频保持原样）：{fal.describe(e)[:300]}")  # 回到原来的状态
     _settle(video_id)
 
 

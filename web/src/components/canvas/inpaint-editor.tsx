@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/services/api";
 
+const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
 type Engine = "auto" | "flux" | "gemini";
 
@@ -30,7 +31,12 @@ export function InpaintButton({ nid, i, keyframe, hasProduct, history, disabled,
                     <Undo2 size={10} />撤回重绘
                 </button>
             )}
-            {open && <InpaintModal nid={nid} i={i} keyframe={keyframe} hasProduct={hasProduct} onClose={() => setOpen(false)} onDone={onDone} />}
+            {open && (
+                // 弹窗是挂在 body 上的，但 React 事件仍会冒泡到画布：在这里截住，免得涂抹时画布当成拖动 / 平移 / 快捷键
+                <span data-ui onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onWheel={stop} onKeyDown={stop} onDoubleClick={stop} onClick={stop}>
+                    <InpaintModal nid={nid} i={i} keyframe={keyframe} hasProduct={hasProduct} onClose={() => setOpen(false)} onDone={onDone} />
+                </span>
+            )}
         </>
     );
 }
