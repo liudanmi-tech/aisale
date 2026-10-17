@@ -296,7 +296,7 @@ export default function Watch() {
                 <Alert className="mb-3" type="warning" showIcon message={<>还没有填写 Apify Token，无法抓取数据。<Link to="/settings">去设置页添加</Link></>} />
             )}
             <Card title="监控账号" className="mb-3" extra={<div className="flex flex-wrap items-center gap-2">
-                <Select size="small" className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} aria-label="按市场筛选" />
+                <Select size="small" className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} popupMatchSelectWidth={false} aria-label="按市场筛选" />
                 <Button size="small" type="primary" icon={<FileBarChart size={13} />} onClick={() => setReporting(true)}>分析报告</Button>
                 <Button size="small" icon={<Search size={13} />} disabled={!accs?.ready} onClick={() => setSearching(true)}>搜索账号</Button>
                 <Button size="small" icon={<RefreshCw size={13} />} disabled={!accs?.ready || !accs.items.length} loading={sync.isPending || syncing} onClick={() => sync.mutate(undefined)}>全部同步</Button>
@@ -333,7 +333,7 @@ export default function Watch() {
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <Segmented value={grade} onChange={(v) => setGrade(v as string)} options={["全部", "爆款", "精品", "观察中"]} />
-                    <Select className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} />
+                    <Select className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} popupMatchSelectWidth={false} />
                     <Select allowClear className="w-32" placeholder="全部品牌" value={brand} onChange={setBrand} options={brands.map((v) => ({ value: v }))} />
                     <Select className="w-36" value={sort} onChange={setSort} options={[
                         { value: "hot_score", label: "按爆款分" }, { value: "quality_score", label: "按精品分" }, { value: "plays", label: "按播放" },
