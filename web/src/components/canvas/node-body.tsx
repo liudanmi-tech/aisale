@@ -23,6 +23,17 @@ const errMsg = (e: any) => e?.response?.data?.detail
     || (e?.code === "ECONNABORTED" ? "后端 30 秒没有响应：看一下运行后端的终端有没有报错，或重启后端后再试"
         : e?.code === "ERR_NETWORK" ? "连不上后端：后端可能没启动或刚重启，稍等再试" : e?.message) || "操作失败";
 
+/** 红色报错：默认显示 3 行，点一下展开全文（长报错里关键的参数名常在后半句）。 */
+function ErrorText({ text }: { text: string }) {
+    const [all, setAll] = useState(false);
+    return (
+        <div data-ui onClick={() => setAll(!all)} title={all ? "点击收起" : "点击看完整报错"}
+            className={clsx("mt-0.5 cursor-pointer select-text whitespace-pre-wrap break-words rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad", !all && "line-clamp-3")}>
+            {text}
+        </div>
+    );
+}
+
 function Btn({ icon, children, onClick, disabled, primary }: { icon?: ReactNode; children: ReactNode; onClick: () => void; disabled?: boolean; primary?: boolean }) {
     return (
         <button data-ui disabled={disabled} onClick={onClick}
@@ -868,7 +879,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     {t.kf_meta?.mode === "placement" && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2" title="先画占位手机，再换成真实商品">换真机</span>}
                                     {t.kf_meta?.composite && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2">实拍合成</span>}
                                 </div>
-                                {t.status === "failed" && <div className="mt-0.5 line-clamp-3 rounded bg-bad/15 px-1 text-[10px] leading-[14px] text-bad" title={t.error}>{t.error || "视频生成失败（没有记下原因，多半是重启后端之前跑的），点「重做视频」再试一次会显示原因"}</div>}
+                                {t.status === "failed" && <ErrorText text={t.error || "视频生成失败（没有记下原因，多半是重启后端之前跑的），点「重做视频」再试一次会显示原因"} />}
                                 {t.fallback && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-elev px-1 text-[10px] leading-[14px] text-ink2" title={t.fallback}>{`已改用 ${(t.fallback.match(/自动改用 (.+)$/) || [])[1] || "备用模型"}`}{/可灵/.test(t.fallback) ? "：画面有真人脸，Seedance 2.x 不接受" : "：2.5 不接受这一镜的输入"}</div>}
                                 {t.retry_error && t.status !== "failed" && <div className="mt-0.5 line-clamp-2 rounded bg-warn/15 px-1 text-[10px] leading-[14px] text-warn" title={t.retry_error}>{t.retry_error}</div>}
                                 {spec && cast && <div className="mt-0.5"><SpecChips spec={spec} cast={cast} onChange={editable ? (sp) => saveScript.mutate({ cast: { ...cast, specs: cast.specs.map((x, k) => (k === i ? sp : x)) } }) : undefined} /></div>}

@@ -32,12 +32,23 @@ def _reason(r: httpx.Response) -> str:
     except Exception:  # noqa: BLE001
         return r.text[:300]
     if isinstance(d, list):
-        return "；".join(f"{'.'.join(str(x) for x in (e.get('loc') or [])[1:]) or '请求'}：{e.get('msg')}" for e in d if isinstance(e, dict))[:400]
-    return str(d or r.text)[:300]
+        def one(e: dict) -> str:
+            where = ".".join(str(x) for x in (e.get("loc") or [])[1:]) or "请求"
+            extra = e.get("ctx") or {}
+            more = "；".join(f"{k}={str(v)[:120]}" for k, v in extra.items()) if isinstance(extra, dict) else str(extra)[:200]
+            return f"{where}：{e.get('msg')}" + (f"（{more}）" if more else "") + (f"［{e.get('type')}］" if e.get("type") else "")
+        return "；".join(one(e) for e in d if isinstance(e, dict))[:700]
+    return str(d or r.text)[:500]
 
 
 def _message(r: httpx.Response) -> str:
     why = _reason(r)
+    if r.status_code >= 400:
+        try:
+            url = str(r.request.url)
+        except RuntimeError:
+            url = ""
+        log.warning("fal %s %s：%s", r.status_code, url, r.text[:2000])
     if r.status_code == 422 and re.search(r"face|person|people|human|portrait|real", why, re.I):
         return f"模型不接受含真人脸的图片（{why}）"
     return f"{HINTS.get(r.status_code, 'fal 返回错误')}（HTTP {r.status_code}：{why}）"

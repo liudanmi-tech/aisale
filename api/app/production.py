@@ -405,7 +405,7 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None, en
                                  else fal.submit_i2v(plain, image, duration=5, model=fal.FALLBACK_I2V, end_image=end_image))
                 return {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
             except Exception as e:  # noqa: BLE001
-                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400]}
+                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:900]}
         if provider == "fal":
             res: dict
             try:
@@ -415,9 +415,9 @@ async def clip(prompt: str, image: str | None, refs: list[str] | None = None, en
                     job = await (fal.submit_i2v(prompt, image, duration=5, end_image=end_image) if image else fal.submit(prompt, duration=5))
                 res = {"provider": "fal", "model": job["model"], "task_id": job["request_id"], **await fal.wait(job)}
             except fal.InputRejected as e:
-                res = {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400], "rejected": True}
+                res = {"provider": "fal", "status": "failed", "error": fal.describe(e)[:900], "rejected": True}
             except Exception as e:  # noqa: BLE001
-                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:400]}
+                return {"provider": "fal", "status": "failed", "error": fal.describe(e)[:900]}
             plain = re.sub(r"@Image\d+(\s+and\s+@Image\d+)*", "the phone in the first frame", prompt.replace("@Image1", "the first frame"))
             if fal.face_rejected(res.get("error", "")):
                 # 含真人脸：Seedance 2.x（2.5 和 2.0）都按隐私规定拒收，直接改用可灵 O3 Pro：关键帧做开场，商品图作为 @Element1
