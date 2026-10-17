@@ -216,15 +216,21 @@ function ScriptBody({ n, pid, actions }: { n: CanvasNode; pid: string; actions: 
     const wash: WashInfo | undefined = n.data.wash;
     const sim: Similarity | undefined = n.data.similarity;
     const prodShots: number[] = n.data.product_shots ?? [2];
+    const missing = shots.filter((sh, i) => !frames[i] || frames[i]!.visual !== sh[1]).length;  // 没画或画面描述改过的镜头
     const total = shots.reduce((t, s) => { const m = String(s[0]).match(/([\d.]+)\s*[–\-~]\s*([\d.]+)/); return m ? Math.max(t, Number(m[2])) : t; }, 0);
     if (!shots.length) return <div className="py-6 text-center text-xs text-ink2">{n.status === "run" ? "Agent 正在写剧本…" : "还没有分镜"}</div>;
     return (
         <div>
             <div className="mb-2 flex items-center gap-1.5">
                 <Btn primary icon={<Sparkles size={11} />} disabled={n.status === "run"} onClick={() => actions.onRevise(n)}>优化剧本</Btn>
-                <Btn icon={<Pencil size={11} />} disabled={drawing || n.status === "run"} onClick={() => draw.mutate(frames.some(Boolean) ? shots.map((_, i) => i) : undefined)}>
-                    {frames.some(Boolean) ? "全部重画分镜" : "画分镜"}
-                </Btn>
+                {missing > 0 && (
+                    <Btn primary={frames.some(Boolean)} icon={<Pencil size={11} />} disabled={drawing || n.status === "run"} onClick={() => draw.mutate(undefined)}>
+                        {frames.some(Boolean) ? `补画缺的 ${missing} 镜` : "画分镜"}
+                    </Btn>
+                )}
+                {frames.some(Boolean) && (
+                    <Btn icon={<RefreshCw size={11} />} disabled={drawing || n.status === "run"} onClick={() => draw.mutate(shots.map((_, i) => i))}>全部重画</Btn>
+                )}
                 {cast && (
                     <span data-ui className="flex items-center gap-1 text-[11px] text-ink2">剧情
                         <Select size="small" variant="borderless" className="w-24" value={cast.genre} options={GENRES.map((v) => ({ value: v }))}
