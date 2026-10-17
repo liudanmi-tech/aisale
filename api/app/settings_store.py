@@ -33,7 +33,7 @@ IMAGE_MODELS = [
     {"id": "google/gemini-3.1-flash-lite-image", "label": "Gemini 3.1 Flash Lite Image", "hint": "最像手绘分镜，约 3 秒、$0.034 / 张（默认）"},
     {"id": "google/gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image", "hint": "约 6 秒、$0.039 / 张"},
     {"id": "google/gemini-3.1-flash-image", "label": "Gemini 3.1 Flash Image", "hint": "更精细，约 10 秒、$0.067 / 张"},
-    {"id": "google/gemini-3-pro-image", "label": "Gemini 3 Pro Image", "hint": "最精细、最贵"},
+    {"id": "google/gemini-3-pro-image", "label": "Gemini 3 Pro Image", "hint": "最精细、多图参考最稳（关键帧默认），约 $0.13 / 张"},
 ]
 VIDEO_I2V_MODELS = [
     {"id": "bytedance/seedance-2.5/image-to-video", "label": "Seedance 2.5 图生视频", "hint": "按关键帧生成，最高 1080p，4–30 秒（默认）"},
@@ -54,7 +54,7 @@ DEFAULT_MODELS = {
     "analysis": "google/gemini-2.5-flash",  # 竞品视频逐条拆解（看封面 + 文案 + 字幕），量大要便宜、能看图
     "report": "anthropic/claude-sonnet-5.5",  # 汇总成分析报告，要会写洞察
     "storyboard": "google/gemini-3.1-flash-lite-image",  # 剧本分镜图（电影学院简笔分镜风格）
-    "keyframe": "google/gemini-3.1-flash-image",  # 演员定妆照、场景图、每镜关键帧（真实质感，要能参考多张图）
+    "keyframe": "google/gemini-3-pro-image",  # 演员定妆照、场景图、每镜关键帧：Gemini 最好的生图模型，多张参考图时人物、构图最稳
     "qc": "google/gemini-2.5-flash",  # 质检：看关键帧和成片抽帧，对照定妆照和商品实拍图逐项检查
     "video_i2v": "bytedance/seedance-2.5/image-to-video",  # 关键帧 → 视频（图生视频，没有商品的镜头）
     "video_ref": "bytedance/seedance-2.5/reference-to-video",  # 商品镜头：关键帧 + 商品多视角图一起作参考，全程保持商品外观
@@ -120,14 +120,20 @@ def migrate_models() -> None:
     """一次性迁移：图生视频默认改成 Seedance 2.5。设置页「保存」会把当时的默认值写进库，所以旧的 1.0 设置要在这里改掉。"""
     with SessionLocal() as db:
         s = db.get(Setting, "models")
-        if not s or (s.value or {}).get("_seedance25"):
+        if not s:
             return
         v = dict(s.value or {})
-        if "seedance/v1" in (v.get("video_i2v") or ""):
-            v["video_i2v"] = DEFAULT_MODELS["video_i2v"]
-        v["_seedance25"] = True
-        s.value = v
-        db.commit()
+        if not v.get("_seedance25"):
+            if "seedance/v1" in (v.get("video_i2v") or ""):
+                v["video_i2v"] = DEFAULT_MODELS["video_i2v"]
+            v["_seedance25"] = True
+        if not v.get("_kf_pro"):  # 关键帧默认改成 Gemini 3 Pro Image：库里存的还是旧默认（Flash）的一并换掉，自己选过别的不动
+            if v.get("keyframe") in (None, "google/gemini-3.1-flash-image", "google/gemini-2.5-flash-image"):
+                v["keyframe"] = DEFAULT_MODELS["keyframe"]
+            v["_kf_pro"] = True
+        if v != (s.value or {}):
+            s.value = v
+            db.commit()
 
 
 def set_models(values: dict) -> dict:

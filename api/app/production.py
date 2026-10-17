@@ -288,9 +288,7 @@ def keyframe_refs(spec: dict, cast: dict, frame_url: str | None, visual: str = "
         if _first_image(aid):
             refs.append({"kind": "actor", "label": f"{name} 定妆照", "url": _first_image(aid), "note": f"角色「{name}」：长相、发型、服装必须和它一致"
                          + ("；只参考长相和服装，不要照它的姿势、站位和机位（姿势和构图照分镜草图）" if frame_url else "")})
-        if _turnaround_url(aid) and spec.get("size") not in ("CU", "ECU"):  # 特写用不上多角度，三视图的多格排版反而让模型画成拼图
-            refs.append({"kind": "turnaround", "label": f"{name} 三视图", "url": _turnaround_url(aid), "note": f"「{name}」的三视图：不同角度下都必须是这同一个人"
-                         + ("；不要照它的姿势" if frame_url else "")})
+        # 不放三视图：一张图里排着同一个人的几个角度，模型会照搬这种多格排版，画成拼图 / 分身；长相靠定妆照就够
     sid = cast["scenes"].get(spec.get("scene"))
     if _first_image(sid):
         name = cast["names"].get(spec.get("scene"), "")

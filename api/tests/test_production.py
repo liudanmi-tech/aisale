@@ -138,7 +138,7 @@ def test_production(tmp_path, monkeypatch):
         assert c.post(f"/api/v1/nodes/{v['id']}/cast", json={"key": "s1", "asset_id": lib["女摊主"]["id"]}).status_code == 400
         assert not any(n["data"]["asset_id"] == lib["雨夜市场"]["id"] for n in of("scene") if any(e["source"] == n["id"] and e["target"] == v["id"] for e in canvas()["edges"]))
 
-        # 上传商品图后不自动继续（还在等确认）；确认 → 每镜关键帧（参考分镜、演员、三视图、场景、商品）→ 质检 → 图生视频
+        # 上传商品图后不自动继续（还在等确认）；确认 → 每镜关键帧（参考分镜、演员定妆照、场景、商品）→ 质检 → 图生视频
         n_img = len(images)
         r = c.post(f"/api/v1/library/{lib['TECNO Spark 40']['id']}/upload", json={"image": PNG}).json()
         assert r["resumed"] == []
@@ -152,7 +152,7 @@ def test_production(tmp_path, monkeypatch):
         refs = lambda b: len(b["messages"][0]["content"]) - 1 if isinstance(b["messages"][0]["content"], list) else 0  # noqa: E731
         texts = [b["messages"][0]["content"][0]["text"] for b in kf_calls]
         shot0 = next(b for b, t in zip(kf_calls, texts) if "停电的夜市" in t)
-        assert refs(shot0) == 6 and "三视图" in shot0["messages"][0]["content"][0]["text"]  # 分镜 + 2 个演员各定妆照和三视图 + 场景
+        assert refs(shot0) == 4 and "三视图" not in shot0["messages"][0]["content"][0]["text"]  # 分镜 + 2 个演员定妆照 + 场景（不放三视图）
         t0 = v["data"]["tasks"][0]
         assert t0["phase"] == "完成" and t0["inputs"]["visual"] == "停电的夜市" and ["scene", "s1", alt["id"], alt["images"][0]] in t0["inputs"]["refs"]
         prod = next(b for b, t in zip(kf_calls, texts) if "产品特写" in t)
@@ -247,7 +247,7 @@ def test_production(tmp_path, monkeypatch):
         # 每张关键帧都记下用了什么提示词和哪些参考图；重画时可以去掉某张参考图、直接改提示词
         meta = t0["kf_meta"]
         labels = [r["label"] for r in meta["refs"]]
-        assert labels[0] == "分镜草图" and "年轻男摊主 定妆照" in labels and "年轻男摊主 三视图" in labels and any(x.startswith("场景：") for x in labels)
+        assert labels[0] == "分镜草图" and "年轻男摊主 定妆照" in labels and "年轻男摊主 三视图" not in labels and any(x.startswith("场景：") for x in labels)
         assert "停电的夜市" in meta["prompt"] and meta["comment"] == "摊主要拿着手机照亮摊位"
         drop = next(r["url"] for r in meta["refs"] if r["kind"] == "storyboard")
         n_img = len(images)
