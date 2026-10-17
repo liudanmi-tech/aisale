@@ -124,3 +124,40 @@ def test_ref_other_shots(monkeypatch):
         _, meta = asyncio.run(production.keyframe(vid, 2, ["1", "画面"], {}, {"product": None}, "/s.png", "尼日利亚", "", extra=refs))
         assert [r["kind"] for r in meta["refs"]] == ["storyboard", "shot", "actor"]
         assert "镜 1 已经画好的关键帧" in sent["content"][0]["text"]
+
+
+def test_stopped_keyframes_still_wait_for_confirm(monkeypatch):
+    """停止生成后再「全部重新生成」：没确认过的关键帧沿用（不重画），但仍停在关键帧待确认，不直接生成视频；确认过的才直接生成视频。"""
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    kfs, clips = [], []
+
+    async def fake_make_kf(video_id, i, *a, **kw):
+        kfs.append(i)
+        return f"/api/v1/media/keyframes/n{i}.png", {"status": "pass", "issues": [], "checks": {}}, 1, ""
+
+    async def fake_make_clip(*a, **kw):
+        clips.append(a[1])
+        return {"shot": a[1] + 1, "status": "completed", "phase": "完成", "url": "https://v/x.mp4"}
+    monkeypatch.setattr(production, "make_keyframe", fake_make_kf)
+    monkeypatch.setattr(production, "make_clip", fake_make_clip)
+    with TestClient(app) as c:
+        settings_store.set_retries({"kf_candidates": 1, "kf_gate": 1})
+        vid, shots = _video(c, 2)
+
+        async def no_sb(*a, **kw):
+            return None
+        monkeypatch.setattr(production.storyboard, "run", no_sb)
+        asyncio.run(production.run(vid))  # 第一轮：停在关键帧
+        with SessionLocal() as db:
+            v = db.get(Node, vid)
+            tasks = [dict(t) for t in v.data["tasks"]]
+            tasks[0].update(status="failed", phase="已停止")  # 模拟停止：没确认的关键帧
+            tasks[1].update(status="failed", phase="失败", kf_ok=True)  # 确认过、视频失败
+            v.data = {**v.data, "tasks": tasks}
+            db.commit()
+        kfs.clear()
+        asyncio.run(production.run(vid))
+        with SessionLocal() as db:
+            phases = [t.get("phase") for t in db.get(Node, vid).data["tasks"]]
+        assert kfs == [] and clips == [1] and phases == ["关键帧待确认", "完成"]
+        settings_store.set_retries({"kf_candidates": 2})

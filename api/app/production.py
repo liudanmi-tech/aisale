@@ -680,7 +680,9 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         if spec.get("product") and not kf and not cast.get("product"):
             return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec,
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
-        if gate and kf and not reused:
+        if gate and kf and not (reused and last.get("kf_ok")):
+            # 沿用的关键帧只有你确认过（kf_ok：已经拿它生成过视频）才直接生成视频；
+            # 停止生成时留下的、还没确认的关键帧同样停在这里等你看
             # 关键帧闸门：先停在关键帧，人逐镜调好（局部重绘 / 换候选 / 重画）后一起生成视频，不在没调好的图上花视频的钱
             kq = qc.merge(kf_qc, None, spec, {"keyframe": tries})
             return {"shot": i + 1, "source": "seedance", "keyframe": kf, "keyframe_error": err, "qc": kq, "spec": spec, "inputs": inputs(sh, spec, cast),
@@ -840,7 +842,7 @@ async def make_keyframe(video_id: str, i: int, sh: list, spec: dict, cast: dict,
 
 
 def _show(video_id: str, i: int, cands: list[dict], best: dict, **kw) -> None:
-    _shot(video_id, i, keyframe=best["url"], kf_meta=best["meta"], qc=best["qc"],
+    _shot(video_id, i, kf_ok=False, keyframe=best["url"], kf_meta=best["meta"], qc=best["qc"],
           kf_candidates=[{"url": c["url"], "status": c["qc"]["status"], "issues": (c["qc"].get("issues") or [])[:3], "qc": c["qc"], "meta": c["meta"]}
                          for c in cands][-6:], **kw)
 
@@ -932,6 +934,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
                     engine: str = "auto", end_kf: str | None = None) -> dict:
     """关键帧 → 视频并质检；不合格重做 retries 次，重做失败时保留上一条已生成的视频。返回这一镜的结果。
     prompt_override / mode / engine / end_kf 来自「重做视频」浮窗：人改过的提示词、选的模式和模型。"""
+    _shot(video_id, i, kf_ok=True)  # 走到生成视频这一步，说明这张关键帧已经确认（或没开闸门）
     plan = clip_plan(sh, spec, cast, kf, kf_qc, mode, "" if prompt_override else comment, end_kf)
     prompt = (prompt_override or "").strip() or plan["prompt"]
     mode = plan["mode"]
@@ -979,7 +982,7 @@ async def make_clip(video_id: str, i: int, sh: list, spec: dict, cast: dict, kf:
 
 
 IDLE = ("完成", "失败", "已停止", "关键帧待确认", None)
-KEEP = ("kf_candidates", "kf_meta", "stats", "kf_history", "kf_edits")
+KEEP = ("kf_candidates", "kf_meta", "stats", "kf_history", "kf_edits", "kf_ok")
 QC_TIMEOUT = 300  # 视频质检最长 5 分钟（下载视频 + 抽帧 + 模型看图）
 
 
