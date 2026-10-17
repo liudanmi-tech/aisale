@@ -120,7 +120,13 @@ def ytdlp_download(url: str, dest: Path) -> None:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except Exception as e:  # noqa: BLE001  yt-dlp 的报错带颜色码和前缀，整理一下
-        raise RuntimeError(re.sub(r"\x1b\[[0-9;]*m|^ERROR:\s*", "", str(e)).strip()[:200] or type(e).__name__) from None
+        msg = re.sub(r"^ERROR:\s*", "", re.sub(r"\x1b\[[0-9;]*m", "", str(e)).strip()).split("; please report")[0]
+        if "Unexpected response" in msg:
+            try:
+                import curl_cffi  # noqa: F401
+            except ImportError:
+                msg += "（没装 curl_cffi，TikTok 会挡回：在 api 目录运行 pip install -r requirements.txt）"
+        raise RuntimeError(msg[:240] or type(e).__name__) from None
     if not dest.exists() or dest.stat().st_size < 10_000:
         raise RuntimeError("下载到的不是视频文件")
 
