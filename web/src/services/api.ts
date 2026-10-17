@@ -353,7 +353,7 @@ export const api = {
     rewriteShot: (nid: string, i: number, hint: string) => postSlow(`/nodes/${nid}/shots/${i}/rewrite`, { hint }),
     drawStoryboard: (nid: string, indices?: number[], prompt?: string) => post(`/nodes/${nid}/storyboard`, { indices: indices ?? null, prompt }),
     storyboardPrompt: (nid: string, i: number) =>
-        get<{ prompt: string; default: string; custom: boolean; has_ref: boolean; frame?: string; stale: boolean }>(`/nodes/${nid}/storyboard/${i}/prompt`),
+        get<{ prompt: string; default: string; custom: boolean; has_ref: boolean; frame?: string; stale: boolean; ref_frame?: string; ref_no?: number }>(`/nodes/${nid}/storyboard/${i}/prompt`),
     regenerateShot: (nid: string, i: number) => post(`/nodes/${nid}/shots/${i}/regenerate`),
     refAds: (params: { market?: string; selling_point?: string }) => get<RefAd[]>("/ref-ads", params),
     reviews: (params: { status?: string } = {}) => get<Review[]>("/reviews", params),

@@ -51,3 +51,38 @@ def test_redraw_with_custom_prompt(monkeypatch):
             db.commit()
         p = c.get(f"/api/v1/nodes/{nid}/storyboard/1/prompt").json()
         assert not p["custom"] and p["stale"] and "屋檐下打电话" in p["prompt"]
+
+
+def test_storyboard_follows_reference_frame(monkeypatch, tmp_path):
+    """洗稿剧本画分镜：原片对应那一帧作为第 1 张参考图，照它的景别、站位、手机朝向画；有人出镜的「产品」镜头不改成手机特写。"""
+    from app import config
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    (tmp_path / "breakdown").mkdir()
+    (tmp_path / "breakdown" / "31-000.jpg").write_bytes(PNG)
+    sent = []
+
+    async def fake_image(content, task="storyboard", **kw):
+        sent.append(content)
+        return PNG, "image/png"
+
+    monkeypatch.setattr(llm, "image", fake_image)
+    with TestClient(app) as c:
+        pid = c.post("/api/v1/projects", json={"name": "照原片构图"}).json()["id"]
+        ref = [{"t": "0–2s", "frame": "/api/v1/media/breakdown/31-000.jpg", "camera": "中景、正面平视、固定", "people": "一男一女",
+                "framing": "两人并排站在画面中央，黄色铲车在后方正对镜头", "phone_facing": "屏幕", "product": False}]
+        with SessionLocal() as db:
+            shots = [["0–2s", "两人站在空地上举着手机，背后铲车", "Can your phone?", ""], ["2–4s", "手机特写", "6000mAh", ""]]
+            nid = canvas.create_node(db, db.get(Project, pid), "script", data={"shots": shots, "product_shots": [0, 1], "wash": {
+                "ref_no": None, "tier": "high", "ref": ref, "map": [{"ref": 1}, {"ref": None}]}}).id
+            db.commit()
+        asyncio.run(storyboard.run(nid))
+        first = sent[0]
+        assert isinstance(first, list) and first[1]["image_url"]["url"].startswith("data:image/")  # 原片这一帧
+        text = first[0]["text"]
+        assert "第 1 张参考图是原片第 1 镜" in text and "中景、正面平视" in text and "铲车在后方正对镜头" in text and "屏幕" in text
+        assert "不要改成手机特写" in text and "这一镜是产品特写" not in text  # 有人出镜：按原片景别
+        second = sent[1]  # 没有对应原片的镜头：只参考本片第 1 镜，仍是产品特写
+        assert len(second) == 2 and "这一镜是产品特写" in second[0]["text"] and "原片" not in second[0]["text"]
+        p = c.get(f"/api/v1/nodes/{nid}/storyboard/0/prompt").json()
+        assert p["ref_no"] == 1 and p["ref_frame"].endswith("31-000.jpg")

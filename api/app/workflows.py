@@ -87,7 +87,7 @@ async def generate_script(node_id: str, comment: str = "") -> None:
                 d["wash"] = {"ref_no": ad.no, "plan": plan, "plan_edited": bool(old.get("plan_edited") and old.get("plan") is plan),
                              "tier": tier, "from_node": wn.id if wn else None,
                              "map": washed["map"], "similarity": washed["similarity"], "check": washed.get("check"), "ref_shots": len(bd.get("shots") or []),
-                             "ref": [{k: x.get(k) for k in ("t", "frame", "scene", "action", "line", "beat")} for x in bd.get("shots") or [] if isinstance(x, dict)]}
+                             "ref": [{k: x.get(k) for k in ("t", "frame", "scene", "action", "line", "beat", "camera", "people", "product", "framing", "phone_facing")} for x in bd.get("shots") or [] if isinstance(x, dict)]}
                 shots = washed["shots"]
                 d["product_shots"] = washed["product_shots"]
             except Exception as e:  # noqa: BLE001

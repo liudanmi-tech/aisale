@@ -35,7 +35,29 @@ def product_shots(data: dict, n: int) -> set[int]:
     return ps or ({PRODUCT_SHOT} if n > PRODUCT_SHOT else {max(0, n - 1)})
 
 
-def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod: set[int] | None = None) -> str:
+def ref_shot(data: dict, i: int) -> dict | None:
+    """洗稿剧本第 i 镜对应的原片镜头：原片这一帧（构图参考）+ 拆解出的景别、站位、手机朝向。没有对应就返回 None。"""
+    w = (data or {}).get("wash") or {}
+    m = (w.get("map") or [])[i] if i < len(w.get("map") or []) else None
+    k = (m or {}).get("ref")
+    if not isinstance(k, int) or k < 1:
+        return None
+    refs = w.get("ref") or []
+    r = dict(refs[k - 1]) if k - 1 < len(refs) else {}
+    if w.get("ref_no") and not r.get("camera"):  # 老剧本存的少：从爆款的拆解里补上景别、站位
+        from app.models import RefAd
+        with SessionLocal() as db:
+            a = db.query(RefAd).filter(RefAd.no == w["ref_no"]).first()
+            bs = [x for x in ((a.dna or {}).get("breakdown") or {}).get("shots") or [] if isinstance(x, dict)] if a else []
+        if k - 1 < len(bs):
+            r = {**bs[k - 1], **{x: y for x, y in r.items() if y}}
+    if not r:
+        return None
+    return {**r, "no": k, "tier": w.get("tier")}
+
+
+def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod: set[int] | None = None, rs: dict | None = None) -> str:
+    """rs：原片对应镜头（ref_shot）。有原片画面时，它是第 1 张参考图，照它的构图画；has_ref 时本片第 1 镜是后一张参考图。"""
     s = shots[i]
     parts = [
         STYLE,
@@ -43,12 +65,31 @@ def _prompt(project: Project, aud: str, shots: list, i: int, has_ref: bool, prod
         f"全片 {len(shots)} 镜，现在画第 {i + 1} 镜（{s[0]}）。",
         f"画面：{s[1]}",
     ]
-    if i in (prod if prod is not None else {PRODUCT_SHOT}):
+    with_frame = bool(rs and rs.get("frame"))
+    if rs:
+        loose = rs.get("tier") == "low"
+        facts = "；".join(f"{k}：{rs[f]}" for k, f in (("景别 / 机位", "camera"), ("构图", "framing"), ("人物", "people"), ("动作", "action"),
+                                                        ("手机朝向", "phone_facing")) if rs.get(f))
+        parts.append(
+            (f"第 1 张参考图是原片第 {rs['no']} 镜的画面，只用来参考构图。" if with_frame else f"原片第 {rs['no']} 镜：") +
+            (f"构图可以按上面的画面描述调整，原片只作参考（{facts}）。" if loose else
+             f"照原片的景别、机位角度、人物数量和站位、道具的位置大小和朝向、手机哪一面朝镜头来画（{facts}）；"
+             "画面描述和原片冲突时，人物、服装、手机型号按画面描述，构图按原片。") +
+            "人物换成画面描述里的当地人，不要照着原片人物的长相画；手机画成没有任何标识的手机；不要画原片里的品牌、logo、字幕和任何文字。")
+    people_in_shot = bool(rs and rs.get("people") and rs["people"] not in ("无", "无人", "没有"))
+    if i in (prod if prod is not None else {PRODUCT_SHOT}) and not people_in_shot:
         parts.append("这一镜是产品特写：画手机本身的特写（可以有手持），画手机的角度和姿态即可。不要画屏幕上的界面、参数、数字或任何文字，不要画品牌字样。")
+    elif i in (prod if prod is not None else {PRODUCT_SHOT}):
+        parts.append("手机要清楚可见，但按原片的景别画（有人就画人，不要改成手机特写）。屏幕上不画界面和文字。")
+    if not (rs and rs.get("phone_facing")) and not with_frame:
+        from app import production  # production 依赖本模块，延迟导入
+        if production.shows_phone({"line": s[2] if len(s) > 2 else ""}, s[1]):
+            parts.append("手机朝向：" + ("屏幕朝镜头（人把屏幕给别人看）。" if production.phone_facing({}, s[1]) == "screen"
+                                         else "背面（摄像头）朝镜头，屏幕朝着拿手机的人。") + "手机只有一面是屏幕，背面不会两面都画。")
     if len(s) > 2 and s[2]:
         parts.append(f"这一镜的口播（只用来理解人物情绪，不要写进画面）：{s[2]}")
     if has_ref:
-        parts.append("参考图是同一支广告的第 1 镜：保持同一主角的外形、发型、服装和完全相同的简笔画风。")
+        parts.append(f"{'第 2 张' if with_frame else ''}参考图是同一支广告的第 1 镜：保持同一主角的外形、发型、服装和完全相同的简笔画风。")
     return "\n".join(parts)
 
 
@@ -58,6 +99,8 @@ def _file(node_id: str, i: int, visual: str, model: str, ext: str):
 
 
 def _data_url(path) -> str | None:
+    if path is None:
+        return None
     try:
         b = path.read_bytes()
     except OSError:
@@ -93,10 +136,12 @@ def preview(node_id: str, i: int) -> dict:
         raise IndexError(i)
     frames = list(d.get("frames") or []) + [None] * len(shots)
     has_ref = i != 0 and bool(frames[0])
-    default = _prompt(project, d.get("audience", "用户"), shots, i, has_ref, product_shots(d, len(shots)))
+    rs = ref_shot(d, i)
+    default = _prompt(project, d.get("audience", "用户"), shots, i, has_ref, product_shots(d, len(shots)), rs)
     f = frames[i] or {}
     custom = bool(f.get("custom")) and f.get("visual") == shots[i][1]
     return {"prompt": f.get("prompt") if custom else default, "default": default, "custom": custom, "has_ref": has_ref,
+            "ref_frame": (rs or {}).get("frame"), "ref_no": (rs or {}).get("no"),
             "frame": f.get("url"), "stale": bool(f) and f.get("visual") != shots[i][1]}
 
 
@@ -124,6 +169,7 @@ async def _run(node_id: str, indices: list[int] | None, prompts: dict[int, str])
         frames = list((n.data or {}).get("frames") or [])
         aud = (n.data or {}).get("audience", "用户")
         prod = product_shots(n.data or {}, len(shots))
+        refs = [ref_shot(n.data or {}, k) for k in range(len(shots))]
     frames += [None] * (len(shots) - len(frames))
     frames = frames[: len(shots)]
     if indices is None:
@@ -141,10 +187,11 @@ async def _run(node_id: str, indices: list[int] | None, prompts: dict[int, str])
         old = frames[i] or {}
         # 人改过的提示词：这次传进来的优先；没传但上一轮是改过的、画面描述也没变，就沿用
         mine = prompts.get(i) or (old.get("prompt") if old.get("custom") and old.get("visual") == shots[i][1] else None)
-        text = mine or _prompt(project, aud, shots, i, bool(ref), prod)
-        content: list[dict] | str = text
-        if ref:
-            content = [{"type": "text", "text": content}, {"type": "image_url", "image_url": {"url": ref}}]
+        rs = refs[i]
+        orig = _data_url(frame_path(rs["frame"])) if rs and rs.get("frame") else None  # 原片这一帧：照它的构图画
+        text = mine or _prompt(project, aud, shots, i, bool(ref), prod, rs if orig else ({**rs, "frame": None} if rs else None))
+        imgs = [u for u in (orig, ref) if u]
+        content: list[dict] | str = [{"type": "text", "text": text}, *({"type": "image_url", "image_url": {"url": u}} for u in imgs)] if imgs else text
         img, mime = await llm.image(content, task="storyboard")
         ext = {"image/jpeg": "jpg", "image/webp": "webp"}.get(mime, "png")
         path = _file(node_id, i, shots[i][1], model, ext)

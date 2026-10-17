@@ -434,9 +434,11 @@ function StoryboardRedraw({ nid, i, disabled, onDone, children }: { nid: string;
         <div data-ui className="flex w-[380px] flex-col gap-1.5 text-xs" onPointerDown={(e) => e.stopPropagation()}>
             {info.isLoading ? <div className="py-6 text-center text-ink2">读取提示词…</div> : info.isError ? <div className="text-bad">{errMsg(info.error)}</div> : d && <>
                 <div className="flex gap-2">
-                    {d.frame && <img src={d.frame} alt="" className="h-16 w-9 shrink-0 rounded bg-white object-contain" />}
+                    {d.ref_frame && <div className="shrink-0 text-center text-[10px] text-ink2"><img src={d.ref_frame} alt="" className="h-16 w-9 rounded object-cover" /><div>原片镜 {d.ref_no}</div></div>}
+                    {d.frame && <div className="shrink-0 text-center text-[10px] text-ink2"><img src={d.frame} alt="" className="h-16 w-9 rounded bg-white object-contain" /><div>上一版</div></div>}
                     <div className="text-[11px] leading-4 text-ink2">
                         {d.custom ? "上一版用的是你改过的提示词。" : "上一版用的是默认提示词（按画面描述和口播拼的）。"}
+                        {d.ref_frame ? `照原片第 ${d.ref_no} 镜的构图画（景别、站位、道具和手机朝向），人物和手机换成我们的。` : ""}
                         {d.has_ref ? "会参考第 1 镜的分镜图，保持同一主角和画风。" : i === 0 ? "第 1 镜定下主角和画风，其他镜头会参考它。" : ""}
                         {d.stale && <span className="text-warn"> 画面描述改过了，下面是按新描述拼的。</span>}
                     </div>
