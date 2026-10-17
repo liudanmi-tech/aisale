@@ -57,15 +57,16 @@ def _headers(key: str | None = None) -> dict:
 NET_RETRY_WAIT = 2.0  # 网络抖动重试的起始等待（秒），每次翻倍
 
 
-async def _get(c: httpx.AsyncClient, url: str, tries: int = 6) -> httpx.Response:
-    """轮询用的 GET：网络抖一下就等等再试（查状态可以重复查），连续失败 tries 次才算真的连不上。"""
+async def _get(c: httpx.AsyncClient, url: str, tries: int = 9) -> httpx.Response:
+    """轮询用的 GET：网络抖一下就等等再试（查状态可以重复查）。等待 2、4、8…秒，单次最多 60 秒，
+    连续大约 5 分钟都连不上才算真的连不上——任务在 fal 那边一直在跑，网络恢复了就能拿回结果。"""
     for k in range(tries):
         try:
             return await c.get(url, headers=_headers())
         except (httpx.TransportError, httpx.TimeoutException):
             if k == tries - 1:
                 raise
-            await asyncio.sleep(NET_RETRY_WAIT * 2 ** k)
+            await asyncio.sleep(min(60.0, NET_RETRY_WAIT * 2 ** k))
     raise RuntimeError("unreachable")
 
 
