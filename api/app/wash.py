@@ -82,7 +82,7 @@ def target_shots(bd: dict) -> tuple[int, float]:
 
 
 def _ref_text(bd: dict) -> str:
-    keys = ("summary", "core", "people_count", "cast", "structure", "selling_point", "why_viral", "essence", "replaceable")
+    keys = ("summary", "core", "hook_detail", "people_count", "cast", "scenes", "structure", "selling_point", "why_viral", "essence", "replaceable")
     shots = [{k: s.get(k) for k in ("t", "scene", "people", "action", "camera", "line", "text_on_screen", "emotion", "beat", "product")}
              for s in bd.get("shots") or [] if isinstance(s, dict)]
     return json.dumps({**{k: bd.get(k) for k in keys if bd.get(k)}, "shots": [{"镜": i + 1, **s} for i, s in enumerate(shots)]}, ensure_ascii=False)

@@ -17,6 +17,113 @@ const readFile = (f: File) => new Promise<string>((ok, bad) => {
     r.readAsDataURL(f);
 });
 
+const shotsOf = (xs?: number[]) => (xs?.length ? `镜 ${xs.join("、")}` : "");
+
+/** 多模态「看视频」的过程：抽了哪些帧、钩子在哪几秒、几个人各什么样、几个场景、逐镜在干什么。爆款详情和画布上的洗稿方案共用。 */
+export function VideoRead({ bd, compact }: { bd: Breakdown; compact?: boolean }) {
+    const t = compact ? "text-[11px] leading-[17px]" : "text-xs leading-5";
+    const h = compact ? "mb-0.5 text-[11px] font-medium" : "mb-1 text-[13px] font-medium";
+    const hook = bd.hook_detail;
+    return (
+        <div className={`flex flex-col gap-2.5 ${t}`}>
+            <div className="text-ink2">
+                依据：{(bd.inputs ?? []).join(" · ")}{bd.confidence ? ` · 可信度 ${bd.confidence}` : ""} · 时长 {bd.video_duration ?? bd.duration ?? "—"} 秒 · {bd.shots.length} 个镜头 · 出镜 {bd.people_count ?? "—"} 人
+            </div>
+            {bd.summary && <div>{bd.summary}</div>}
+            {!!bd.frames?.length && (
+                <div>
+                    <div className={h}>① 抽帧：模型逐帧看了这些画面</div>
+                    <div className="flex gap-1 overflow-x-auto pb-1">
+                        {bd.frames.map((f) => (
+                            <div key={f.url} className="shrink-0 text-center text-[10px] text-ink2">
+                                <img src={f.url} alt="" className={`${compact ? "h-14 w-8" : "h-20 w-[45px]"} rounded object-cover`} />{f.t}s
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {(hook || bd.core?.device) && (
+                <div className="rounded-lg border border-warn/40 p-2">
+                    <div className={`${h} text-warn`}>② 钩子 / 核心看点</div>
+                    {bd.core?.device && <div className="font-medium">「{bd.core.device}」</div>}
+                    {hook?.t && <div><span className="text-ink2">时间 </span>{hook.t}</div>}
+                    {hook?.visual && <div><span className="text-ink2">画面 </span>{hook.visual}</div>}
+                    {hook?.line && <div><span className="text-ink2">口播 </span>“{hook.line}”</div>}
+                    {(hook?.why || bd.core?.why) && <div><span className="text-ink2">为什么抓人 </span>{hook?.why || bd.core?.why}</div>}
+                    {bd.core?.intensity && <div><span className="text-ink2">强度 </span>{bd.core.intensity}</div>}
+                </div>
+            )}
+            {!!bd.cast?.length && (
+                <div>
+                    <div className={h}>③ 人物（{bd.people_count ?? bd.cast.reduce((n, c) => n + (c.count || 1), 0)} 人）</div>
+                    <div className={`grid gap-1.5 ${compact ? "grid-cols-2" : "grid-cols-2 max-[640px]:grid-cols-1"}`}>
+                        {bd.cast.map((c, i) => (
+                            <div key={i} className="rounded-lg bg-surface p-1.5">
+                                <div className="font-medium">{c.role}{c.count && c.count > 1 ? ` ×${c.count}` : ""}<span className="font-normal text-ink2">{[c.gender, c.age].filter(Boolean).length ? ` · ${[c.gender, c.age].filter(Boolean).join(" · ")}` : ""}{c.shots?.length ? ` · ${shotsOf(c.shots)}` : ""}</span></div>
+                                {c.look && <div><span className="text-ink2">外形 </span>{c.look}</div>}
+                                {c.wear && <div><span className="text-ink2">穿着 </span>{c.wear}</div>}
+                                {c.acting && <div><span className="text-ink2">表演 </span>{c.acting}</div>}
+                                {c.job && <div><span className="text-ink2">在片中 </span>{c.job}</div>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {!!bd.scenes?.length && (
+                <div>
+                    <div className={h}>④ 场景（{bd.scenes.length} 个）</div>
+                    {bd.scenes.map((s, i) => (
+                        <div key={i}><b>{s.name}</b><span className="text-ink2">{s.shots?.length ? ` · ${shotsOf(s.shots)}` : ""}</span>：{s.detail}{s.props ? `；道具：${s.props}` : ""}</div>
+                    ))}
+                </div>
+            )}
+            <div>
+                <div className={h}>⑤ 逐镜拆解</div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    {bd.shots.map((s, i) => (
+                        <div key={i} className={`${compact ? "w-[150px]" : "w-[170px]"} shrink-0 overflow-hidden rounded-lg border border-line bg-elev`}>
+                            <div className="relative aspect-[9/16] max-h-[180px] w-full bg-surface">
+                                {s.frame && <img src={s.frame} alt="" className="h-full w-full object-cover" />}
+                                <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white">镜 {i + 1} · {s.t}</span>
+                                {s.beat && <Tag className="!absolute bottom-1 left-1 !m-0 !text-[10px]" color={BEAT_COLOR[s.beat]}>{s.beat}</Tag>}
+                            </div>
+                            <div className="flex flex-col gap-0.5 p-1.5 text-[11px] leading-[16px]">
+                                {s.scene && <div><span className="text-ink2">场景 </span>{s.scene}</div>}
+                                {s.people && <div><span className="text-ink2">人物 </span>{s.people}</div>}
+                                {s.action && <div><span className="text-ink2">动作 </span>{s.action}</div>}
+                                {s.camera && <div><span className="text-ink2">运镜 </span>{s.camera}</div>}
+                                {s.line && <div className="text-ink">“{s.line}”</div>}
+                                {s.text_on_screen && <div><span className="text-ink2">字幕 </span>{s.text_on_screen}</div>}
+                                {s.emotion && <div><span className="text-ink2">情绪 </span>{s.emotion}</div>}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            {bd.structure && !compact && (
+                <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1 rounded-lg bg-elev p-3">
+                    {STRUCT.filter(([k]) => bd.structure?.[k]).map(([k, label]) => [
+                        <span key={k + "l"} className="text-ink2">{label}</span>, <span key={k}>{bd.structure![k]}</span>,
+                    ])}
+                </div>
+            )}
+            {!compact && (
+                <div className="grid grid-cols-2 gap-3 max-[640px]:grid-cols-1">
+                    <div className="rounded-lg border border-good/40 p-3">
+                        <div className="mb-1 font-medium text-good">爆款精髓（洗剧本保留）</div>
+                        {(bd.essence ?? []).map((x, i) => <div key={i}>· {x}</div>)}
+                    </div>
+                    <div className="rounded-lg border border-brand/40 p-3">
+                        <div className="mb-1 font-medium text-brand2">可以替换</div>
+                        {(bd.replaceable ?? []).map((x, i) => <div key={i}>· {x}</div>)}
+                    </div>
+                </div>
+            )}
+            {bd.why_viral && <div className="text-ink2">为什么火：{bd.why_viral}</div>}
+        </div>
+    );
+}
+
 /** 爆款详情里的「视频拆解」：真的下载视频、每秒抽帧 + 听音轨，由多模态模型逐镜拆解。洗剧本按这个来。 */
 export function BreakdownPanel({ ad }: { ad: RefAd }) {
     const { message } = App.useApp();
@@ -62,53 +169,7 @@ export function BreakdownPanel({ ad }: { ad: RefAd }) {
                 </div>
             )}
             {running && <div className="rounded-lg bg-elev p-3 text-sm text-ink2">正在下载视频、抽帧、模型逐镜看……</div>}
-            {bd && (
-                <div className="flex flex-col gap-3">
-                    {bd.summary && <div className="text-sm">{bd.summary}</div>}
-                    <div className="flex flex-wrap gap-1 text-xs">
-                        <Tag>时长 {bd.video_duration ?? bd.duration ?? "—"} 秒</Tag><Tag>{bd.shots.length} 个镜头</Tag><Tag>出镜 {bd.people_count ?? "—"} 人</Tag>
-                        {(bd.cast ?? []).map((c, i) => <Tag key={i}>{c.role}{c.count && c.count > 1 ? ` ×${c.count}` : ""}：{c.look}</Tag>)}
-                    </div>
-                    <div className="flex gap-2.5 overflow-x-auto pb-1">
-                        {bd.shots.map((s, i) => (
-                            <div key={i} className="w-[170px] shrink-0 overflow-hidden rounded-lg border border-line bg-elev text-xs leading-[18px]">
-                                <div className="relative aspect-[9/16] max-h-[200px] w-full bg-surface">
-                                    {s.frame && <img src={s.frame} alt="" className="h-full w-full object-cover" />}
-                                    <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5">镜 {i + 1} · {s.t}</span>
-                                    {s.beat && <Tag className="!absolute bottom-1.5 left-1.5 !m-0" color={BEAT_COLOR[s.beat]}>{s.beat}</Tag>}
-                                </div>
-                                <div className="flex flex-col gap-0.5 p-2">
-                                    <div><span className="text-ink2">场景 </span>{s.scene}</div>
-                                    <div><span className="text-ink2">人物 </span>{s.people}</div>
-                                    <div><span className="text-ink2">动作 </span>{s.action}</div>
-                                    <div><span className="text-ink2">运镜 </span>{s.camera}</div>
-                                    {s.line && <div className="text-ink">“{s.line}”</div>}
-                                    {s.text_on_screen && <div><span className="text-ink2">字幕 </span>{s.text_on_screen}</div>}
-                                    {s.emotion && <div><span className="text-ink2">情绪 </span>{s.emotion}</div>}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    {bd.structure && (
-                        <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1 rounded-lg bg-elev p-3 text-xs leading-5">
-                            {STRUCT.filter(([k]) => bd.structure?.[k]).map(([k, label]) => [
-                                <span key={k + "l"} className="text-ink2">{label}</span>, <span key={k}>{bd.structure![k]}</span>,
-                            ])}
-                        </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-3 max-[640px]:grid-cols-1">
-                        <div className="rounded-lg border border-good/40 p-3 text-xs leading-5">
-                            <div className="mb-1 font-medium text-good">爆款精髓（洗剧本保留）</div>
-                            {(bd.essence ?? []).map((x, i) => <div key={i}>· {x}</div>)}
-                        </div>
-                        <div className="rounded-lg border border-brand/40 p-3 text-xs leading-5">
-                            <div className="mb-1 font-medium text-brand2">可以替换</div>
-                            {(bd.replaceable ?? []).map((x, i) => <div key={i}>· {x}</div>)}
-                        </div>
-                    </div>
-                    {bd.why_viral && <div className="text-xs text-ink2">为什么火：{bd.why_viral}</div>}
-                </div>
-            )}
+            {bd && <VideoRead bd={bd} />}
         </div>
     );
 }

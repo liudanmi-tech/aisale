@@ -4,7 +4,8 @@ import clsx from "clsx";
 import { Check, Film, Pencil, RefreshCw, Upload as UploadIcon } from "lucide-react";
 import { useState } from "react";
 
-import { api, type CanvasNode, type WashAction, type WashNodeData, type WashRow, type WashTier } from "@/services/api";
+import { VideoRead } from "@/components/breakdown-panel";
+import { api, type Breakdown, type CanvasNode, type WashAction, type WashNodeData, type WashRow, type WashTier } from "@/services/api";
 
 const readFile = (f: File) => new Promise<string>((ok, bad) => {
     const r = new FileReader();
@@ -113,6 +114,21 @@ function RowEditor({ row, onSave }: { row: WashRow; onSave: (r: WashRow) => void
 }
 
 /** 洗稿方案节点：① 要素拆分 ② 相似度评估 ③ 核心看点 ④ 按档位逐行保留 / 替换，人确认后剧本才写。 */
+/** 第 1 步：多模态看视频的过程（抽帧、钩子、人物、场景、逐镜），默认展开，可以收起。 */
+function WatchStep({ no }: { no: number }) {
+    const [open, setOpen] = useState(true);
+    const { data: ad } = useQuery({ queryKey: ["ref-ad", no], queryFn: () => api.refAd(no), enabled: !!no });
+    const bd = ad?.dna?.breakdown as Breakdown | undefined;
+    if (!bd) return null;
+    return (
+        <Step n={1} title={`看视频：多模态拆解爆款 #${no}`} right={
+            <button data-ui onClick={() => setOpen(!open)} className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-brand2">{open ? "收起" : `展开（${bd.shots.length} 镜）`}</button>}>
+            {open ? <div data-ui onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}><VideoRead bd={bd} compact /></div>
+                : <div className="text-ink2">{bd.core?.device ? `看点「${bd.core.device}」 · ` : ""}{bd.cast?.length ?? 0} 类人物 · {bd.scenes?.length ?? 0} 个场景 · {bd.shots.length} 镜</div>}
+        </Step>
+    );
+}
+
 function NeedVideo({ no, why, onDone }: { no: number; why?: string; onDone: () => void }) {
     const { message } = App.useApp();
     const go = useMutation({
@@ -171,10 +187,11 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
 
     return (
         <div className={clsx("flex flex-col gap-2 text-[11px] leading-[17px]", busy && "pointer-events-none opacity-60")}>
+            <WatchStep no={d.ref_ad_no} />
             {d.inferred && <div className="rounded bg-warn/10 px-2 py-1 text-warn">这份方案是在没看视频时出的，原片一列只是按文案推断，可能漏掉画面里的看点：点下面的「按视频重新出方案」，会先看视频再出。</div>}
             {d.error && <div className="rounded bg-bad/10 px-2 py-1 text-bad">模型没生成成功（{d.error}）：「我方」一列请手动填写，或换个档位重试。</div>}
 
-            <Step n={1} title="相似度评估：参考和我们这次的需求有多像" right={d.fit && <span className="text-ink2">综合 {Math.round(d.fit.score * 100)}%</span>}>
+            <Step n={2} title="相似度评估：参考和我们这次的需求有多像" right={d.fit && <span className="text-ink2">综合 {Math.round(d.fit.score * 100)}%</span>}>
                 {d.fit && <>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                         {(Object.keys(FIT_ZH) as (keyof typeof FIT_ZH)[]).map((k) => {
@@ -190,7 +207,7 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
                 </>}
             </Step>
 
-            <Step n={2} title="选档位：决定每个要素保留还是替换">
+            <Step n={3} title="选档位：决定每个要素保留还是替换">
                 <div data-ui className="flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
                     <Segmented size="small" value={cur} disabled={busy || tier.isPending}
                         onChange={(v) => { if (!edited) tier.mutate({ t: v as WashTier, reset: false }); }}
@@ -214,7 +231,7 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
             </Step>
 
             {d.analysis?.core && (
-                <Step n={3} title="核心看点：洗稿不能把它洗没">
+                <Step n={4} title="核心看点：洗稿不能把它洗没">
                     <div className="flex items-start gap-1">
                         <div className="min-w-0 flex-1">原片：<b>「{d.analysis.core}」</b><span className="text-ink2"> · {d.analysis.why} · 强度：{d.analysis.intensity}</span></div>
                         <CoreEditor value={d.analysis.core} onSave={(core) => save.mutate({ analysis: { ...d.analysis!, core } })} />
@@ -237,7 +254,7 @@ export function WashBody({ n, pid }: { n: CanvasNode; pid: string }) {
                 </Step>
             )}
 
-            <Step n={d.analysis?.core ? 4 : 3} title="要素拆分与替换：原片 → 我方（点 ✎ 改）">
+            <Step n={d.analysis?.core ? 5 : 4} title="要素拆分与替换：原片 → 我方（点 ✎ 改）">
                 <div className="grid grid-cols-[64px_1fr_58px_1fr_14px] gap-x-2 gap-y-1">
                     <span className="text-ink2">要素</span><span className="text-ink2">原片</span><span className="text-ink2">怎么做</span><span className="text-ink2">我方</span><span />
                     {rows.map((r) => [

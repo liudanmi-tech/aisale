@@ -126,7 +126,10 @@ export interface BreakdownShot {
 }
 export interface Breakdown {
     summary?: string; duration?: number; video_duration?: number; people_count?: number;
-    cast?: { role: string; count?: number; look?: string }[];
+    cast?: { role: string; count?: number; gender?: string; age?: string; look?: string; wear?: string; acting?: string; job?: string; shots?: number[] }[];
+    scenes?: { name: string; detail?: string; props?: string; shots?: number[] }[];
+    hook_detail?: { t?: string; visual?: string; line?: string; why?: string };
+    core?: { device?: string; why?: string; intensity?: string };
     shots: BreakdownShot[];
     structure?: Record<string, string>;
     selling_point?: string; why_viral?: string; essence?: string[]; replaceable?: string[]; confidence?: string;
@@ -145,7 +148,7 @@ export interface WashInfo {
     ref?: { t?: string; frame?: string; scene?: string; action?: string; line?: string; beat?: string }[];
 }
 export interface Similarity {
-    per_shot: { line: number; visual: number }[]; line_max: number; visual_max: number; threshold: number; has_breakdown: boolean; rewrote?: number[];
+    per_shot: { line: number; visual: number }[]; line_max: number; visual_max: number; threshold: number; has_breakdown: boolean; rewrote?: number[]; note?: string; competitor_shots?: number[];
 }
 export type WashTier = "high" | "mid" | "low";
 export type WashAction = "keep" | "adapt" | "replace";
