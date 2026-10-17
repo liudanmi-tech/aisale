@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import config, product, qc  # noqa: E402
 from app.adapters import fal, llm  # noqa: E402
+from app import settings_store  # noqa: E402
 from app.main import app  # noqa: E402
 from tests._watched import watch_all_ads  # noqa: E402
 
@@ -99,6 +100,7 @@ def test_production(tmp_path, monkeypatch):
     llm.transport, fal.transport, fal.POLL_SECONDS = httpx.MockTransport(llm_handler), httpx.MockTransport(fal_handler), 0.01
     product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=base64.b64decode(PNG.split(",", 1)[1])))
     with TestClient(app) as c:
+        settings_store.set_retries({"kf_candidates": 1, "kf_gate": 0})  # 老流程：每镜 1 张关键帧，画完直接生成视频
         watch_all_ads()  # 爆款都已经看过视频（多模态拆解），洗稿方案直接出
         c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
         c.put("/api/v1/settings/secrets/fal", json={"value": "fal-test-key-1234abcd"})
@@ -212,13 +214,13 @@ def test_production(tmp_path, monkeypatch):
             return qc.summarize({"tech": {"status": "fail", "reason": "画幅不是 9:16"}}, spec)
         monkeypatch.setattr(qc, "check_clip", bad_clip)
         # 默认不自动重做视频：只生成 1 条，标红交给人
-        assert c.get("/api/v1/settings").json()["retries"] == {"keyframe": 2, "clip": 0}
+        assert {k: v for k, v in c.get("/api/v1/settings").json()["retries"].items() if k in ("keyframe", "clip")} == {"keyframe": 2, "clip": 0}
         n_i2v = len(i2v)
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/regenerate").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] == "wait" and of("video")[0]["data"]["tasks"][2].get("phase") == "完成")
         assert len(i2v) == n_i2v + 1 and of("video")[0]["data"]["tasks"][2]["qc"]["status"] == "fail"
         # 打开 1 次自动重做
-        assert c.put("/api/v1/settings/retries", json={"clip": 5, "keyframe": "x"}).json() == {"keyframe": 2, "clip": 1}  # 超出上限按上限
+        assert c.put("/api/v1/settings/retries", json={"clip": 5, "keyframe": "x", "kf_candidates": 0}).json() == {"keyframe": 2, "clip": 1, "kf_candidates": 1, "kf_gate": 0}  # 超出上下限按上下限
         FAL_DOWN["after"] = 1  # 第一次提交成功，第二次（重做）失败
         assert c.post(f"/api/v1/nodes/{v['id']}/shots/2/regenerate").json()["ok"]
         wait_until(lambda: of("video")[0]["status"] in ("wait", "failed") and of("video")[0]["data"]["tasks"][2].get("phase") == "完成")

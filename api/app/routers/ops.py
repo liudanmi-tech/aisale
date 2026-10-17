@@ -417,6 +417,44 @@ def undo_keyframe(nid: str, i: int, db: Session = Depends(get_db)):
     return {"keyframe": kf}
 
 
+class PickIn(BaseModel):
+    url: str
+
+
+@router.post("/nodes/{nid}/shots/{i}/keyframe-pick")
+def pick_keyframe(nid: str, i: int, body: PickIn, db: Session = Depends(get_db)):
+    """从这一镜的关键帧候选里换一张（不花钱）。"""
+    _shot_guard(db, nid, i)
+    if not production.pick_candidate(nid, i, body.url):
+        raise HTTPException(404, "没有这张候选")
+    return {"ok": True}
+
+
+class ClipsIn(BaseModel):
+    indices: list[int] | None = None  # 不传：所有「关键帧待确认」的镜头
+
+
+@router.post("/nodes/{nid}/clips")
+def generate_clips(nid: str, body: ClipsIn, db: Session = Depends(get_db)):
+    """关键帧都调好了：一起生成视频（这时才开始花视频的钱）。"""
+    n = db.get(Node, nid)
+    if not n or n.type != "video":
+        raise HTTPException(404, "video not found")
+    d = n.data or {}
+    if n.status == "run" and d.get("stage") not in ("单镜修改", "关键帧"):
+        raise HTTPException(409, "视频还在拆分镜 / 选角，稍后再试")
+    tasks = d.get("tasks") or []
+    todo = [k for k, t in enumerate(tasks) if t and t.get("phase") == "关键帧待确认" and t.get("keyframe")
+            and (body.indices is None or k in body.indices)]
+    if not todo:
+        raise HTTPException(400, "没有等着生成视频的关键帧")
+    canvas.audit(db, n.project_id, "user", "generate_clips", {"node_id": nid, "shots": todo})
+    db.commit()
+    for k in todo:
+        spawn(production.redo_clip(nid, k))
+    return {"shots": todo}
+
+
 class ClipIn(BaseModel):
     prompt: str | None = None  # 浮窗里确认过的提示词；不传就按模式自动生成
     mode: str | None = None  # ref 全能参考 / first 首帧 / first_last 首尾帧

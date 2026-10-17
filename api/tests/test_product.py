@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import config, product, production, qc  # noqa: E402
 from app.adapters import llm  # noqa: E402
+from app import settings_store  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -66,6 +67,7 @@ def test_product_subject(tmp_path, monkeypatch):
     llm.transport = httpx.MockTransport(llm_handler)
     try:
         with TestClient(app) as c:
+            settings_store.set_retries({"kf_candidates": 1, "kf_gate": 0})  # 老流程：每镜 1 张关键帧，画完直接生成视频
             c.put("/api/v1/settings/secrets/openrouter", json={"value": "sk-or-test-5678wxyz"})
             a = c.post("/api/v1/library", json={"kind": "product", "name": "TECNO Camon 40", "image": phone_png(collage=True),
                                                "data": {"brand": "TECNO", "model_sku": "Camon 40"}}).json()
@@ -125,6 +127,7 @@ def test_product_subject(tmp_path, monkeypatch):
     finally:
         llm.transport = None
         with TestClient(app) as c:
+            settings_store.set_retries({"kf_candidates": 1, "kf_gate": 0})  # 老流程：每镜 1 张关键帧，画完直接生成视频
             c.delete("/api/v1/settings/secrets/openrouter")
 
 
@@ -181,6 +184,7 @@ def test_catalog_import(tmp_path, monkeypatch):
     catalog.transport = httpx.MockTransport(lambda r: (got.append(str(r.url)), httpx.Response(200, content=raw))[1])
     try:
         with TestClient(app) as c:
+            settings_store.set_retries({"kf_candidates": 1, "kf_gate": 0})  # 老流程：每镜 1 张关键帧，画完直接生成视频
             assert [m["imported"] for m in c.get("/api/v1/library/catalog").json()] == [None]
             r = c.post("/api/v1/library/catalog/import", json={"ids": ["tecno-pova-9", "nope"]}).json()
             assert r["created"] == 1

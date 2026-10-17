@@ -23,6 +23,29 @@ const errMsg = (e: any) => e?.response?.data?.detail
     || (e?.code === "ECONNABORTED" ? "后端 30 秒没有响应：看一下运行后端的终端有没有报错，或重启后端后再试"
         : e?.code === "ERR_NETWORK" ? "连不上后端：后端可能没启动或刚重启，稍等再试" : e?.message) || "操作失败";
 
+type KfCand = { url: string; status: string; issues?: string[] };
+type ShotStats = { kf?: number; clip?: number; fails?: { kind: string; reason: string }[] };
+
+/** 可用率：几镜可用、平均每镜画了几张关键帧 / 生成了几条视频、失败最多的原因。 */
+function UsableStats({ tasks }: { tasks: any[] }) {
+    const st = tasks.map((t) => (t?.stats || {}) as ShotStats);
+    const kf = st.reduce((a, x) => a + (x.kf || 0), 0);
+    const clip = st.reduce((a, x) => a + (x.clip || 0), 0);
+    if (!kf && !clip) return null;
+    const n = tasks.length || 1;
+    const ok = tasks.filter((t) => (t?.url || "").startsWith("http") && t?.qc?.status !== "fail").length;
+    const kinds: Record<string, { n: number; eg: string }> = {};
+    st.forEach((x) => (x.fails || []).forEach((f) => { kinds[f.kind] = { n: (kinds[f.kind]?.n || 0) + 1, eg: f.reason }; }));
+    const top = Object.entries(kinds).sort((a, b) => b[1].n - a[1].n).slice(0, 3);
+    return (
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md bg-elev px-2 py-1 text-[11px] text-ink2">
+            <span>可用 <b className="text-ink">{ok}/{tasks.length}</b> 镜</span>
+            <span>平均每镜关键帧 <b className="text-ink">{(kf / n).toFixed(1)}</b> 张 · 视频 <b className="text-ink">{(clip / n).toFixed(1)}</b> 条</span>
+            {top.length > 0 && <span>失败最多：{top.map(([k, v]) => <span key={k} className="ml-1 rounded bg-bad/15 px-1 text-bad" title={`例：${v.eg}`}>{k} ×{v.n}</span>)}</span>}
+        </div>
+    );
+}
+
 /** 红色报错：默认显示 3 行，点一下展开全文（长报错里关键的参数名常在后半句）。 */
 function ErrorText({ text }: { text: string }) {
     const [all, setAll] = useState(false);
@@ -780,6 +803,8 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const regen = useMutation({ mutationFn: (i: number) => api.regenerateShot(n.id, i), onSuccess: (_, i) => { message.success(`镜 ${i + 1} 重新生成中`); refresh(); }, onError: onErr });
     const regenSome = useMutation({ mutationFn: (idx: number[]) => api.regenerateShots(n.id, idx), onSuccess: (r) => { message.success(`重新生成 ${r.indices.length} 镜`); refresh(); }, onError: onErr });
     const redoKf = useMutation({ mutationFn: ({ i, r }: { i: number; r: KfRedo }) => api.redoKeyframe(n.id, i, r), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
+    const genAll = useMutation({ mutationFn: () => api.generateClips(n.id), onSuccess: (r) => { message.info(`开始生成 ${r.shots.length} 镜视频`); refresh(); }, onError: (e) => message.error(errMsg(e)) });
+    const pick = useMutation({ mutationFn: ({ i, url }: { i: number; url: string }) => api.pickKeyframe(n.id, i, url), onSuccess: refresh, onError: (e) => message.error(errMsg(e)) });
     const redoClip = useMutation({
         mutationFn: (i: number) => api.redoClip(n.id, i),
         onMutate: (i) => { message.loading({ content: `镜 ${i + 1}：正在提交重做视频…`, key: `redo-clip-${i}` }); },
@@ -813,11 +838,13 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                         </span>
                         : <span className="text-ink2">每镜：分镜 → 关键帧 → 质检 → 图生视频 → 质检</span>}
                 <span className="ml-auto" />
-                {pendingKf.length > 0 && <Btn primary icon={<Rocket size={11} />} disabled={redoClip.isPending} onClick={() => pendingKf.forEach((i) => redoClip.mutate(i))}>为 {pendingKf.length} 镜生成视频</Btn>}
+                {pendingKf.length > 0 && <Btn primary icon={<Rocket size={11} />} disabled={genAll.isPending} onClick={() => genAll.mutate()}>
+                    {pendingKf.length === shots.length ? `全部满意，生成 ${pendingKf.length} 镜视频` : `为 ${pendingKf.length} 镜生成视频`}</Btn>}
                 {dirtyIdx.length > 0 && editable && !confirming && <Btn primary icon={<RefreshCw size={11} />} disabled={regenSome.isPending} onClick={() => regenSome.mutate(dirtyIdx)}>重新生成改过的 {dirtyIdx.length} 镜</Btn>}
                 {(running || busyShots) && <Btn icon={<Square size={10} />} disabled={stop.isPending} onClick={() => stop.mutate()}>停止生成</Btn>}
                 <Btn icon={<RefreshCw size={11} />} disabled={running || confirming || regenAll.isPending} onClick={() => regenAll.mutate()}>全部重新生成</Btn>
             </div>
+            <UsableStats tasks={tasks} />
             {confirming && (
                 <div className="mb-2 flex items-center gap-2 rounded-md bg-brand/15 px-2 py-1.5 text-[11px] text-ink">
                     <span className="flex-1">选角完成：检查演员（定妆照 + 三视图）、场景、每镜拍法和口播，不合适就换、重画或上传。{productMissing ? <b className="text-warn">还需要商品图：在商品卡片上点「从商品库选」或上传实拍。</b> : ""}确认后开始画关键帧（按张计费）。</span>
@@ -874,6 +901,19 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                         </span>
                                     )}
                                 </div>
+                                {(t.kf_candidates || []).length > 1 && !hasVideo && (
+                                    <div data-ui className="mt-1 flex gap-1" title="这一镜的关键帧候选：点一张换上（不花钱）">
+                                        {(t.kf_candidates as KfCand[]).map((c) => (
+                                            <button key={c.url} data-ui disabled={locked || pick.isPending || c.url === t.keyframe} onClick={() => pick.mutate({ i, url: c.url })}
+                                                title={c.issues?.length ? c.issues.join("；") : "质检通过"}
+                                                className={clsx("relative h-[46px] w-[26px] shrink-0 cursor-pointer overflow-hidden rounded border-2 p-0 disabled:cursor-default",
+                                                    c.url === t.keyframe ? "border-brand" : "border-transparent opacity-80 hover:opacity-100")}>
+                                                <img src={c.url} alt="" className="h-full w-full object-cover" />
+                                                <span className={clsx("absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full", { pass: "bg-good", warn: "bg-warn", fail: "bg-bad", skip: "bg-ink2" }[c.status as QcState])} />
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span>
                                     {t.video_mode === "reference" && <span className="ml-1 rounded bg-brand/20 px-1 text-[10px] text-ink" title={`全能参考：${(t.video_refs || []).join(" + ")}`}>全能参考</span>}
                                     {t.kf_meta?.mode === "placement" && <span className="ml-1 rounded bg-[#26262c] px-1 text-[10px] text-ink2" title="先画占位手机，再换成真实商品">换真机</span>}

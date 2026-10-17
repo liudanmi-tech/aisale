@@ -225,7 +225,7 @@ export interface ModelOption {
 export interface PlatformSettings {
     admin_required: boolean;
     secrets: Record<"fal" | "openrouter" | "apify", { label: string; configured: boolean; source: "settings" | "env" | null; masked: string | null; updated_at: string | null }>;
-    retries: { keyframe: number; clip: number };
+    retries: { keyframe: number; clip: number; kf_candidates?: number; kf_gate?: number };
     models: Record<"agent" | "script" | "eval" | "video" | "video_resolution" | "tiktok_actor" | "analysis" | "report" | "storyboard" | "keyframe" | "video_i2v" | "video_ref" | "qc", string>;
     catalog: { llm: ModelOption[]; video: ModelOption[]; image: ModelOption[]; video_i2v: ModelOption[]; video_ref: ModelOption[]; resolutions: string[] };
     integrations: { name: string; mode: string; ready: boolean }[];
@@ -373,6 +373,8 @@ export const api = {
     stopVideo: (nid: string) => post<{ ok: boolean; cancelled: number }>(`/nodes/${nid}/stop`),
     inpaintKeyframe: (nid: string, i: number, body: { mask: string; prompt: string; engine: "auto" | "flux" | "gemini"; product: boolean }) =>
         postSlow(`/nodes/${nid}/shots/${i}/inpaint`, body),
+    pickKeyframe: (nid: string, i: number, url: string) => post(`/nodes/${nid}/shots/${i}/keyframe-pick`, { url }),
+    generateClips: (nid: string, indices?: number[]) => post<{ shots: number[] }>(`/nodes/${nid}/clips`, { indices: indices ?? null }),
     undoKeyframe: (nid: string, i: number) => post<{ keyframe: string }>(`/nodes/${nid}/shots/${i}/keyframe-undo`),
     redoClip: (nid: string, i: number, body: ClipRedo = {}) => post(`/nodes/${nid}/shots/${i}/clip`, body),
     videoPlan: (nid: string, i: number, body: { mode?: string; prompt?: string; suggestion?: string } = {}) => postSlow<VideoPlan>(`/nodes/${nid}/shots/${i}/video-plan`, body),
@@ -409,7 +411,7 @@ export const api = {
     deleteReport: (id: string) => http.delete(`/watch/reports/${id}`).then((r) => r.data),
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
-    saveRetries: (r: { keyframe?: number; clip?: number }) => http.put("/settings/retries", r).then((x) => x.data),
+    saveRetries: (r: { keyframe?: number; clip?: number; kf_candidates?: number; kf_gate?: number }) => http.put("/settings/retries", r).then((x) => x.data),
 };
 
 export const PROJECT_ID = "p1";

@@ -141,8 +141,10 @@ def set_models(values: dict) -> dict:
 
 
 # 质检不合格时自动重做的次数。视频按条计费，默认不自动重做视频，只标红交给人决定
-RETRY_DEFAULTS = {"keyframe": 2, "clip": 0}
-RETRY_LIMITS = {"keyframe": 2, "clip": 1}
+# kf_candidates：每轮同时画几张关键帧候选（挑最好的，其余留着可换）；kf_gate：整条生成先停在关键帧，人确认后再生成视频
+RETRY_DEFAULTS = {"keyframe": 2, "clip": 0, "kf_candidates": 2, "kf_gate": 1}
+RETRY_LIMITS = {"keyframe": 2, "clip": 1, "kf_candidates": 3, "kf_gate": 1}
+RETRY_MIN = {"kf_candidates": 1}
 
 
 def get_retries() -> dict:
@@ -152,7 +154,7 @@ def get_retries() -> dict:
 
 
 def set_retries(values: dict) -> dict:
-    ok = {k: max(0, min(RETRY_LIMITS[k], int(v))) for k, v in values.items() if k in RETRY_LIMITS and str(v).lstrip("-").isdigit()}
+    ok = {k: max(RETRY_MIN.get(k, 0), min(RETRY_LIMITS[k], int(v))) for k, v in values.items() if k in RETRY_LIMITS and str(v).lstrip("-").isdigit()}
     with SessionLocal() as db:
         s = db.get(Setting, "retries") or Setting(key="retries", value={})
         s.value = {**(s.value or {}), **ok}

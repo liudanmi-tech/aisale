@@ -91,6 +91,7 @@ def test_settings_and_real_call_paths():
     product.media_transport = httpx.MockTransport(lambda r: httpx.Response(200, content=b"\x89PNG\r\n\x1a\n cut"))
     try:
         with TestClient(app) as c:
+            settings_store.set_retries({"kf_candidates": 1, "kf_gate": 0})  # 老流程：每镜 1 张关键帧，画完直接生成视频
             s = c.get("/api/v1/settings").json()
             assert s["secrets"]["fal"]["configured"] is False and s["integrations"][0]["mode"] == "模拟"
             assert c.put("/api/v1/settings/secrets/fal", json={"value": "short"}).status_code == 400
