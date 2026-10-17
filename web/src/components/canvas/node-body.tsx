@@ -902,17 +902,8 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                     )}
                                 </div>
                                 {(t.kf_candidates || []).length > 1 && !hasVideo && (
-                                    <div data-ui className="mt-1 flex gap-1" title="这一镜的关键帧候选：点一张换上（不花钱）">
-                                        {(t.kf_candidates as KfCand[]).map((c) => (
-                                            <button key={c.url} data-ui disabled={locked || pick.isPending || c.url === t.keyframe} onClick={() => pick.mutate({ i, url: c.url })}
-                                                title={c.issues?.length ? c.issues.join("；") : "质检通过"}
-                                                className={clsx("relative h-[46px] w-[26px] shrink-0 cursor-pointer overflow-hidden rounded border-2 p-0 disabled:cursor-default",
-                                                    c.url === t.keyframe ? "border-brand" : "border-transparent opacity-80 hover:opacity-100")}>
-                                                <img src={c.url} alt="" className="h-full w-full object-cover" />
-                                                <span className={clsx("absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full", { pass: "bg-good", warn: "bg-warn", fail: "bg-bad", skip: "bg-ink2" }[c.status as QcState])} />
-                                            </button>
-                                        ))}
-                                    </div>
+                                    <KfCandidates cands={t.kf_candidates as KfCand[]} current={t.keyframe} shot={i + 1} busy={shotBusy}
+                                        disabled={locked || pick.isPending} onPick={(url) => pick.mutate({ i, url })} />
                                 )}
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span>
                                     {t.video_mode === "reference" && <span className="ml-1 rounded bg-brand/20 px-1 text-[10px] text-ink" title={`全能参考：${(t.video_refs || []).join(" + ")}`}>全能参考</span>}
@@ -1185,4 +1176,48 @@ export function NodeBody({ n, pid, actions }: { n: CanvasNode; pid: string; acti
         case "opt": return <OptBody n={n} />;
         default: return null;
     }
+}
+
+
+const QC_DOT: Record<string, string> = { pass: "bg-good", warn: "bg-warn", fail: "bg-bad", skip: "bg-ink2" };
+const QC_TEXT: Record<string, string> = { pass: "质检通过", warn: "有问题待你看", fail: "质检没过", skip: "没质检" };
+
+/** 关键帧候选：鼠标移上去看大图和质检问题，点「用这张」换上（不花钱）。这一镜还在画时只能看，画完才能换。 */
+function KfCandidates({ cands, current, shot, busy, disabled, onPick }:
+    { cands: KfCand[]; current?: string; shot: number; busy: boolean; disabled: boolean; onPick: (url: string) => void }) {
+    return (
+        <div data-ui className="mt-1">
+            <div className="mb-0.5 text-[10px] text-ink2">{busy ? `候选 ${cands.length} 张（这一镜画完后才能换）` : `候选 ${cands.length} 张：移上去看大图，点「用这张」换上`}</div>
+            <div className="flex flex-wrap gap-1">
+                {cands.map((c, k) => {
+                    const on = c.url === current;
+                    return (
+                        <Popover key={c.url} placement="right" mouseEnterDelay={0.15} content={
+                            <div data-ui className="w-[220px]" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+                                <img src={c.url} alt="" className="aspect-[9/16] w-full rounded-md object-cover" />
+                                <div className="mt-1.5 flex items-center gap-1 text-[12px]">
+                                    <span className={clsx("h-2 w-2 rounded-full", QC_DOT[c.status] || "bg-ink2")} />{QC_TEXT[c.status] || c.status}
+                                    {on && <span className="ml-auto rounded bg-brand px-1 text-[11px] text-white">正在用</span>}
+                                </div>
+                                {!!c.issues?.length && <ul className="mt-1 list-disc pl-4 text-[11px] leading-4 text-ink2">{c.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
+                                {!on && (
+                                    <Button size="small" type="primary" block className="mt-2" disabled={disabled} onClick={() => onPick(c.url)}>
+                                        {busy ? "这一镜画完后才能换" : `镜 ${shot} 用这张`}
+                                    </Button>
+                                )}
+                            </div>
+                        }>
+                            <button data-ui onClick={() => !on && !disabled && onPick(c.url)}
+                                className={clsx("relative h-[64px] w-[36px] shrink-0 cursor-pointer overflow-hidden rounded border-2 p-0",
+                                    on ? "border-brand" : "border-transparent opacity-80 hover:opacity-100", disabled && !on && "cursor-default")}>
+                                <img src={c.url} alt={`候选 ${k + 1}`} className="h-full w-full object-cover" />
+                                <span className={clsx("absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full ring-1 ring-black/40", QC_DOT[c.status] || "bg-ink2")} />
+                                {on && <span className="absolute inset-x-0 top-0 bg-brand text-center text-[9px] leading-3 text-white">在用</span>}
+                            </button>
+                        </Popover>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
