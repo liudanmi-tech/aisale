@@ -424,7 +424,13 @@ class PickIn(BaseModel):
 
 @router.post("/nodes/{nid}/shots/{i}/keyframe-pick")
 def pick_keyframe(nid: str, i: int, body: PickIn, db: Session = Depends(get_db)):
-    """从这一镜的关键帧候选里换一张（不花钱）。"""
+    """从这一镜的关键帧候选里换一张（不花钱）。这一镜还在画关键帧时：选定这张，停下不再画。"""
+    n = db.get(Node, nid)
+    t = ((n.data or {}).get("tasks") or [])[i] if n and n.type == "video" and 0 <= i < len((n.data or {}).get("tasks") or []) else {}
+    if str(t.get("phase") or "").startswith(("画关键帧", "重画关键帧", "上一张没过质检")):
+        if not production.pin_candidate(nid, i, body.url):
+            raise HTTPException(404, "没有这张候选")
+        return {"ok": True, "pinned": True}
     _shot_guard(db, nid, i)
     if not production.pick_candidate(nid, i, body.url):
         raise HTTPException(404, "没有这张候选")

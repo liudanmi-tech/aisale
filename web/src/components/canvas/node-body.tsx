@@ -827,8 +827,21 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const regenSome = useMutation({ mutationFn: (idx: number[]) => api.regenerateShots(n.id, idx), onSuccess: (r) => { message.success(`重新生成 ${r.indices.length} 镜`); refresh(); }, onError: onErr });
     const redoKf = useMutation({ mutationFn: ({ i, r }: { i: number; r: KfRedo }) => api.redoKeyframe(n.id, i, r), onSuccess: (_, { i }) => { message.success(`镜 ${i + 1} 重画关键帧中，画完先给你看`); refresh(); }, onError: onErr });
     const genAll = useMutation({ mutationFn: () => api.generateClips(n.id), onSuccess: (r) => { message.info(`开始生成 ${r.shots.length} 镜视频`); refresh(); }, onError: (e) => message.error(errMsg(e)) });
-    const pick = useMutation({ mutationFn: ({ i, url }: { i: number; url: string }) => api.pickKeyframe(n.id, i, url), onSuccess: refresh, onError: (e) => message.error(errMsg(e)) });
+    const pick = useMutation({
+        mutationFn: ({ i, url }: { i: number; url: string }) => api.pickKeyframe(n.id, i, url),
+        onSuccess: (r: any, { i }) => { if (r?.pinned) message.info(`镜 ${i + 1} 马上停下，用你选的这张`); refresh(); },
+        onError: (e) => message.error(errMsg(e)),
+    });
     const [inpaint, setInpaint] = useState<{ i: number; url: string } | null>(null);
+    // 画关键帧过程中选了「停下，用这张局部重绘」：等这一镜停下（关键帧待确认）再打开涂抹窗口
+    const [waitInpaint, setWaitInpaint] = useState<{ i: number; url: string } | null>(null);
+    useEffect(() => {
+        const t = waitInpaint && n.data.tasks?.[waitInpaint.i];
+        if (waitInpaint && t?.phase === "关键帧待确认" && t.keyframe) {
+            setInpaint({ i: waitInpaint.i, url: t.keyframe });
+            setWaitInpaint(null);
+        }
+    }, [waitInpaint, n.data.tasks]);
     const redoClip = useMutation({
         mutationFn: (i: number) => api.redoClip(n.id, i),
         onMutate: (i) => { message.loading({ content: `镜 ${i + 1}：正在提交重做视频…`, key: `redo-clip-${i}` }); },
@@ -928,8 +941,9 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                                 </div>
                                 {(t.kf_candidates || []).length > 1 && !hasVideo && (
                                     <KfCandidates cands={t.kf_candidates as KfCand[]} current={t.keyframe} shot={i + 1} busy={shotBusy}
-                                        disabled={locked || pick.isPending} onPick={(url) => pick.mutate({ i, url })}
-                                        onInpaint={(url) => (url === t.keyframe ? setInpaint({ i, url }) : pick.mutate({ i, url }, { onSuccess: () => setInpaint({ i, url }) }))}
+                                        disabled={(locked && !shotBusy) || pick.isPending} onPick={(url) => pick.mutate({ i, url })}
+                                        onInpaint={(url) => (shotBusy ? pick.mutate({ i, url }, { onSuccess: () => setWaitInpaint({ i, url }) })
+                                            : url === t.keyframe ? setInpaint({ i, url }) : pick.mutate({ i, url }, { onSuccess: () => setInpaint({ i, url }) }))}
                                         onRedraw={() => redoKf.mutate({ i, r: { comment: "", drop_refs: [] } })} />
                                 )}
                                 <div className="mt-1"><b>镜 {i + 1}</b> <span className="text-ink2">{s[0]}</span>
@@ -1216,7 +1230,7 @@ function KfCandidates({ cands, current, shot, busy, disabled, onPick, onInpaint,
       onInpaint: (url: string) => void; onRedraw: () => void }) {
     return (
         <div data-ui className="mt-1">
-            <div className="mb-0.5 text-[10px] text-ink2">{busy ? `候选 ${cands.length} 张（这一镜画完后才能换）` : `候选 ${cands.length} 张：移上去看大图，点「用这张」换上`}</div>
+            <div className="mb-0.5 text-[10px] text-ink2">{busy ? `候选 ${cands.length} 张（还在画；看中哪张可以直接选，就不再画了）` : `候选 ${cands.length} 张：移上去看大图，点「用这张」换上`}</div>
             <div className="flex flex-wrap gap-1">
                 {cands.map((c, k) => {
                     const on = c.url === current;
@@ -1230,7 +1244,12 @@ function KfCandidates({ cands, current, shot, busy, disabled, onPick, onInpaint,
                                 </div>
                                 {!!c.issues?.length && <ul className="mt-1 list-disc pl-4 text-[11px] leading-4 text-ink2">{c.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
                                 {c.status === "fail" && <div className="mt-1 text-[11px] text-ink2">质检只是提示：你看着能用就可以用，小问题用局部重绘修。</div>}
-                                {busy ? <div className="mt-2 text-center text-[12px] text-ink2">这一镜画完后才能换</div> : (
+                                {busy ? (
+                                    <div className="mt-2 flex flex-col gap-1">
+                                        <Button size="small" type="primary" block disabled={disabled} onClick={() => onPick(c.url)}>就用这张，停止再画</Button>
+                                        <Button size="small" block disabled={disabled} onClick={() => onInpaint(c.url)}>用这张，停下后局部重绘</Button>
+                                    </div>
+                                ) : (
                                     <div className="mt-2 flex flex-col gap-1">
                                         {!on && <Button size="small" type="primary" block disabled={disabled} onClick={() => onPick(c.url)}>镜 {shot} 用这张</Button>}
                                         <Button size="small" block disabled={disabled} onClick={() => onInpaint(c.url)}>{on ? "在这张上局部重绘" : "用这张，接着局部重绘"}</Button>
@@ -1239,7 +1258,7 @@ function KfCandidates({ cands, current, shot, busy, disabled, onPick, onInpaint,
                                 )}
                             </div>
                         }>
-                            <button data-ui onClick={() => !on && !disabled && onPick(c.url)}
+                            <button data-ui onClick={() => !on && !disabled && !busy && onPick(c.url)}
                                 className={clsx("relative h-[64px] w-[36px] shrink-0 cursor-pointer overflow-hidden rounded border-2 p-0",
                                     on ? "border-brand" : "border-transparent opacity-80 hover:opacity-100", disabled && !on && "cursor-default")}>
                                 <img src={c.url} alt={`候选 ${k + 1}`} className="h-full w-full object-cover" />

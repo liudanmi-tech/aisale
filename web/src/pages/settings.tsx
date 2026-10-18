@@ -135,10 +135,8 @@ export default function Settings() {
                             <Select className="w-36" value={data.retries.kf_candidates ?? 2} onChange={(v) => saveRetries.mutate({ kf_candidates: v })}
                                 options={[1, 2, 3].map((n) => ({ value: n, label: n === 1 ? "每镜 1 张" : `每镜同时画 ${n} 张` }))} />
                             <span className="text-xs text-ink2">自动挑质检最好的一张，其余留着可以一键换；张数越多越容易出好图，也越花钱</span></div>
-                        <div className="flex items-center gap-3"><b className="w-24">关键帧闸门</b>
-                            <Select className="w-36" value={data.retries.kf_gate ?? 1} onChange={(v) => saveRetries.mutate({ kf_gate: v })}
-                                options={[{ value: 1, label: "先停在关键帧" }, { value: 0, label: "画完直接生成视频" }]} />
-                            <span className="text-xs text-ink2">开着时整条生成先只画关键帧，你逐镜调好后点「全部满意，生成视频」才花视频的钱</span></div>
+                        <div className="flex items-center gap-3"><b className="w-24">关键帧确认</b>
+                            <span className="text-xs text-ink2">始终开启：整条生成先只画关键帧，你逐镜挑好（换候选 / 局部重绘 / 重画）后点「全部满意，生成视频」或单镜「用这张生成视频」，才开始花视频的钱</span></div>
                         <div className="text-xs leading-5 text-ink2">到上限仍不合格就停下、标红，保留已生成的结果交给你判断，不会无限重试。之后只有你点「重新生成」才会再花钱。</div>
                     </div>
                 </Card>

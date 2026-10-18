@@ -49,7 +49,7 @@ def test_candidates_pick_best_and_stats(monkeypatch):
         assert kf.endswith("c2.png") and kq["status"] == "pass" and tries == 3 and len(drawn) == 3
         with SessionLocal() as db:
             t = db.get(Node, vid).data["tasks"][0]
-        assert [x["status"] for x in t["kf_candidates"]] == ["fail", "pass", "warn"]
+        assert sorted(x["status"] for x in t["kf_candidates"]) == ["fail", "pass", "warn"]  # 按画完的先后排
         assert t["stats"]["kf"] == 3 and [f["kind"] for f in t["stats"]["fails"]] == ["商品外观"]
 
         # 换一张候选：不花钱，停在关键帧待确认
@@ -189,3 +189,36 @@ def test_keyframe_failure_never_falls_back_to_video(monkeypatch):
         assert clips == [] and all(x["status"] == "failed" and "没有生成视频" in x["error"] and "连不上" in x["error"] for x in t)
         assert production.fail_kind(t[0]["keyframe_error"]) == "网络"
         settings_store.set_retries({"kf_candidates": 2})
+
+
+def test_pin_candidate_stops_drawing(monkeypatch):
+    """还在画候选时选定一张：画关键帧的循环停下，不再等其他候选、不再重画，用选定的那张。"""
+    monkeypatch.setattr(production, "PIN_POLL", 0.05)
+    n = {"k": 0}
+
+    async def fake_kf(video_id, i, *a, **kw):
+        n["k"] += 1
+        k = n["k"]
+        await asyncio.sleep(0.01 if k == 1 else 5)  # 第 1 张很快画好，第 2 张要很久
+        return f"/api/v1/media/keyframes/p{k}.png", {"mode": "ai"}
+
+    async def fake_qc(url, *a, **kw):
+        return {"status": "fail", "issues": ["商品：不对"], "checks": {}}
+    monkeypatch.setattr(production, "keyframe", fake_kf)
+    monkeypatch.setattr(qc, "check_keyframe", fake_qc)
+    with TestClient(app) as c:
+        settings_store.set_retries({"kf_candidates": 2})
+        vid, shots = _video(c)
+
+        async def go():
+            task = asyncio.ensure_future(production.make_keyframe(vid, 0, shots[0], {}, {}, None, "尼日利亚", "", 2))
+            for _ in range(100):
+                await asyncio.sleep(0.02)
+                with SessionLocal() as db:
+                    t = db.get(Node, vid).data["tasks"][0]
+                if t.get("kf_candidates"):
+                    break
+            assert production.pin_candidate(vid, 0, "/api/v1/media/keyframes/p1.png")
+            return await asyncio.wait_for(task, 2)
+        kf, kq, tries, err = asyncio.run(go())
+        assert kf.endswith("p1.png") and n["k"] == 2 and tries == 2  # 没有再画第 2 轮
