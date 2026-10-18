@@ -13,6 +13,8 @@ import { useCanvasStore } from "@/stores/canvas-store";
 
 const fmtNum = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
 
+const RADAR = "TikTok 账号监控";  // 竞品雷达入库的爆款，数据库里存的来源字样（老名字）
+
 /** 老数据里来源存的是「TikTok 账号监控」，页面上统一叫竞品雷达。 */
 const srcLabel = (s?: string) => (s === "TikTok 账号监控" ? "TikTok 竞品雷达" : s);
 
@@ -27,6 +29,7 @@ export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () =
                 </>}
                 <span className="absolute left-2 top-2 rounded-md bg-black/55 px-2 py-0.5 text-xs">{ad.market}</span>
                 <span className="absolute right-2 top-2 rounded-md bg-black/55 px-2 py-0.5 text-xs">爆款分 {ad.hot_score}</span>
+                {!ad.cover && ad.source !== RADAR && <span className="absolute left-2 top-9 rounded-md bg-black/55 px-2 py-0.5 text-[11px] text-white/85">演示数据 · 没有真实视频</span>}
                 <span className="relative line-clamp-2">{ad.title}</span>
             </Cover>
             <div className="px-2.5 py-2 text-xs leading-5 text-ink2">
@@ -47,7 +50,7 @@ export default function Ads() {
     const [params, setParams] = useSearchParams();
     const [market, setMarket] = useState("全部");
     const [sp, setSp] = useState("全部");
-    const [source, setSource] = useState("全部");
+    const [source, setSource] = useState<string | null>(null);  // 没选过：有竞品雷达的真实数据就默认只看它，演示数据不混在里面
     const select = useCanvasStore((s) => s.select);
     const pid = useCurrentProject();
     const { data: ads = [] } = useQuery({
@@ -57,6 +60,7 @@ export default function Ads() {
     const { data: all = [] } = useQuery({ queryKey: ["ref-ads", "all"], queryFn: () => api.refAds({}) });
     const openNo = Number(params.get("no")) || null;
     const ad = all.find((a) => a.no === openNo);
+    const src = source ?? (all.some((a) => a.source === RADAR) ? "竞品雷达" : "全部");
     const idx = all.findIndex((a) => a.no === openNo);
     const wash = useMutation({
         mutationFn: (no: number) => api.wash(pid, no),
@@ -65,7 +69,7 @@ export default function Ads() {
 
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
-            <PageTitle title="爆款库" desc="来源：TikTok 竞品雷达（真实公开数据）+ 第三方广告情报 + 传音历史投放；带「估」的为估算值" />
+            <PageTitle title="爆款库" desc="来源：TikTok 竞品雷达（真实公开数据，有封面和视频）；「演示数据」是预置的示例（第三方情报 / 传音历史），没有真实视频和封面，带「估」的为估算值" />
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="text-ink2">市场</span>
@@ -73,11 +77,11 @@ export default function Ads() {
                     <span className="ml-4 text-ink2">卖点</span>
                     <Segmented value={sp} onChange={(v) => setSp(v as string)} options={["全部", "拍照", "续航", "存储", "性价比", "性能"]} />
                     <span className="ml-4 text-ink2">来源</span>
-                    <Segmented value={source} onChange={(v) => setSource(v as string)} options={["全部", "竞品雷达", "情报与历史"]} />
+                    <Segmented value={src} onChange={(v) => setSource(v as string)} options={["全部", "竞品雷达", "演示数据"]} />
                 </div>
             </Card>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
-                {ads.filter((a) => source === "全部" || (source === "竞品雷达") === (a.source === "TikTok 账号监控")).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
+                {ads.filter((a) => src === "全部" || (src === "竞品雷达") === (a.source === RADAR)).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
             </div>
             <Drawer open={!!ad} width={760} onClose={() => setParams({})} title={ad ? `爆款 #${ad.no} · ${ad.title}` : ""}
                 footer={ad && (
