@@ -508,6 +508,7 @@ async def video_plan(nid: str, i: int, body: ClipPlanIn, db: Session = Depends(g
 
 class ComposeIn(BaseModel):
     captions: bool | None = None  # 不传就沿用节点上的设置
+    trims: dict[str, dict] | None = None  # 每镜剪哪一段：{"镜号": {"start": 秒, "dur": 秒或 null=整段}}；{} 清空，全部按剧本时长
 
 
 @router.post("/nodes/{nid}/compose")
@@ -520,6 +521,10 @@ def compose(nid: str, body: ComposeIn, db: Session = Depends(get_db)):
         raise HTTPException(409, "正在合成，稍后再试")
     if body.captions is not None:
         n.data = {**(n.data or {}), "captions": body.captions}
+    if body.trims is not None:
+        ok = {str(k): {"start": max(0.0, float(v.get("start") or 0)), "dur": (max(0.5, float(v["dur"])) if v.get("dur") else None)}
+              for k, v in body.trims.items() if str(k).isdigit() and isinstance(v, dict)}
+        n.data = {**(n.data or {}), "trims": ok}
     n.status, n.sub = "run", "合成中…"
     canvas.audit(db, n.project_id, "user", "compose", {"node_id": nid, **body.model_dump()})
     db.commit()

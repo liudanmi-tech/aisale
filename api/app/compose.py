@@ -67,8 +67,9 @@ def secs(x) -> float:
     return max(1.0, nums[0]) if nums else 4.0
 
 
-def plan(video: Node, script: Node | None) -> list[dict]:
-    """每镜：片段地址、剪多长、字幕（口播）、贴片（卖点文字）。"""
+def plan(video: Node, script: Node | None, trims: dict | None = None) -> list[dict]:
+    """每镜：片段地址、从第几秒开始剪、剪多长、字幕（口播）、贴片（卖点文字）。
+    trims 是你在成片节点上调的：{"镜号": {"start": 秒, "dur": 秒}}，dur 为空 = 用到片段结尾（整段）。"""
     shots = (script.data or {}).get("shots") if script else (video.data or {}).get("shots") or []
     specs = ((script.data or {}).get("cast") or {}).get("specs") or [] if script else []
     tasks = (video.data or {}).get("tasks") or []
@@ -76,7 +77,12 @@ def plan(video: Node, script: Node | None) -> list[dict]:
     for i, s in enumerate(shots or []):
         t = tasks[i] if i < len(tasks) else {}
         sp = specs[i] if i < len(specs) else {}
-        out.append({"shot": i + 1, "src": t.get("url") or "", "dur": secs(s[0]), "line": (s[2] if len(s) > 2 else "").strip(),
+        tr = (trims or {}).get(str(i + 1)) or {}
+        start = max(0.0, float(tr.get("start") or 0))
+        full = "dur" in tr and not tr.get("dur")
+        dur = round(float(tr["dur"]), 2) if tr.get("dur") else round(secs(s[0]), 2)
+        out.append({"shot": i + 1, "src": t.get("url") or "", "start": round(start, 2), "dur": dur, "full": full, "script_dur": round(secs(s[0]), 2),
+                    "trimmed": bool(tr), "line": (s[2] if len(s) > 2 else "").strip(),
                     "overlay": (sp.get("overlay") or "").strip(), "keyframe": t.get("keyframe")})
     return out
 
@@ -126,6 +132,16 @@ def caption_png(p: dict, fonts: dict, out: Path) -> bool:
     return drew
 
 
+def clip_len(path: Path) -> float | None:
+    """片段时长（读 ffmpeg 的 Duration 输出）。"""
+    exe = ffmpeg_exe()
+    if not exe:
+        return None
+    r = subprocess.run([exe, "-hide_banner", "-i", str(path)], capture_output=True, text=True, timeout=30)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr)
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+
+
 def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions: bool) -> dict:
     """files[k] 是第 k 镜的视频片段，或者（这一镜还没出视频时）它的关键帧图片，按剧本时长停留。"""
     exe = ffmpeg_exe()
@@ -147,7 +163,8 @@ def render(parts: list[dict], files: list[Path], out: Path, tmp: Path, captions:
             cmd += ["-i", str(f)]
         chains, n_in = [], len(files)
         for k, p in enumerate(parts):
-            c = (f"[{k}:v]trim=0:{p['dur']:.2f},setpts=PTS-STARTPTS,scale={W}:{H}:force_original_aspect_ratio=increase,"
+            a = 0 if p.get("still") else p.get("start", 0)
+            c = (f"[{k}:v]trim={a:.2f}:{a + p['dur']:.2f},setpts=PTS-STARTPTS,scale={W}:{H}:force_original_aspect_ratio=increase,"
                  f"crop={W}:{H},fps={FPS},format=yuv420p,setsar=1")
             png = tmp / f"cap{k}.png"
             if use_caps and caption_png(p, fonts, png):
@@ -209,15 +226,15 @@ async def run(cut_id: str, comment: str = "") -> None:
         video = db.get(Node, vid) if vid else None
         script = db.get(Node, (video.data or {}).get("script_id")) if video and (video.data or {}).get("script_id") else None
         captions = (cut.data or {}).get("captions", True)
-        parts = plan(video, script) if video else []
+        parts = plan(video, script, (cut.data or {}).get("trims")) if video else []
         pid = cut.project_id
     if not parts:
         _set(cut_id, status="failed", sub="没有找到视频片段")
         return
     _set(cut_id, status="run", sub="合成中…", data={"video_id": vid, "parts": parts, "stage": "下载片段", "error": None})
     real = [p for p in parts if _real(p)]
-    total = round(sum(p["dur"] for p in parts), 1)
     sig = hashlib.sha1("|".join(p["src"] for p in parts).encode()).hexdigest()[:10]
+    total = round(sum(p["dur"] for p in parts), 1)
     try:
         if not real:
             # 演示模式：没有真实片段，只记录拼接方案
@@ -238,6 +255,13 @@ async def run(cut_id: str, comment: str = "") -> None:
                         f = tmp / (f"s{k}.png" if p["still"] else f"s{k}.mp4")
                         f.write_bytes(await _fetch(c, p["keyframe"] if p["still"] else p["src"]))
                         files.append(f)
+                        if not p["still"]:  # 片段实际多长：整段 / 开始点超出片段时按实际长度算
+                            n = await asyncio.to_thread(clip_len, f)
+                            if n:
+                                p["clip_len"] = round(n, 2)
+                                p["start"] = min(p["start"], max(0.0, n - 0.5))
+                                p["dur"] = round(n - p["start"] if p["full"] else min(p["dur"], n - p["start"]), 2)
+                total = round(sum(p["dur"] for p in parts), 1)
                 _set(cut_id, data={"stage": "拼接与字幕"})
                 outdir = config.MEDIA_DIR / "cuts"
                 outdir.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,7 @@
 /** 画布节点展开后的内容：剧本分镜、视频镜头、评测结论、投放方案、数据、优化建议都直接平铺在画布上。
  *  可点击的控件都带 data-ui，避免触发拖拽节点。 */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Image, Input, Popover, Select, Switch, Tooltip } from "antd";
+import { App, Button, Image, Input, Popover, Select, Slider, Switch, Tooltip } from "antd";
 import clsx from "clsx";
 import { ImagePlus, Pencil, RefreshCw, Rocket, Sparkles, Square, Upload, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -1045,7 +1045,8 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
     const refresh = useRefresh(n);
     const { data: snap } = useQuery({ queryKey: ["canvas", pid], queryFn: () => api.canvas(pid) });
     const video = snap?.nodes.find((x) => x.id === n.data.video_id);
-    const parts: { shot: number; src: string; dur: number; line: string; overlay: string; keyframe?: string; still?: boolean }[] = n.data.parts || [];
+    const parts: CutPart[] = n.data.parts || [];
+    const trims: Record<string, { start: number; dur: number | null }> = n.data.trims || {};
     const captions = n.data.captions !== false;
     const running = n.status === "run";
     const stale = !running && parts.length > 0 && !!video && (video.data.tasks || []).some((t: any, i: number) => (t?.url || "") !== (parts[i]?.src || ""));
@@ -1053,7 +1054,12 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
         mutationFn: (caps?: boolean) => api.composeCut(n.id, caps === undefined ? {} : { captions: caps }),
         onSuccess: () => { message.success("重新合成中"); refresh(); }, onError: (e) => message.error(errMsg(e)),
     });
+    const retrim = useMutation({
+        mutationFn: (t: Record<string, { start: number; dur: number | null }>) => api.composeCut(n.id, { trims: t }),
+        onSuccess: () => { message.success("按新的剪辑点重新合成中"); refresh(); }, onError: (e) => message.error(errMsg(e)),
+    });
     const total = parts.reduce((a, p) => a + p.dur, 0);
+    const realParts = parts.filter((p) => (p.src || "").startsWith("http") || (p.src || "").startsWith("/api/v1/media/"));
     return (
         <div className="text-[12px]">
             <div className="relative mx-auto aspect-[9/16] w-full overflow-hidden rounded-lg bg-black">
@@ -1071,14 +1077,20 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
             {parts.length > 0 && (
                 <div className="mt-2">
                     <div className="flex h-2 overflow-hidden rounded-full bg-elev">
-                        {parts.map((p, k) => <div key={k} className="border-r border-surface bg-brand2/70 last:border-0" style={{ width: `${(p.dur / total) * 100}%` }} title={`镜 ${p.shot} · ${p.dur}s`} />)}
+                        {parts.map((p, k) => <div key={k} className="border-r border-surface bg-brand2/70 last:border-0" style={{ width: `${(p.dur / total) * 100}%` }} title={`镜 ${p.shot} · ${fmtS(p.dur)}s`} />)}
                     </div>
                     <div className="mt-1.5 flex flex-col gap-1">
                         {parts.map((p) => (
                             <div key={p.shot} className="flex items-start gap-1.5 text-[11px] leading-4">
                                 {p.keyframe ? <img src={p.keyframe} alt="" className="h-9 w-5 shrink-0 rounded-sm object-cover" /> : <div className="h-9 w-5 shrink-0 rounded-sm bg-elev" />}
                                 <div className="min-w-0 flex-1">
-                                    <span className="text-ink">镜 {p.shot}</span><span className="text-ink2"> · {p.dur}s</span>
+                                    <span className="text-ink">镜 {p.shot}</span>
+                                    <span className="text-ink2"> · {fmtS(p.start || 0)}–{fmtS((p.start || 0) + p.dur)}s{p.clip_len ? ` / 片段 ${fmtS(p.clip_len)}s` : ""}</span>
+                                    {p.trimmed && <span className="ml-1 rounded bg-brand/20 px-1 text-[10px] text-ink">已调</span>}
+                                    {p.clip_len && !p.full && p.clip_len - (p.start || 0) - p.dur > 0.4 && <span className="ml-1 text-[10px] text-warn">后面 {fmtS(p.clip_len - (p.start || 0) - p.dur)}s 没用上</span>}
+                                    {!p.still && p.src && <TrimEditor part={p} disabled={running || retrim.isPending}
+                                        onSave={(t) => retrim.mutate({ ...trims, [String(p.shot)]: t })}
+                                        onReset={() => { const { [String(p.shot)]: _, ...rest } = trims; retrim.mutate(rest); }} />}
                                     {!p.src && (p.still ? <span className="text-warn"> · 还没出视频，暂用关键帧静帧</span> : <span className="text-bad"> · 没有片段</span>)}
                                     {p.line && <div className="truncate text-ink2" title={p.line}>字幕：{p.line}</div>}
                                     {p.overlay && <div className="truncate text-[#b5a3ff]" title={p.overlay}>贴片：{p.overlay}</div>}
@@ -1093,12 +1105,57 @@ function CutBody({ n, pid }: { n: CanvasNode; pid: string }) {
                 <label data-ui className="flex cursor-pointer items-center gap-1 text-[11px] text-ink2">
                     <Switch size="small" checked={captions} disabled={running || recompose.isPending} onChange={(v) => recompose.mutate(v)} />字幕和贴片
                 </label>
+                {realParts.length > 0 && <Btn disabled={running || retrim.isPending} onClick={() => retrim.mutate(Object.fromEntries(realParts.map((p) => [String(p.shot), { start: 0, dur: null }])))}>全部用完整片段</Btn>}
+                {Object.keys(trims).length > 0 && <Btn disabled={running || retrim.isPending} onClick={() => retrim.mutate({})}>全部按剧本时长</Btn>}
                 <span className="flex-1" />
                 {n.data.video_url && <a data-ui href={n.data.video_url} download className="text-[11px] text-brand2">下载</a>}
             </div>
             {n.data.video_url && captions && n.data.burned === false && <div className="mt-1 text-[10px] leading-[14px] text-warn">{n.data.caption_note || "没找到可用字体，这版没烧字幕"}</div>}
             {n.data.video_url && captions && n.data.skipped_text?.length > 0 && <div className="mt-1 text-[10px] text-ink2">镜 {n.data.skipped_text.join("、")} 的文字含中文，这台电脑没有中文字体，没有烧上</div>}
         </div>
+    );
+}
+
+type CutPart = { shot: number; src: string; start?: number; dur: number; full?: boolean; script_dur?: number; clip_len?: number; trimmed?: boolean;
+    line: string; overlay: string; keyframe?: string; still?: boolean };
+const fmtS = (x: number) => (Math.round(x * 10) / 10).toFixed(1).replace(/\.0$/, "");
+
+/** 调这一镜剪哪一段：拖动选开始和结束，边拖边预览；也可以一键用整段 / 回到剧本时长。 */
+function TrimEditor({ part, disabled, onSave, onReset }: { part: CutPart; disabled: boolean; onSave: (t: { start: number; dur: number | null }) => void; onReset: () => void }) {
+    const [open, setOpen] = useState(false);
+    const [len, setLen] = useState(part.clip_len || 5);
+    const [range, setRange] = useState<[number, number]>([part.start || 0, (part.start || 0) + part.dur]);
+    const vid = useRef<HTMLVideoElement>(null);
+    const seek = (t: number) => { if (vid.current) vid.current.currentTime = t; };
+    useEffect(() => {  // 预览只在选中的这一段里循环播放
+        const v = vid.current;
+        if (!v || !open) return;
+        const tick = () => { if (v.currentTime >= range[1] || v.currentTime < range[0] - 0.05) v.currentTime = range[0]; };
+        v.addEventListener("timeupdate", tick);
+        return () => v.removeEventListener("timeupdate", tick);
+    }, [open, range]);
+    const body = (
+        <div data-ui className="w-[260px] text-xs" onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
+            <video ref={vid} src={part.src} muted autoPlay playsInline className="aspect-[9/16] w-full rounded bg-black object-contain"
+                onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (d && isFinite(d)) { setLen(d); if (!part.clip_len && part.full) setRange([part.start || 0, d]); } seek(range[0]); }} />
+            <div className="mt-2 text-ink2">用片段的 {fmtS(range[0])}s – {fmtS(range[1])}s（共 {fmtS(range[1] - range[0])}s；剧本 {fmtS(part.script_dur || part.dur)}s）</div>
+            <Slider range min={0} max={Math.round(len * 10) / 10} step={0.1} value={range}
+                onChange={(v) => { const r = v as [number, number]; if (r[1] - r[0] >= 0.5) { if (r[0] !== range[0]) seek(r[0]); setRange(r); } }} />
+            <div className="flex flex-wrap gap-1">
+                <Btn onClick={() => { setRange([0, len]); seek(0); }}>整段 {fmtS(len)}s</Btn>
+                <Btn onClick={() => { const d = part.script_dur || part.dur; setRange([0, Math.min(d, len)]); seek(0); }}>按剧本 {fmtS(part.script_dur || part.dur)}s</Btn>
+                {part.trimmed && <Btn onClick={() => { onReset(); setOpen(false); }}>恢复默认</Btn>}
+            </div>
+            <div className="mt-2 flex justify-end gap-1">
+                <Btn onClick={() => setOpen(false)}>取消</Btn>
+                <Btn primary onClick={() => { onSave({ start: Math.round(range[0] * 10) / 10, dur: range[1] >= len - 0.05 ? null : Math.round((range[1] - range[0]) * 10) / 10 }); setOpen(false); }}>保存并重新合成</Btn>
+            </div>
+        </div>
+    );
+    return (
+        <Popover open={open} onOpenChange={setOpen} trigger="click" title={`镜 ${part.shot} · 剪哪一段`} content={body} destroyOnHidden>
+            <button data-ui disabled={disabled} className="ml-1 cursor-pointer rounded border border-line bg-transparent px-1 text-[10px] text-ink hover:border-[#4a4a52] disabled:opacity-50">剪辑</button>
+        </Popover>
     );
 }
 

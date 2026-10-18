@@ -378,7 +378,7 @@ export const api = {
     undoKeyframe: (nid: string, i: number) => post<{ keyframe: string }>(`/nodes/${nid}/shots/${i}/keyframe-undo`),
     redoClip: (nid: string, i: number, body: ClipRedo = {}) => post(`/nodes/${nid}/shots/${i}/clip`, body),
     videoPlan: (nid: string, i: number, body: { mode?: string; prompt?: string; suggestion?: string } = {}) => postSlow<VideoPlan>(`/nodes/${nid}/shots/${i}/video-plan`, body),
-    composeCut: (nid: string, body: { captions?: boolean } = {}) => post(`/nodes/${nid}/compose`, body),
+    composeCut: (nid: string, body: { captions?: boolean; trims?: Record<string, { start: number; dur: number | null }> } = {}) => post(`/nodes/${nid}/compose`, body),
     confirmCast: (nid: string) => post(`/nodes/${nid}/confirm-cast`),
     setCast: (nid: string, key: string, asset_id: string) => post<{ cast: Cast }>(`/nodes/${nid}/cast`, { key, asset_id }),
     regenerateShots: (nid: string, indices: number[]) => post<{ ok: boolean; indices: number[] }>(`/nodes/${nid}/shots/regenerate`, { indices }),

@@ -705,6 +705,11 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
     _finalize(video_id, cast, shots, tasks)
 
 
+def compose_secs(t) -> float:
+    from app.compose import secs
+    return secs(t)
+
+
 FORCE_GATE = True  # 产品上始终开着关键帧确认；只有老流程的测试会关掉它
 
 
@@ -976,6 +981,10 @@ def clip_plan(sh: list, spec: dict, cast: dict, kf: str | None, kf_qc: dict | No
             " End exactly on the given last frame so the cut to the next shot is seamless." if mode == "first_last" else "")
     if comment:
         prompt += f". 修改意见：{comment}"
+    d = compose_secs(sh[0]) if sh else 0
+    if 0 < d < 4.5:  # 片段固定 5 秒，成片里这一镜只用开头 d 秒：动作要在这之内做完，不然剪进成片会被截断
+        prompt += (f" Timing: this shot is only {d:g} seconds in the final edit — the key action must start immediately and be "
+                   f"clearly visible within the first {d:g} seconds; the rest of the clip just holds or continues it.")
     return {"mode": mode, "mode_label": VIDEO_MODES[mode], "prompt": prompt, "refs": refs, "can_ref": can_ref, "has_end": bool(end_kf)}
 
 
