@@ -861,7 +861,7 @@ function VideoBody({ n, pid }: { n: CanvasNode; pid: string }) {
                             {n.data.qc.retried > 0 && <span>· 自动重做 {n.data.qc.retried} 次</span>}
                             {n.data.qc.manual?.length > 0 && <span className="text-warn">· 第 {n.data.qc.manual.join("、")} 镜商品需人工确认</span>}
                         </span>
-                        : <span className="text-ink2">每镜：分镜 → 关键帧 → 质检 → 图生视频 → 质检</span>}
+                        : <span className="text-ink2" title="设置里关掉「关键帧先确认」时不停，画完关键帧直接生成视频">每镜：分镜 → 关键帧 → 质检 → <b className="text-ink">停下等你确认</b> → 图生视频 → 质检</span>}
                 <span className="ml-auto" />
                 {pendingKf.length > 0 && <Btn primary icon={<Rocket size={11} />} disabled={genAll.isPending} onClick={() => genAll.mutate()}>
                     {pendingKf.length === shots.length ? `全部满意，生成 ${pendingKf.length} 镜视频` : `为 ${pendingKf.length} 镜生成视频`}</Btn>}

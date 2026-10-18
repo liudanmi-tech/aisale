@@ -555,7 +555,8 @@ def _mark_stopped(video_id: str) -> None:
         tasks = []
         for t in (v.data or {}).get("tasks") or []:
             if t and t.get("phase") not in IDLE and t.get("phase") != "已停止":
-                t = {**t, "phase": "已停止", "status": "failed", "error": "你手动停止了生成"}
+                why = t.get("keyframe_error") or next((f.get("reason") for f in reversed((t.get("stats") or {}).get("fails") or [])), "")
+                t = {**t, "phase": "已停止", "status": "failed", "error": "你手动停止了生成" + (f"（停止前最近一次失败：{why}）" if why else "")}
             tasks.append(t)
         v.data = {**(v.data or {}), "tasks": tasks}
         if v.status == "run":
@@ -680,6 +681,11 @@ async def _run(video_id: str, comment: str, recast: bool, only: list[int] | None
         if spec.get("product") and not kf and not cast.get("product"):
             return {"shot": i + 1, "source": "official", "status": "completed", "url": "asset://official/product.mp4", "spec": spec,
                     "phase": "完成", "inputs": inputs(sh, spec, cast)}
+        if gate and use_kf and not kf:
+            # 开着关键帧闸门时，关键帧没画出来就停在这一镜，不退回「没有关键帧直接文生视频」——那样等于跳过了你的确认
+            return {"shot": i + 1, "source": "seedance", "keyframe": None, "spec": spec, "inputs": inputs(sh, spec, cast), "phase": "失败",
+                    "status": "failed", "url": None, "video_url": None, "keyframe_error": err,
+                    "error": f"关键帧没画出来，没有生成视频：{err or '原因未知'}。点「重新生成」再画一次"}
         if gate and kf and not (reused and last.get("kf_ok")):
             # 沿用的关键帧只有你确认过（kf_ok：已经拿它生成过视频）才直接生成视频；
             # 停止生成时留下的、还没确认的关键帧同样停在这里等你看
@@ -859,7 +865,8 @@ def _best(cands: list[dict]) -> dict:
 def fail_kind(reason: str) -> str:
     """失败原因归类，统计「可用率」时用。"""
     r = reason or ""
-    for kind, pat in (("网络", r"连不上|超时|Timeout|ConnectError|网络"), ("余额 / 额度", r"余额|额度|402|Billing"),
+    for kind, pat in (("网络", r"连不上|超时|Timeout|ConnectError|网络|connection|timed out|Transport|ReadError"),
+                      ("模型没出图", r"没有返回图片|没有返回"), ("余额 / 额度", r"余额|额度|402|Billing"),
                       ("模型拒收", r"422|不接受|拒收|Invalid|参数"), ("构图不一致", r"构图"), ("商品外观", r"商品|手机|logo|品牌|比对"),
                       ("人物", r"人脸|人物|服装|人数|长相"), ("画质 / 畸形", r"畸形|穿模|乱码|文字|模糊|画质|规格"),
                       ("不符合剧本", r"剧本|画面描述|不符")):

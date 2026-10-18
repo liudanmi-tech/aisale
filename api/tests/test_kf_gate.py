@@ -161,3 +161,31 @@ def test_stopped_keyframes_still_wait_for_confirm(monkeypatch):
             phases = [t.get("phase") for t in db.get(Node, vid).data["tasks"]]
         assert kfs == [] and clips == [1] and phases == ["关键帧待确认", "完成"]
         settings_store.set_retries({"kf_candidates": 2})
+
+
+def test_keyframe_failure_never_falls_back_to_video(monkeypatch):
+    """开着闸门时关键帧没画出来：这一镜标失败、写清原因，不退回文生视频。"""
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    clips = []
+
+    async def fail_kf(*a, **kw):
+        return None, None, 2, "连不上生图模型（ConnectError：All connection attempts failed）"
+
+    async def fake_make_clip(*a, **kw):
+        clips.append(a[1])
+        return {"shot": a[1] + 1, "status": "completed", "phase": "完成", "url": "https://v/x.mp4"}
+    monkeypatch.setattr(production, "make_keyframe", fail_kf)
+    monkeypatch.setattr(production, "make_clip", fake_make_clip)
+    with TestClient(app) as c:
+        settings_store.set_retries({"kf_candidates": 1, "kf_gate": 1})
+        vid, _ = _video(c, 2)
+
+        async def no_sb(*a, **kw):
+            return None
+        monkeypatch.setattr(production.storyboard, "run", no_sb)
+        asyncio.run(production.run(vid))
+        with SessionLocal() as db:
+            t = db.get(Node, vid).data["tasks"]
+        assert clips == [] and all(x["status"] == "failed" and "没有生成视频" in x["error"] and "连不上" in x["error"] for x in t)
+        assert production.fail_kind(t[0]["keyframe_error"]) == "网络"
+        settings_store.set_retries({"kf_candidates": 2})

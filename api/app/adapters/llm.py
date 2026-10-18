@@ -62,11 +62,22 @@ async def image(content: list[dict] | str, task: str = "storyboard", aspect_rati
     body = {"model": settings_store.get_models()[task], "modalities": ["image", "text"], "image_config": {"aspect_ratio": aspect_ratio},
             "messages": [{"role": "user", "content": content}]}
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-        r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
-        _check(r)
-        imgs = r.json()["choices"][0]["message"].get("images") or []
-        if not imgs:
-            raise RuntimeError("模型没有返回图片")
+        # 网络抖动 / 模型偶尔只回文字不出图：最多试 3 次（间隔 3s、8s），都不行再报错，错误里带上模型回的话
+        for attempt in range(3):
+            try:
+                r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)
+                _check(r)
+                msg = r.json()["choices"][0]["message"]
+                imgs = msg.get("images") or []
+                if imgs:
+                    break
+                err: Exception = RuntimeError("模型没有返回图片" + (f"：{str(msg.get('content') or '')[:120]}" if msg.get("content") else ""))
+            except (httpx.TransportError, asyncio.TimeoutError) as e:
+                err = RuntimeError(f"连不上生图模型（{type(e).__name__}：{str(e)[:80] or '超时'}）")
+            if attempt < 2:
+                await asyncio.sleep((3, 8)[attempt] if transport is None else 0)
+        else:
+            raise err
         url = imgs[0]["image_url"]["url"]
         if url.startswith("data:"):
             head, b64 = url.split(",", 1)
