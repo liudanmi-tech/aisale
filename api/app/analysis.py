@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from app import settings_store
+from app import monitor, settings_store
 from app.adapters import llm
 from app.db import SessionLocal
 from app.monitor import scored_videos
@@ -97,6 +97,10 @@ async def _media(c: httpx.AsyncClient, v: SourceVideo) -> tuple[str | None, str]
                 ctype = r.headers.get("content-type", "image/jpeg").split(";")[0]
                 if ctype.startswith("image/"):
                     cover = f"data:{ctype};base64,{base64.b64encode(r.content).decode()}"
+                    f = monitor._cover_file(v.external_id)  # 顺手存进本地封面缓存：TikTok 链接会过期，报告页以后用本地的
+                    if v.external_id and not f.exists():
+                        f.parent.mkdir(parents=True, exist_ok=True)
+                        f.write_bytes(r.content)
         except Exception:  # noqa: BLE001
             pass
     subs = ""

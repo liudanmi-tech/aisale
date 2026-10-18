@@ -200,10 +200,18 @@ def report(rid: str, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(404, "not found")
     d = analysis.report_dict(r)
-    # 入库状态以当前为准（报告生成后可能有视频被加入爆款库）
-    nos = {v.id: v.ref_ad_no for v in db.query(SourceVideo).filter(SourceVideo.id.in_([x["id"] for x in (r.data or {}).get("videos", [])]))}
+    # 入库状态、封面以当前为准：报告生成后可能有视频被加入爆款库；报告里存的 TikTok 封面链接几小时后就过期，改用本地缓存
+    vids = {v.id: v for v in db.query(SourceVideo).filter(SourceVideo.id.in_([x["id"] for x in (r.data or {}).get("videos", [])]))}
+    missing = []
     for x in d["data"].get("videos", []) if d.get("data") else []:
-        x["ref_ad_no"] = nos.get(x["id"])
+        v = vids.get(x["id"])
+        x["ref_ad_no"] = v.ref_ad_no if v else None
+        if v:
+            x["cover"] = monitor.cover_url(v.external_id, v.cover)
+            if not x["cover"].startswith("/api/"):
+                missing.append(v.id)
+    if missing:  # 还没缓存的封面后台补下载，下次打开就有
+        spawn(monitor.ensure_covers(missing))
     return d
 
 
