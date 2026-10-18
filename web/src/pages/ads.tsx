@@ -13,6 +13,9 @@ import { useCanvasStore } from "@/stores/canvas-store";
 
 const fmtNum = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
 
+/** 老数据里来源存的是「TikTok 账号监控」，页面上统一叫竞品雷达。 */
+const srcLabel = (s?: string) => (s === "TikTok 账号监控" ? "TikTok 竞品雷达" : s);
+
 export function AdCard({ ad, i, onClick }: { ad: RefAd; i: number; onClick: () => void }) {
     return (
         <div onClick={onClick} className="cursor-pointer overflow-hidden rounded-xl border border-line bg-surface transition hover:-translate-y-0.5 hover:border-brand">
@@ -62,7 +65,7 @@ export default function Ads() {
 
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
-            <PageTitle title="爆款库" desc="来源：TikTok 账号监控（真实公开数据）+ 第三方广告情报 + 传音历史投放；带「估」的为估算值" />
+            <PageTitle title="爆款库" desc="来源：TikTok 竞品雷达（真实公开数据）+ 第三方广告情报 + 传音历史投放；带「估」的为估算值" />
             <Card className="mb-3">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="text-ink2">市场</span>
@@ -70,11 +73,11 @@ export default function Ads() {
                     <span className="ml-4 text-ink2">卖点</span>
                     <Segmented value={sp} onChange={(v) => setSp(v as string)} options={["全部", "拍照", "续航", "存储", "性价比", "性能"]} />
                     <span className="ml-4 text-ink2">来源</span>
-                    <Segmented value={source} onChange={(v) => setSource(v as string)} options={["全部", "账号监控", "情报与历史"]} />
+                    <Segmented value={source} onChange={(v) => setSource(v as string)} options={["全部", "竞品雷达", "情报与历史"]} />
                 </div>
             </Card>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
-                {ads.filter((a) => source === "全部" || (source === "账号监控") === (a.source === "TikTok 账号监控")).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
+                {ads.filter((a) => source === "全部" || (source === "竞品雷达") === (a.source === "TikTok 账号监控")).map((a) => <AdCard key={a.no} ad={a} i={all.findIndex((x) => x.no === a.no)} onClick={() => setParams({ no: String(a.no) })} />)}
             </div>
             <Drawer open={!!ad} width={760} onClose={() => setParams({})} title={ad ? `爆款 #${ad.no} · ${ad.title}` : ""}
                 footer={ad && (
@@ -93,13 +96,13 @@ export default function Ads() {
                                 { label: "公开数据", children: `播放 ${fmtNum(ad.dna.plays)} · 点赞 ${fmtNum(ad.dna.likes)} · 评论 ${fmtNum(ad.dna.comments)} · 分享 ${fmtNum(ad.dna.shares)}` },
                                 { label: "爆款倍数", children: `${ad.dna.multiple}×（相对账号近 30 条中位数）· 互动率 ${ad.dna.engagement}%` },
                                 { label: "点击率 / 完播率", children: "不公开（竞品数据拿不到，靠自家测试投放获得）" },
-                                { label: "爆款分", children: ad.hot_score }, { label: "来源", children: ad.source },
+                                { label: "爆款分", children: ad.hot_score }, { label: "来源", children: srcLabel(ad.source) },
                                 { label: "原视频", children: <a href={ad.dna.url} target="_blank" rel="noreferrer">在 TikTok 打开</a> },
                             ]} /> : <Descriptions column={1} size="small" items={[
                                 { label: "品牌", children: ad.brand }, { label: "市场", children: ad.market },
                                 { label: "投放天数", children: `${ad.days_running} 天 · ${ad.variants} 个版本（持续加版本 = 跑量信号）` },
                                 { label: "CTR", children: `${ad.ctr_range}${ad.is_estimated ? "（估算）" : ""}` },
-                                { label: "完播率", children: `${ad.vtr}%` }, { label: "爆款分", children: ad.hot_score }, { label: "来源", children: ad.source },
+                                { label: "完播率", children: `${ad.vtr}%` }, { label: "爆款分", children: ad.hot_score }, { label: "来源", children: srcLabel(ad.source) },
                             ]} />}
                         </div>
                         {ad.dna?.text && <div className="whitespace-pre-wrap rounded-lg bg-elev p-3 text-sm">{ad.dna.text}</div>}

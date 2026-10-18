@@ -42,7 +42,7 @@ export function AppLayout() {
             { to: "/sandbox", label: "营销沙盘", icon: <Globe2 size={17} /> },
             { to: "/projects", label: "项目", icon: <FolderKanban size={17} /> },
             { to: "/ads", label: "爆款库", icon: <Flame size={17} /> },
-            { to: "/watch", label: "账号监控", icon: <Radar size={17} /> },
+            { to: "/watch", label: "竞品雷达", icon: <Radar size={17} /> },
             { to: "/assets", label: "素材库", icon: <Layers size={17} /> },
         ] },
         { title: "创作", items: [

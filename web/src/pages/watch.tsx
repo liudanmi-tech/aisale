@@ -291,11 +291,11 @@ export default function Watch() {
 
     return (
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
-            <PageTitle title="账号监控" desc="每天自动拉取竞品 TikTok 账号的公开视频与数据，按爆款倍数、播放、分享率打分；审核后加入爆款库，用于洗剧本" />
+            <PageTitle title="竞品雷达" desc="每天自动拉取竞品 TikTok 账号的公开视频与数据，按爆款倍数、播放、分享率打分；审核后加入爆款库，用于洗剧本" />
             {accs && !accs.ready && (
                 <Alert className="mb-3" type="warning" showIcon message={<>还没有填写 Apify Token，无法抓取数据。<Link to="/settings">去设置页添加</Link></>} />
             )}
-            <Card title="监控账号" className="mb-3" extra={<div className="flex flex-wrap items-center gap-2">
+            <Card title="追踪的竞品账号" className="mb-3" extra={<div className="flex flex-wrap items-center gap-2">
                 <Select size="small" className="w-32" value={market} onChange={setMarket} options={marketOptions(counts)} popupMatchSelectWidth={false} aria-label="按市场筛选" />
                 <Button size="small" type="primary" icon={<FileBarChart size={13} />} onClick={() => setReporting(true)}>分析报告</Button>
                 <Button size="small" icon={<Search size={13} />} disabled={!accs?.ready} onClick={() => setSearching(true)}>搜索账号</Button>
@@ -303,7 +303,7 @@ export default function Watch() {
             </div>}>
                 <AddAccounts onDone={refresh} filter={market} />
                 <Table className="mt-3" size="small" rowKey="id" pagination={false} dataSource={shown}
-                    locale={{ emptyText: accs?.items.length ? `${market}还没有监控账号：点右上角「搜索账号」找这个市场的竞品官方号和达人` : "还没有监控账号：点右上角「搜索账号」，按市场一键找出三星、小米等竞品的 TikTok 官方号" }}
+                    locale={{ emptyText: accs?.items.length ? `${market}还没有追踪的竞品账号：点右上角「搜索账号」找这个市场的竞品官方号和达人` : "还没有追踪的竞品账号：点右上角「搜索账号」，按市场一键找出三星、小米等竞品的 TikTok 官方号" }}
                     columns={[
                         { title: "账号", render: (_, a) => (
                             <a href={`https://www.tiktok.com/@${a.handle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
@@ -345,7 +345,7 @@ export default function Watch() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
                 {videos.map((v, i) => <VideoCard key={v.id} v={v} i={i} onOpen={() => setOpenId(v.id)} />)}
             </div>
-            {!videos.length && <div className="py-16 text-center text-sm text-ink2">{accs?.items.length ? "还没有视频：点「全部同步」拉取数据" : "添加监控账号后，这里会显示抓到的视频"}</div>}
+            {!videos.length && <div className="py-16 text-center text-sm text-ink2">{accs?.items.length ? "还没有视频：点「全部同步」拉取数据" : "添加竞品账号后，这里会显示抓到的视频"}</div>}
 
             <SearchAccounts open={searching} onClose={() => setSearching(false)} onAdded={refresh} />
             <ReportDialog open={reporting} onClose={() => setReporting(false)} brands={brands} />

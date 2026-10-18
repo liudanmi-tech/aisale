@@ -36,7 +36,7 @@ def get_settings():
             {"name": "视频生成", "mode": {"fal": "fal.ai 真实调用", "byteplus": "BytePlus 直连", "mock": "模拟"}[vp], "ready": vp != "mock"},
             {"name": "大模型（Agent / 剧本 / 评测）", "mode": "OpenRouter 真实调用" if settings_store.llm_enabled() else "规则与模板", "ready": settings_store.llm_enabled()},
             {"name": "TikTok Marketing API", "mode": "真实调用" if config.TIKTOK_MODE == "real" else "模拟", "ready": bool(config.TIKTOK_ACCESS_TOKEN)},
-            {"name": "TikTok 账号监控", "mode": "Apify 真实抓取" if settings_store.get_secret("apify") else "未接入", "ready": bool(settings_store.get_secret("apify"))},
+            {"name": "TikTok 竞品雷达", "mode": "Apify 真实抓取" if settings_store.get_secret("apify") else "未接入", "ready": bool(settings_store.get_secret("apify"))},
             {"name": "第三方广告情报", "mode": "样例数据", "ready": False},
             {"name": "Meta / X", "mode": "二期", "ready": False},
         ],
