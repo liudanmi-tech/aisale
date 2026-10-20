@@ -1,4 +1,8 @@
 """成片：每镜可以调剪哪一段（开始点、时长、整段），默认按剧本时长从头剪。"""
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_flow.db")
+
 from types import SimpleNamespace
 
 from app import compose, production

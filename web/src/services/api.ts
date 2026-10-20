@@ -187,6 +187,32 @@ export interface FlowStep {
     path: string;
 }
 
+export interface CreatorPrice { low: number; high: number; currency: string; cpm: number; basis: string; assumed: boolean }
+export interface Creator {
+    id: string; handle: string; nickname: string; market: string; followers: number | null; verified: boolean; email: string; avatar: string;
+    source: string; found_by: string; tier: string; fit_score: number; best_product: string; price: CreatorPrice | Record<string, never>;
+    status: string; error: string; demo: boolean; categories: string[]; summary: string; stage: string; analyzed_at: string | null;
+    stats: { median_plays?: number; avg_plays?: number; engagement?: number; share_rate?: number; posts_per_week?: number | null; sponsored?: number;
+        competitor_recent?: string[]; own_brands?: string[]; fit_parts?: Record<string, number>; stability?: number };
+}
+export interface CreatorMail { dir: "out" | "in" | "note"; subject?: string; body: string; to?: string; at: string; demo?: boolean }
+export interface CreatorOutreach {
+    stage?: string; product?: string; brief?: string; to?: string; draft?: { subject: string; body: string } | null; thread?: CreatorMail[];
+    quote?: { amount: number; currency: string; videos: number; terms: string; per_video: number; vs_estimate: number };
+    counter?: { amount: number; body: string; within_budget: boolean };
+}
+export interface CreatorFull extends Creator {
+    bio: string; stats_full: Record<string, any>; outreach: CreatorOutreach;
+    videos: { url: string; cover: string; text: string; plays: number; engagement: number; posted_at: string | null; sponsored: boolean; brands: string[] }[];
+    analysis: { categories?: string[]; audience?: string; language?: string; style?: string; brand_safety?: string; safety_note?: string; summary?: string; by?: string; note?: string;
+        product_fit?: { line: string; score: number; reason: string }[] };
+}
+export interface CreatorJob { id: string; status: string; stage: string; found: number; added: string[]; error: string; skipped?: string[] }
+export interface CreatorList {
+    items: Creator[]; ready: boolean; llm: boolean; tiers: string[]; products: string[]; stages: string[];
+    settings: { cpm: Record<string, number>; keywords: Record<string, string[]> };
+}
+
 const get = <T,>(url: string, params?: object) => http.get<T>(url, { params }).then((r) => r.data);
 const post = <T = any,>(url: string, body?: object) => http.post<T>(url, body).then((r) => r.data);
 /** 要等大模型 / 上传的接口：放宽到 3 分钟 */
@@ -412,6 +438,20 @@ export const api = {
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
     saveRetries: (r: { keyframe?: number; clip?: number; kf_candidates?: number; kf_gate?: number }) => http.put("/settings/retries", r).then((x) => x.data),
+    // 达人雷达
+    creators: (q: { market?: string; tier?: string; product?: string; stage?: string } = {}) => get<CreatorList>("/creators", q),
+    creator: (id: string) => get<CreatorFull>(`/creators/${id}`),
+    deleteCreator: (id: string) => http.delete(`/creators/${id}`).then((r) => r.data),
+    discoverCreators: (b: { market: string; keywords?: string[]; from_competitors: boolean; limit: number }) => post<CreatorJob>("/creators/discover", b),
+    addCreators: (market: string, handles: string) => post<CreatorJob>("/creators/add", { market, handles }),
+    creatorJob: (id: string) => get<CreatorJob>(`/creators/jobs/${id}`),
+    demoCreators: (market: string) => http.post<{ added: number }>("/creators/demo", undefined, { params: { market } }).then((r) => r.data),
+    analyzeCreator: (id: string) => post(`/creators/${id}/analyze`),
+    saveCreatorSettings: (b: { cpm?: Record<string, number>; keywords?: Record<string, string[]> }) => http.put("/creators/settings", b).then((r) => r.data),
+    draftOutreach: (id: string, b: { product?: string; brief?: string }) => postSlow<CreatorOutreach>(`/creators/${id}/outreach/draft`, b),
+    sendOutreach: (id: string, b: { subject: string; body: string }) => post<CreatorOutreach>(`/creators/${id}/outreach/send`, b),
+    replyOutreach: (id: string) => post<CreatorOutreach>(`/creators/${id}/outreach/reply`),
+    stageOutreach: (id: string, stage: string, note = "") => post<CreatorOutreach>(`/creators/${id}/outreach/stage`, { stage, note }),
 };
 
 export const PROJECT_ID = "p1";

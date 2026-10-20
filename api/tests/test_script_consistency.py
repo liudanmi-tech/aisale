@@ -1,4 +1,8 @@
 """剧本和分镜、关键帧不打架：一镜一个景别；特写不拼两张脸；草图里的手机只是占位。"""
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_flow.db")
+
 from app import production, wash
 
 

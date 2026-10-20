@@ -1,4 +1,8 @@
 """竞品报告：封面以本地缓存为准（报告里存的 TikTok 链接会过期）。"""
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_flow.db")
+
 from fastapi.testclient import TestClient
 
 from app import config, monitor

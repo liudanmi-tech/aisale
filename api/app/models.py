@@ -264,3 +264,34 @@ class Asset(Base):
     source: Mapped[str] = mapped_column(String, default="ai")  # ai | upload
     status: Mapped[str] = mapped_column(String, default="ready")  # ready | generating | error
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Creator(Base):
+    """达人雷达：可合作的 TikTok 达人。指标来自最近的公开视频；适配分、报价预估是算出来的，外联记录在 outreach。"""
+
+    __tablename__ = "creator"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    platform: Mapped[str] = mapped_column(String, default="TikTok")
+    handle: Mapped[str] = mapped_column(String, index=True)  # 不带 @
+    nickname: Mapped[str] = mapped_column(String, default="")
+    market: Mapped[str] = mapped_column(String, default="尼日利亚")
+    followers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    bio: Mapped[str] = mapped_column(Text, default="")
+    email: Mapped[str] = mapped_column(String, default="")  # 简介里找到的邮箱
+    avatar: Mapped[str] = mapped_column(String, default="")
+    source: Mapped[str] = mapped_column(String, default="搜索")  # 搜索 / 竞品合作 / 手动 / 演示
+    found_by: Mapped[str] = mapped_column(String, default="")  # 搜索词 或 「@xiaomi_nigeria 的视频里 @ 过」
+    tier: Mapped[str] = mapped_column(String, default="")  # 头部 / 肩部 / 腰部 / 尾部 / 素人
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)  # 播放中位数、互动率、更新频率、合作品牌……
+    videos: Mapped[list] = mapped_column(JSON, default=list)  # 最近几条代表视频
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict)  # 内容类型、受众、适合的产品线和理由（模型判断）
+    fit_score: Mapped[int] = mapped_column(Integer, default=0)
+    best_product: Mapped[str] = mapped_column(String, default="")
+    price: Mapped[dict] = mapped_column(JSON, default=dict)  # 单条视频报价预估区间（按 CPM 假设）
+    status: Mapped[str] = mapped_column(String, default="new")  # new analyzing ok error
+    error: Mapped[str] = mapped_column(String, default="")
+    outreach: Mapped[dict] = mapped_column(JSON, default=dict)  # 外联（二期演示）：阶段、邮件往来、报价
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
