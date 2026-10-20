@@ -1,6 +1,6 @@
 import { Spin } from "antd";
 import { lazy, Suspense, type ComponentType } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, useRouteError } from "react-router-dom";
 
 import { AppLayout } from "@/layouts/app-layout";
 import CanvasPage from "@/pages/canvas-page";
@@ -30,10 +30,28 @@ const page = (load: () => Promise<{ default: ComponentType }>) => {
 const node = (name: "ScriptEditor" | "VideoStudio" | "EvalPage") => page(() => import("@/pages/node-pages").then((m) => ({ default: m[name] })));
 const ops = (name: "DataPage" | "Delivery" | "ReviewCenter") => page(() => import("@/pages/ops-pages").then((m) => ({ default: m[name] })));
 
+/** 页面出错时显示原因（默认的错误页是黑字，在深色背景上看起来就是黑屏）。 */
+function RouteError() {
+    const e = useRouteError() as any;
+    const msg = e?.message || e?.statusText || String(e);
+    return (
+        <div className="mx-auto max-w-[900px] p-8 text-ink">
+            <div className="text-lg font-semibold text-bad">页面出错了</div>
+            <div className="mt-2 text-sm text-ink2">把下面这段截图发给开发，一般刷新一下就能恢复。</div>
+            <pre className="mt-3 max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-lg bg-elev p-3 text-[12px] leading-5">{msg}{e?.stack ? `\n\n${e.stack}` : ""}</pre>
+            <div className="mt-3 flex gap-2">
+                <button className="cursor-pointer rounded-md border border-line bg-transparent px-3 py-1 text-sm text-ink" onClick={() => window.location.reload()}>刷新</button>
+                <button className="cursor-pointer rounded-md border border-line bg-transparent px-3 py-1 text-sm text-ink" onClick={() => { window.location.href = "/"; }}>回首页</button>
+            </div>
+        </div>
+    );
+}
+
 export const router = createBrowserRouter([
     {
         element: <AppLayout />,
-        children: [
+        errorElement: <RouteError />,
+        children: [{ errorElement: <RouteError />, children: [
             { path: "/", element: <Home /> },
             { path: "/ads", element: page(() => import("@/pages/ads")) },
             { path: "/sandbox", element: page(() => import("@/pages/sandbox")) },
@@ -51,6 +69,6 @@ export const router = createBrowserRouter([
             { path: "/review", element: ops("ReviewCenter") },
             { path: "/assets", element: page(() => import("@/pages/library")) },
             { path: "/settings", element: page(() => import("@/pages/settings")) },
-        ],
+        ] }],
     },
 ]);
