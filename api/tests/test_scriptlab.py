@@ -47,22 +47,40 @@ def test_trends_from_radar_data():
 
 
 def test_generate_evaluate_use(monkeypatch):
+    """创意锦标赛：8 路引擎 × 3 个编剧模型想 40 个创意 → 5 评委初筛 → 前 k 名写分镜（过可拍性自检）→ 正式打分；观众模拟；用到画布。"""
+    import json as _json
+    import re as _re
     monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
-    seen = {}
+    seen = {"idea": [], "write": [], "fix": 0}
 
-    async def fake_json(system, user, task="script", timeout=90):
-        if "整活" in system and "8 个" in system:
-            seen["idea"] = system
-            return {"ideas": [{"title": f"创意{k}", "format": "整活", "logline": f"故事{k}", "hook": "手机掉进水桶", "twist": "还能打游戏",
-                               "product_moment": "水里继续打 PUBG", "trend": "NEPA 停电" if k == 0 else "", "why_viral": "好笑", "risk": ""} for k in range(8)]}
-        if "评审" in system:
-            seen["critic"] = user
-            return {"reviews": [{"i": k + 1, "scores": {"novelty": 9 - k % 4, "hook": 8, "integration": 8, "local": 7, "feasible": 8, "safe": 9}, "verdict": "好"}
-                                for k in range(8)], "picked": [{"i": 1, "improve": "钩子再狠一点"}, {"i": 3, "improve": ""}]}
-        seen.setdefault("write", []).append(user)
-        return {"shots": [[2, "特写：手机掉进水桶", "Wahala!", "完了！"], [3, "中景：他捞出手机继续打游戏，随后切特写：屏幕朝镜头", "E still dey work", "还能用"],
+    async def fake_json(system, user, task="script", timeout=90, model=None):
+        if "这次的创意引擎" in system:
+            eng = _re.search(r"这次的创意引擎：(.+?)——", system).group(1)
+            seen["idea"].append((model, eng, system))
+            return {"ideas": [{"title": f"{eng}{k}", "format": eng, "logline": f"{eng} 故事{k}", "hook": "手机掉进水桶", "twist": "还能打游戏",
+                               "product_moment": "溅水后继续打 PUBG", "trend": "NEPA 停电" if k == 0 else "", "why_viral": "好笑", "risk": ""} for k in range(5)]}
+        if "超出了我们 AI 生成流程" in system:
+            seen["fix"] += 1
+            return {"shots": [[2, "特写：手机被溅到水", "Wahala!", "完了！"], [3, "中景：他擦干手机继续玩", "E still dey work", "还能用"],
+                              [2, "近景：他得意地笑", "No wahala", "没事"], [2, "近景：室友惊讶", "How?", "怎么做到的"], [2, "中景：两人击掌", "Yes!", "耶"],
+                              [3, "特写：手机正面朝镜头", "TECNO Pova", "TECNO Pova"]]}
+        seen["write"].append(user)
+        return {"shots": [[2, "特写：手机掉进水桶", "Wahala!", "完了！"], [3, "中景：一群学生围着看", "E still dey work", "还能用"],
                           [3, "特写：手机", "TECNO Pova", "TECNO Pova"]]}
     monkeypatch.setattr(llm, "chat_json", fake_json)
+    hi = {"荒诞升级0": 9, "恶作剧反转1": 9, "荒诞升级2": 9, "荒诞升级3": 9}
+
+    async def fake_chat(messages, model=None, **kw):
+        system, user = messages[0]["content"], messages[1]["content"]
+        if "一批" in system:  # 创意初筛：按编号给分
+            rows = []
+            for line in user.splitlines():
+                n, title = line.split(". ", 1)[0], line.split(". ", 1)[1].split("：")[0]
+                v = hi.get(title, 6)
+                rows.append({"i": int(n), **{k: v for k in ("hook", "local", "selling", "feasible", "safe")}})
+            return {"content": _json.dumps({"scores": rows})}
+        return {"content": _json.dumps({"scores": {k: 7 for k in ("hook", "local", "selling", "feasible", "safe")}, "issues": []})}
+    monkeypatch.setattr(llm, "chat", fake_chat)
 
     async def fake_panel(personas, shots, tasks, fallback, seed=""):
         assert len(personas) == 40 and tasks == []
@@ -72,18 +90,22 @@ def test_generate_evaluate_use(monkeypatch):
     monkeypatch.setattr(panel, "run", fake_panel)
     with TestClient(app) as c:
         j = c.post("/api/v1/scripts/generate", json={"market": "尼日利亚", "product": "TECNO Pova", "selling_point": "防水防尘", "audience": "学生",
-                                                     "trends": ["#lightout", "NEPA 停电"], "count": 2}).json()
+                                                     "trends": ["#lightout", "NEPA 停电"], "count": 3}).json()
         j = _wait(c, f"/api/v1/scripts/jobs/{j['id']}")
         assert j["status"] == "done", j
-        assert "NEPA 停电" in seen["idea"] and "防水防尘" in seen["idea"] and "钩子再狠一点" in "".join(seen["write"])
+        assert len(seen["idea"]) == 8 and len({m for m, _, _ in seen["idea"]}) == 3  # 8 路引擎，3 个编剧模型轮流
+        assert all("NEPA 停电" in sy and "防水防尘" in sy and "最多 2 个主要人物" in sy for _, _, sy in seen["idea"])  # 热点、卖点、生产边界都写进去了
         items = c.get("/api/v1/scripts", params={"market": "尼日利亚"}).json()["items"]
         mine = [x for x in items if x["batch"] == j["batch"]]
-        assert len(mine) == 2 and all(x["status"] == "ok" and x["critic"]["picked"] for x in mine)
-        s = next(x for x in mine if x["title"] == "创意0")
-        assert len(s["shots"]) == 4 and s["shots"][1][1].startswith("中景")  # 「随后切」拆成两镜
+        # 初筛前四名有 3 个「荒诞升级」：同一路引擎最多 2 个，第 3 名换成「恶作剧反转」
+        assert sorted(x["title"] for x in mine) == ["恶作剧反转1", "荒诞升级0", "荒诞升级2"]
+        assert all(x["status"] == "ok" and x["critic"]["picked"] and x["critic"]["of"] == 40 for x in mine)
+        assert seen["fix"] == 3 and all("一群" not in sh[1] for x in mine for sh in x["shots"])  # 可拍性自检：群戏镜头自动改掉
+        assert all(x["evaluation"]["judges"]["total"] == 70 for x in mine)  # 写完自动正式打分
+        s = mine[0]
         allx = c.get("/api/v1/scripts", params={"market": "尼日利亚", "concepts": True}).json()["items"]
         concepts = [x for x in allx if x["batch"] == j["batch"] and x["status"] == "concept"]
-        assert len(concepts) == 6 and concepts[0]["critic"]["total"] > 0
+        assert len(concepts) == 37 and concepts[0]["critic"]["total"] >= concepts[-1]["critic"]["total"]  # 备选创意按初筛分排
         # 备选创意写成剧本
         assert c.post(f"/api/v1/scripts/{concepts[0]['id']}/write", json={}).status_code == 200
         for _ in range(100):
@@ -91,7 +113,7 @@ def test_generate_evaluate_use(monkeypatch):
                 break
             time.sleep(0.03)
         assert c.get(f"/api/v1/scripts/{concepts[0]['id']}").json()["shots"]
-        # 评测
+        # 观众模拟
         assert c.post(f"/api/v1/scripts/{s['id']}/evaluate").status_code == 200
         for _ in range(100):
             ev = c.get(f"/api/v1/scripts/{s['id']}").json()
@@ -99,15 +121,24 @@ def test_generate_evaluate_use(monkeypatch):
                 break
             time.sleep(0.03)
         au = ev["evaluation"]["audience"]
-        assert au["score"] == 72 and au["completion"] == 50 and au["clicks"] == 1
+        assert au["score"] == 72 and au["completion"] == 50 and au["clicks"] == 1 and ev["evaluation"]["judges"]  # 评委结果还在
         # 用到画布：建剧本节点并进入审核
         pid = c.post("/api/v1/projects", json={"name": "剧本库"}).json()["id"]
         monkeypatch.setattr(settings_store, "llm_enabled", lambda: False)
         nid = c.post(f"/api/v1/scripts/{s['id']}/use", json={"project_id": pid}).json()["node_id"]
         with SessionLocal() as db:
             n = db.get(Node, nid)
-            assert n.type == "script" and n.status == "wait" and n.data["from_library"] == s["id"] and len(n.data["shots"]) == 4
+            assert n.type == "script" and n.status == "wait" and n.data["from_library"] == s["id"] and len(n.data["shots"]) == 6
             assert db.get(LibScript, s["id"]).used[0]["node_id"] == nid
+
+
+def test_lint_rules():
+    shots = [["0–2s", "特写：一群学生围着他", "a", "a"], ["2–7s", "手机屏幕上显示游戏角色在奔跑", "b", "b"],
+             ["7–9s", "中景：他盯着手机〔后期贴屏〕，屏幕上显示游戏画面", "c", "c"]]
+    rules = [(x["shot"], x["rule"]) for x in scriptlab.lint(shots)]
+    has = lambda n, prefix: any(r[0] == n and r[1].startswith(prefix) for r in rules)  # noqa: E731
+    assert has(1, "人群 / 群戏") and has(2, "这一镜 5 秒") and has(2, "屏幕内容") and has(0, "镜头数 3")
+    assert not any(r[0] == 3 for r in rules)  # 标了后期贴屏的不算
 
 
 def test_memes_refresh(monkeypatch):

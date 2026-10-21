@@ -10,7 +10,8 @@ import { api, type LibScript, type LibScriptEval, type MemeCard, type ScriptJob 
 import { useCurrentProject } from "@/stores/project-store";
 
 const MARKETS = ["尼日利亚", "巴基斯坦", "肯尼亚", "加纳", "孟加拉", "印尼", "菲律宾"];
-const CRITIC: [string, string][] = [["novelty", "新奇"], ["hook", "钩子"], ["integration", "卖点融合"], ["local", "本地味"], ["feasible", "可拍"], ["safe", "安全"]];
+// 创意阶段的评委分：新版是和正式打分同样的 5 个维度；老数据是单个评审的 6 项
+const CRITIC: [string, string][] = [["hook", "钩子"], ["local", "本地化"], ["selling", "卖点"], ["feasible", "可拍"], ["safe", "合规"], ["novelty", "新奇"], ["integration", "卖点融合"]];
 const EVAL: [string, string][] = [["hook", "开头抓人"], ["clarity", "卖点清楚"], ["trust", "可信"], ["local", "本地感"], ["intent", "想买"]];
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
@@ -39,7 +40,7 @@ function Generator({ market, meta, onStart }: { market: string; meta?: { product
     const go = useMutation({
         mutationFn: () => api.generateScripts({ market, product, selling_point: sp, audience: aud, formats, brief, count, specs,
             trends: [...picked, ...custom.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean)] }),
-        onSuccess: (j) => { onStart(j); message.info("开始生成：头脑风暴 → 评审 → 写分镜，大约 1–2 分钟"); }, onError: (e) => message.error(errMsg(e)),
+        onSuccess: (j) => { onStart(j); message.info("开始创意锦标赛：想约 40 个创意 → 5 评委初筛 → 写前几名 → 正式打分，大约 4–6 分钟"); }, onError: (e) => message.error(errMsg(e)),
     });
     const chip = (t: string, label: React.ReactNode, title?: string) => (
         <button key={t} title={title} onClick={() => toggle(t)}
@@ -55,7 +56,7 @@ function Generator({ market, meta, onStart }: { market: string; meta?: { product
                 <span className="text-ink2">形式</span><Select size="small" mode="multiple" className="min-w-[260px]" value={formats} onChange={setFormats} options={(meta?.formats || []).map((p) => ({ value: p }))} maxTagCount={3} />
                 <Tooltip title="剧本里只会用这里写的参数；没写的一个数字都不会编。防水没写 IP 等级时，只拍溅水、淋小雨，不拍掉水里">
                     <Input size="small" className="!w-72" placeholder="已知参数（可选）：如 IP64 防水防尘、6000mAh" value={specs} onChange={(e) => setSpecs(e.target.value)} /></Tooltip>
-                <span className="text-ink2">出</span><InputNumber size="small" min={1} max={5} value={count} onChange={(v) => setCount(v || 3)} className="!w-14" /><span className="text-ink2">个剧本</span>
+                <span className="text-ink2">写前</span><InputNumber size="small" min={1} max={5} value={count} onChange={(v) => setCount(v || 3)} className="!w-14" /><span className="text-ink2">名</span>
             </div>
             <div className="mt-3 rounded-lg border border-line p-2">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -133,8 +134,8 @@ function ScriptCard({ s, onOpen }: { s: LibScript; onOpen: () => void }) {
                     </div>
                 </div>
                 <div className="shrink-0 text-right">
-                    <Tooltip title="评审分（新奇、钩子、卖点融合、本地味、可拍、安全加权）"><div className={clsx("text-lg font-bold leading-6", scoreColor(s.critic.total || 0))}>{s.critic.total ?? "—"}</div></Tooltip>
-                    <div className="text-[10px] text-ink2">评审</div>
+                    <Tooltip title="创意初筛分：5 个评委看创意（还没写成分镜）按 5 个维度打的分"><div className={clsx("text-lg font-bold leading-6", scoreColor(s.critic.total || 0))}>{s.critic.total ?? "—"}</div></Tooltip>
+                    <div className="text-[10px] text-ink2">{s.critic.rank ? `创意 #${s.critic.rank}` : "评审"}</div>
                 </div>
             </div>
             <div className="line-clamp-2 text-ink">{s.concept.logline}</div>
@@ -190,8 +191,9 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
                     {s.concept.risk && <div className="text-warn">风险：{s.concept.risk}</div>}
                 </div>
                 <div className="rounded-lg border border-line p-3">
-                    <div className="mb-1 flex items-center gap-2 font-medium">评审 <span className={clsx("text-lg", scoreColor(s.critic.total || 0))}>{s.critic.total}</span>
-                        <span className="text-[11px] font-normal text-ink2">{s.critic.by}</span></div>
+                    <div className="mb-1 flex flex-wrap items-center gap-2 font-medium">创意初筛 <span className={clsx("text-lg", scoreColor(s.critic.total || 0))}>{s.critic.total}</span>
+                        {s.critic.rank && <Tag className="!m-0">第 {s.critic.rank} / {s.critic.of} 名</Tag>}
+                        <span className="text-[11px] font-normal text-ink2">{s.critic.by}{s.concept.engine && ` · 创意引擎：${s.concept.engine}`}{s.concept.writer && ` · 编剧：${s.concept.writer.split("/").pop()}`}</span></div>
                     <Scores s={s.critic.scores} keys={CRITIC} />
                     {s.critic.verdict && <div className="mt-1 text-ink2">{s.critic.verdict}</div>}
                     {s.critic.improve && <div className="mt-1"><span className="text-ink2">改进意见（写分镜时已采纳）：</span>{s.critic.improve}</div>}
@@ -270,7 +272,7 @@ export function ScriptLibrary() {
             {data && !data.llm && <Alert className="mb-3" type="warning" showIcon message="剧本库需要大模型：到「设置」里填 OpenRouter Key 后才能生成和评测" />}
             <div className="mb-3 flex items-center gap-2 text-[13px]">
                 <span className="text-ink2">市场</span><Select size="small" className="w-28" value={market} onChange={setMarket} options={MARKETS.map((m) => ({ value: m }))} />
-                <label className="ml-2 flex cursor-pointer items-center gap-1 text-ink2"><Switch size="small" checked={concepts} onChange={setConcepts} />显示备选创意（评审没选上、还没写成分镜的）</label>
+                <label className="ml-2 flex cursor-pointer items-center gap-1 text-ink2"><Switch size="small" checked={concepts} onChange={setConcepts} />显示备选创意（锦标赛没进前几名、还没写成分镜的，按初筛分排）</label>
                 {job && <span className={clsx("ml-auto text-[12px]", job.status === "error" ? "text-bad" : "text-ink2")}>
                     {job.status === "running" && <RefreshCw size={12} className="mr-1 inline animate-spin" />}{job.stage}{job.error && `：${job.error}`}</span>}
             </div>

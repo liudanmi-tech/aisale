@@ -237,8 +237,8 @@ export interface ScriptVersionPoint { version: number; total: number; verdict: s
 export interface JudgeSettings { models: string[]; weights: Record<string, number>; double: boolean; dims: { key: string; name: string; weight: number; what: string; anchor: string }[] }
 export interface LibScript {
     id: string; batch: string; market: string; product: string; selling_point: string; audience: string; format: string; title: string;
-    concept: { logline?: string; hook?: string; twist?: string; product_moment?: string; trend?: string; why_viral?: string; risk?: string };
-    critic: { scores?: Record<string, number>; total?: number; verdict?: string; improve?: string; picked?: boolean; by?: string };
+    concept: { logline?: string; hook?: string; twist?: string; product_moment?: string; trend?: string; why_viral?: string; risk?: string; engine?: string; writer?: string };
+    critic: { scores?: Record<string, number>; total?: number; verdict?: string; improve?: string; picked?: boolean; by?: string; rank?: number; of?: number; judges?: number };
     shots: string[][]; evaluation: { judges?: JudgesEval; audience?: LibScriptEval; previous?: { total: number; verdict: string; version: number };
         history?: ScriptVersionPoint[]; rounds?: ImproveRound[] } & Partial<LibScriptEval>;
     stage?: string;

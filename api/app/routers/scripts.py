@@ -20,7 +20,12 @@ def list_scripts(market: str = "", concepts: bool = False, db: Session = Depends
         q = q.filter(LibScript.market == market)
     if not concepts:
         q = q.filter(LibScript.status != "concept")
-    items = [scriptlab.script_dict(s) for s in q.order_by(LibScript.created_at.desc()).limit(200)]
+    rows = q.order_by(LibScript.created_at.desc()).limit(300).all()
+    newest = {}
+    for s in rows:  # 批次按时间新到旧；同一批里写好的剧本在前，备选创意按初筛分从高到低
+        newest.setdefault(s.batch, len(newest))
+    rows.sort(key=lambda s: (newest[s.batch], s.status == "concept", -((s.critic or {}).get("total") or 0)))
+    items = [scriptlab.script_dict(s) for s in rows[:200]]
     return {"items": items, "llm": settings_store.llm_enabled(), "products": list(PRODUCT_LINES), "selling_points": scriptlab.SELLING_POINTS,
             "formats": scriptlab.FORMATS, "audiences": scriptlab.AUDIENCES}
 

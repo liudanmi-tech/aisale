@@ -52,6 +52,35 @@ PROMPT = """你是短视频广告评审，给一条 TikTok 手机广告剧本打
  "confidence": "high/mid/low"}}"""
 
 
+# ---------- 并发：有截止时间，够数就不等最慢的 ----------
+
+async def gather_quorum(coros: list, deadline: float, enough: int) -> list:
+    """并发跑完 coros；到 deadline 秒时，只要已经有 enough 个成功就取消还没回来的（结果记为 TimeoutError），不够就再等到全部结束。
+    返回值顺序和 coros 一致，失败的是异常对象。"""
+    tasks = [asyncio.ensure_future(c) for c in coros]
+    done, pending = await asyncio.wait(tasks, timeout=deadline)
+    ok = sum(1 for t in done if not t.cancelled() and t.exception() is None and t.result() not in (None, {}) and "error" not in (t.result() if isinstance(t.result(), dict) else {}))
+    if pending and ok >= enough:
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    elif pending:
+        await asyncio.wait(pending)
+    out = []
+    for t in tasks:
+        if t.cancelled():
+            out.append(asyncio.TimeoutError(f"超过 {deadline:g} 秒没回来，已跳过"))
+        elif t.exception() is not None:
+            out.append(t.exception())
+        else:
+            out.append(t.result())
+    return out
+
+
+DEADLINE = 120  # 正式打分：120 秒时够 3 个评委就不等慢的
+CONCEPT_DEADLINE = 150
+
+
 # ---------- 设置 ----------
 
 def get_settings() -> dict:
@@ -225,7 +254,8 @@ async def score(s: LibScript, shots: list | None = None, cfg: dict | None = None
     system, user = _prompt(s, shots)
     n_shots = len((s.shots if shots is None else shots) or [])
     used = set(cfg["models"])
-    results = await asyncio.gather(*(judge_one(m, system, user, n_shots, cfg["double"], used) for m in cfg["models"]))
+    got = await gather_quorum([judge_one(m, system, user, n_shots, cfg["double"], used) for m in cfg["models"]], DEADLINE, MIN_JUDGES + 1)
+    results = [g if isinstance(g, dict) else {"model": m, "error": str(g)[:160] or type(g).__name__} for m, g in zip(cfg["models"], got)]
     ok = [r for r in results if "scores" in r]
     if len(ok) < MIN_JUDGES:
         raise RuntimeError(f"只有 {len(ok)} 个评委打完分（至少要 {MIN_JUDGES} 个）：" + "；".join(f"{r['model']} {r.get('error')}" for r in results if "error" in r)[:300])
@@ -285,3 +315,64 @@ def rewrite_comment(judges: dict, top: int = 6) -> str:
     if low:
         lines.append("得分最低的维度：" + "、".join(f"{v['name']} {v['median']} 分（{v['low']['reason']}）" for _, v in low))
     return "按评委意见改：\n" + "\n".join(f"- {x}" for x in lines) + ("\n保留：" + "；".join(judges.get("highlights") or []) if judges.get("highlights") else "")
+
+
+# ---------- 创意阶段：5 个评委批量给创意打分（锦标赛初筛） ----------
+
+CONCEPT_PROMPT = """你是短视频广告评审，给一批 TikTok 手机广告的「创意」打分（还没写成分镜，只看创意本身能不能成爆款）。
+市场：{market}；产品：{product}；卖点：{selling_point}；目标人群：{audience}
+按 5 个维度各打 1–10 的整数分：
+{rubric}
+可拍性按「最多 2 个主要人物露脸、动作简单、屏幕不出现界面」的 AI 生成流程判断。
+参照尺子：普通的手机广告创意各维度大约 5 分；只有本地爆款级别的才给 9 分以上。要拉开差距，不要都给 7 分。
+只输出 JSON：{{"scores": [{{"i": 创意编号, {keys}}}, ...每个创意一条]}}"""
+CONCEPT_BATCH = 20
+
+
+async def score_concepts(ideas: list[dict], ctx: dict, cfg: dict | None = None) -> list[dict]:
+    """ideas：[{title, logline, hook, twist, product_moment, trend}]。返回每个创意的 {dims 中位数, total, judges 数}。"""
+    cfg = cfg or get_settings()
+    rubric = "\n".join(f"- {k}（{n}）：{what}。{a}" for k, n, _, what, a in DIMS)
+    system = CONCEPT_PROMPT.format(rubric=rubric, keys=", ".join(f'"{k}": 1-10' for k in DIM_KEYS), **ctx)
+    batches = [list(range(i, min(len(ideas), i + CONCEPT_BATCH))) for i in range(0, len(ideas), CONCEPT_BATCH)]
+
+    async def one(model: str, idx: list[int]) -> dict[int, dict]:
+        listing = "\n".join(f"{i + 1}. {ideas[i].get('title')}：{ideas[i].get('logline')}｜前 2 秒：{ideas[i].get('hook')}｜反转：{ideas[i].get('twist')}"
+                             f"｜卖点怎么落地：{ideas[i].get('product_moment')}" + (f"｜热点：{ideas[i]['trend']}" if ideas[i].get("trend") else "") for i in idx)
+        for _ in range(2):
+            try:
+                msg = await llm.chat([{"role": "system", "content": system}, {"role": "user", "content": listing}], json_mode=True, task="eval",
+                                     model=model, timeout=150)
+                out = {}
+                for r in llm.parse_json(msg.get("content") or "").get("scores") or []:
+                    try:
+                        i = int(r.get("i")) - 1
+                        if i in idx:
+                            out[i] = {k: max(1, min(10, int(round(float(r[k]))))) for k in DIM_KEYS}
+                    except (TypeError, ValueError, KeyError):
+                        continue
+                if out:
+                    return out
+            except Exception as e:  # noqa: BLE001
+                log.info("创意打分 %s 失败：%s", model, e)
+        return {}
+
+    got = await gather_quorum([one(m, b) for m in cfg["models"] for b in batches], CONCEPT_DEADLINE, (MIN_JUDGES + 1) * len(batches))
+    per: dict[int, list[dict]] = {}
+    for g in got:
+        if not isinstance(g, dict):
+            continue
+        for i, sc in g.items():
+            per.setdefault(i, []).append(sc)
+    wsum = sum(cfg["weights"].values()) or 1
+    res = []
+    for i in range(len(ideas)):
+        rows = per.get(i) or []
+        if len(rows) < MIN_JUDGES:
+            res.append({"dims": {}, "total": 0, "judges": len(rows)})
+            continue
+        dims = {k: statistics.median(r[k] for r in rows) for k in DIM_KEYS}
+        res.append({"dims": dims, "total": round(sum(dims[k] * cfg["weights"][k] for k in DIM_KEYS) / wsum * 10), "judges": len(rows),
+                    "spread": round(statistics.pstdev([sum(r[k] * cfg["weights"][k] for k in DIM_KEYS) / wsum * 10 for r in rows]), 1)})
+    return res
+

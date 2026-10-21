@@ -55,7 +55,7 @@ def instructions(jd: dict, concept: dict) -> dict[str, str]:
 
 
 async def _variant(s: LibScript, mode: str, text: str) -> list:
-    from app.scriptlab import LANG, WRITE_PROMPT, _water_rule
+    from app.scriptlab import LANG, PRODUCTION, WRITE_PROMPT, _water_rule, lint_fix
     from app.wash import split_cuts
     from app.workflows import _normalize_shots
     c = s.concept or {}
@@ -63,12 +63,13 @@ async def _variant(s: LibScript, mode: str, text: str) -> list:
     user = (f"创意：{c.get('title')}｜{c.get('logline')}\n钩子：{c.get('hook')}\n反转：{c.get('twist')}\n卖点证明：{c.get('product_moment')}\n"
             f"热点：{c.get('trend') or '无'}\n\n当前剧本：{json.dumps(s.shots, ensure_ascii=False)}\n\n这次的改法：{text}")
     out = await llm.chat_json(WRITE_PROMPT.format(market=s.market, product=s.product, selling_point=s.selling_point, audience=s.audience,
-                                                  lang=LANG.get(s.market, "当地常用语言"), specs=specs or "（没给）", water_rule=_water_rule(specs)),
-                              user, task="script", timeout=150)
+                                                  lang=LANG.get(s.market, "当地常用语言"), specs=specs or "（没给）", water_rule=_water_rule(specs),
+                                                  production=PRODUCTION), user, task="script", timeout=150)
     rows = [r for r in out.get("shots") or [] if isinstance(r, list) and len(r) >= 2]
     if len(rows) < 3:
         raise RuntimeError("模型写的分镜太少")
-    return split_cuts(_normalize_shots(rows))[0]
+    shots, _left = await lint_fix(split_cuts(_normalize_shots(rows))[0])  # 改写出来的版本同样先过可拍性自检
+    return shots
 
 
 def _weighted(scores: dict, weights: dict) -> float:

@@ -79,7 +79,8 @@ def test_run_five_models_with_fallback(monkeypatch):
         seen = {}
 
         async def fake_json(system, user, **kw):
-            seen["user"] = user
+            if "超出了我们 AI 生成流程" not in system:  # 可拍性自检的修改请求不算
+                seen["user"] = user
             return {"shots": [[2, "特写：手机", "Go!", "走"], [3, "中景：两人", "Win", "赢"], [2, "特写：手机", "TECNO", "TECNO"]]}
         monkeypatch.setattr(llm, "chat_json", fake_json)
         assert c.post(f"/api/v1/scripts/{sid}/rewrite-by-judges").status_code == 200
@@ -150,3 +151,19 @@ def test_paired_rule_rejects_one_judge_swing():
     base = {"results": [_r(m, 7, 7, 7, 7, 7) for m in "abcde"]}
     new = {"results": [_r("a", 10, 10, 10, 10, 10)] + [_r(m, 7, 7, 7, 7, 7) for m in "bcde"]}
     assert improve._paired(base, new, W) == (1, 5)
+
+
+def test_gather_quorum_skips_stragglers():
+    import asyncio
+
+    async def fast(v):
+        return {"v": v}
+
+    async def slow():
+        await asyncio.sleep(5)
+        return {"v": "slow"}
+    t0 = time.time()
+    out = asyncio.run(judges.gather_quorum([fast(1), fast(2), slow(), fast(3)], 0.2, 3))
+    assert time.time() - t0 < 2 and [o["v"] for o in out if isinstance(o, dict)] == [1, 2, 3] and isinstance(out[2], asyncio.TimeoutError)
+    out = asyncio.run(judges.gather_quorum([fast(1), slow()], 0.2, 2))  # 不够数：等全部回来
+    assert [o["v"] for o in out] == [1, "slow"]

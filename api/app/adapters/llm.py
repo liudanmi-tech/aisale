@@ -98,8 +98,8 @@ def parse_json(text: str) -> dict:
     return json.loads(t[start:end + 1])
 
 
-async def chat_json(system: str, user: str, task: str = "script", timeout: float = 90) -> dict:
-    msg = await chat([{"role": "system", "content": system}, {"role": "user", "content": user}], json_mode=True, task=task, timeout=timeout)
+async def chat_json(system: str, user: str, task: str = "script", timeout: float = 90, model: str | None = None) -> dict:
+    msg = await chat([{"role": "system", "content": system}, {"role": "user", "content": user}], json_mode=True, task=task, timeout=timeout, model=model)
     return parse_json(msg.get("content") or "")
 
 
