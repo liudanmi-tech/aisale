@@ -90,3 +90,63 @@ def test_run_five_models_with_fallback(monkeypatch):
             time.sleep(0.03)
         assert "5 个评委提到" in seen["user"] and d["version"] == 2 and len(d["shots"]) == 3
         assert d["evaluation"]["previous"]["total"] == jd["total"]
+
+
+def test_improve_round_accept_reject_stall_adopt(monkeypatch):
+    """自动改进一轮：A/B/C 三个版本和原版同轮打分；高 3 分以上才采用；连续 2 轮没进步提示换创意；可以手动采用任一版。"""
+    from app import improve
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    boost = {"v": 3}
+
+    async def fake_chat(messages, model=None, **kw):
+        text = messages[1]["content"]
+        base = 6 + (boost["v"] if "BOOM" in text else 0) + (1 if "TWEAK" in text else 0)
+        return {"content": json.dumps({"scores": {k: min(10, base) for k in judges.DIM_KEYS}, "reasons": {"hook": "x"},
+                                       "issues": [{"shot": 1, "dim": "hook", "problem": "钩子弱", "fix": "加异常画面", "severity": "high"}]})}
+    seen = []
+
+    async def fake_json(system, user, **kw):
+        seen.append(user)
+        tag = "BOOM" if "重写结构" in user else "TWEAK"
+        return {"shots": [[2, f"特写：{tag} 手机", "Go", "走"], [3, "中景：两人", "Win", "赢"], [2, "特写：手机", "TECNO", "TECNO"]]}
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    monkeypatch.setattr(llm, "chat_json", fake_json)
+    with TestClient(app) as c:
+        with SessionLocal() as db:
+            s = LibScript(id=new_id("ls"), market="尼日利亚", product="TECNO Pova", selling_point="打游戏不卡", audience="学生", title="t",
+                          concept={"logline": "停电打游戏", "trend": "NEPA"}, shots=[["0–2s", "特写：手机", "a", "a"], ["2–5s", "中景：两人", "b", "b"]], status="ok")
+            db.add(s)
+            db.commit()
+            sid = s.id
+
+        def go():
+            assert c.post(f"/api/v1/scripts/{sid}/improve").status_code == 200
+            for _ in range(300):
+                d = c.get(f"/api/v1/scripts/{sid}").json()
+                if d["status"] == "ok":
+                    return d
+                time.sleep(0.03)
+        d = go()
+        r = d["evaluation"]["rounds"][-1]
+        assert [x["label"] for x in r["candidates"]] == ["原版", "攻短板", "改共识问题", "重写结构"]
+        assert any("攻短板" in u for u in seen) and any("重写结构" in u and "停电打游戏" in u for u in seen)  # C 版保留创意核心
+        assert r["accepted"] and r["winner"] == "重写结构" and r["gain"] == 30 and d["version"] == 2 and "BOOM" in d["shots"][0][1]
+        assert r["candidates"][3]["prefer"] == 5 and r["candidates"][3]["paired"] == 5  # 5 个评委都给新版打了更高分
+        assert [h["how"] for h in d["evaluation"]["history"]][-1] == "自动改进：重写结构"
+        # 现在的剧本已经是 BOOM 版：新版本都不比它高 3 分 → 不采用、保留原版
+        d = go()
+        assert not d["evaluation"]["rounds"][-1]["accepted"] and d["version"] == 2 and "保留原版" in d["error"]
+        d = go()
+        assert d["evaluation"]["rounds"][-1]["stall"] == 2 and "换一个备选创意" in d["error"]
+        # 手动采用上一轮的「攻短板」
+        assert c.post(f"/api/v1/scripts/{sid}/adopt", json={"round": len(d["evaluation"]["rounds"]) - 1, "candidate": 1}).status_code == 200
+        d = c.get(f"/api/v1/scripts/{sid}").json()
+        assert d["version"] == 3 and "TWEAK" in d["shots"][0][1] and d["evaluation"]["judges"]["total"] > 0
+
+
+def test_paired_rule_rejects_one_judge_swing():
+    """总分高了但只有 1 个评委更喜欢（其他人没变）：算波动，不采用。"""
+    from app import improve
+    base = {"results": [_r(m, 7, 7, 7, 7, 7) for m in "abcde"]}
+    new = {"results": [_r("a", 10, 10, 10, 10, 10)] + [_r(m, 7, 7, 7, 7, 7) for m in "bcde"]}
+    assert improve._paired(base, new, W) == (1, 5)

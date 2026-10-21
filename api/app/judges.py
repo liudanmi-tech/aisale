@@ -81,15 +81,16 @@ def set_settings(values: dict) -> dict:
 
 # ---------- 单个评委 ----------
 
-def _prompt(s: LibScript) -> tuple[str, str]:
+def _prompt(s: LibScript, shots: list | None = None) -> tuple[str, str]:
     rubric = "\n".join(f"- {k}（{n}）：{what}。{a}" for k, n, _, what, a in DIMS)
     system = PROMPT.format(market=s.market, product=s.product, selling_point=s.selling_point, audience=s.audience,
                            specs=(s.concept or {}).get("specs") or "（没给，剧本里出现的任何参数数字都算编造）", rubric=rubric,
                            keys=", ".join(f'"{k}": 1-10' for k in DIM_KEYS))
     c = s.concept or {}
-    shots = "\n".join(f"镜 {i + 1}（{x[0]}）画面：{x[1]}｜口播：{x[2] if len(x) > 2 else ''}｜中文：{x[3] if len(x) > 3 else ''}" for i, x in enumerate(s.shots or []))
+    rows = s.shots if shots is None else shots
+    text = "\n".join(f"镜 {i + 1}（{x[0]}）画面：{x[1]}｜口播：{x[2] if len(x) > 2 else ''}｜中文：{x[3] if len(x) > 3 else ''}" for i, x in enumerate(rows or []))
     user = (f"创意：{c.get('logline', '')}\n钩子：{c.get('hook', '')}\n反转：{c.get('twist', '')}\n卖点怎么落地：{c.get('product_moment', '')}\n"
-            f"借的热点：{c.get('trend') or '无'}\n\n剧本（{len(s.shots or [])} 镜）：\n{shots}")
+            f"借的热点：{c.get('trend') or '无'}\n\n剧本（{len(rows or [])} 镜）：\n{text}")
     return system, user
 
 
@@ -218,29 +219,52 @@ def aggregate(results: list[dict], weights: dict) -> dict:
             "highlights": list(dict.fromkeys(h for r in ok for h in r["highlights"]))[:6]}
 
 
+async def score(s: LibScript, shots: list | None = None, cfg: dict | None = None) -> dict:
+    """给一个剧本（或它的一个改写版本 shots）打一轮分，返回汇总结果。评委不够就抛错。不写库。"""
+    cfg = cfg or get_settings()
+    system, user = _prompt(s, shots)
+    n_shots = len((s.shots if shots is None else shots) or [])
+    used = set(cfg["models"])
+    results = await asyncio.gather(*(judge_one(m, system, user, n_shots, cfg["double"], used) for m in cfg["models"]))
+    ok = [r for r in results if "scores" in r]
+    if len(ok) < MIN_JUDGES:
+        raise RuntimeError(f"只有 {len(ok)} 个评委打完分（至少要 {MIN_JUDGES} 个）：" + "；".join(f"{r['model']} {r.get('error')}" for r in results if "error" in r)[:300])
+    return {**aggregate(results, cfg["weights"]), "results": results, "weights": cfg["weights"], "at": datetime.utcnow().isoformat(),
+            "note": f"{len(ok)} 个不同的大模型各自按同样 5 个维度打分；维度取中位数，再按权重算总分"}
+
+
+KEEP_KEYS = ("audience", "previous", "history", "rounds")
+
+
+def merge_eval(cur: dict | None, judges: dict | None = None) -> dict:
+    """更新评测：保留观众模拟、版本轨迹、改进记录，换上新的评委结果。"""
+    cur = dict(cur or {})
+    if cur and not ({"judges", *KEEP_KEYS} & set(cur)):  # 老数据：整份就是 40 人评测，挪到 audience 下
+        cur = {"audience": cur}
+    ev = {k: cur[k] for k in KEEP_KEYS if k in cur}
+    if judges is not None:
+        ev["judges"] = judges
+    return ev
+
+
+def history_point(version: int, jd: dict, how: str) -> dict:
+    return {"version": version, "total": jd["total"], "verdict": jd["verdict"], "dims": {k: d["median"] for k, d in jd["dims"].items()},
+            "how": how, "at": jd["at"]}
+
+
 async def run(sid: str) -> None:
-    cfg = get_settings()
     with SessionLocal() as db:
         s = db.get(LibScript, sid)
         s.status = "judging"
         db.commit()
-        system, user = _prompt(s)
-        n_shots = len(s.shots or [])
-    used = set(cfg["models"])
+        db.expunge(s)
     try:
-        results = await asyncio.gather(*(judge_one(m, system, user, n_shots, cfg["double"], used) for m in cfg["models"]))
-        ok = [r for r in results if "scores" in r]
-        if len(ok) < MIN_JUDGES:
-            raise RuntimeError(f"只有 {len(ok)} 个评委打完分（至少要 {MIN_JUDGES} 个）：" + "；".join(f"{r['model']} {r.get('error')}" for r in results if "error" in r)[:300])
-        agg = aggregate(results, cfg["weights"])
+        jd = await score(s)
         with SessionLocal() as db:
             s = db.get(LibScript, sid)
-            cur = dict(s.evaluation or {})
-            if cur and not ({"judges", "audience", "previous"} & set(cur)):  # 老数据：整份就是 40 人评测，挪到 audience 下
-                cur = {"audience": cur}
-            ev = {k: cur[k] for k in ("audience", "previous") if k in cur}
-            ev["judges"] = {**agg, "results": results, "weights": cfg["weights"], "at": datetime.utcnow().isoformat(),
-                            "note": f"{len(ok)} 个不同的大模型各自按同样 5 个维度打分；维度取中位数，再按权重算总分"}
+            ev = merge_eval(s.evaluation, jd)
+            hist = [h for h in ev.get("history") or [] if h["version"] != s.version]
+            ev["history"] = [*hist, history_point(s.version, jd, "重新打分")][-20:]
             s.evaluation, s.status, s.error = ev, "ok", ""
             db.commit()
     except Exception as e:  # noqa: BLE001

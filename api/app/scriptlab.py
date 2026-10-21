@@ -241,8 +241,12 @@ async def _write_one(sid: str, improve: str = "", comment: str = "", rejudge: bo
             s.shots, s.status = shots, "ok"
             if comment:
                 s.version += 1
+                from app.judges import merge_eval
                 old = (s.evaluation or {}).get("judges") or {}
-                s.evaluation = {"previous": {"total": old.get("total"), "verdict": old.get("verdict"), "version": s.version - 1}} if old else {}  # 改过了：旧评测作废，只留上一版总分对比
+                ev = {k: v for k, v in merge_eval(s.evaluation).items() if k in ("history", "rounds")}  # 改过了：旧评测作废，保留版本轨迹
+                if old:
+                    ev["previous"] = {"total": old.get("total"), "verdict": old.get("verdict"), "version": s.version - 1}
+                s.evaluation = ev
             db.commit()
         if rejudge:
             from app import judges
@@ -276,9 +280,9 @@ async def evaluate(sid: str) -> None:
               "note": "40 个本地虚拟用户读剧本（没有画面），逐镜和平时刷到的手机广告比；是相对判断，不是真实投放数据"}
         with SessionLocal() as db:
             s = db.get(LibScript, sid)
-            cur = dict(s.evaluation or {})
-            keep = {"judges": cur["judges"]} if cur.get("judges") else {}
-            s.evaluation, s.status, s.error = {**keep, "audience": ev}, "ok", ""  # 观众模拟和评委打分分开存
+            from app.judges import merge_eval
+            cur = merge_eval(s.evaluation, (s.evaluation or {}).get("judges"))
+            s.evaluation, s.status, s.error = {**cur, "audience": ev}, "ok", ""  # 观众模拟和评委打分分开存
             db.commit()
     except Exception as e:  # noqa: BLE001
         log.warning("剧本评测失败 %s：%s", sid, e)

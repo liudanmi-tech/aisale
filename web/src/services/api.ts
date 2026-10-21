@@ -229,12 +229,19 @@ export interface JudgesEval {
     issues: { shot: number; dim: string; count: number; problem: string; fix: string; severity: string; details: { model: string; problem: string; fix: string }[] }[];
     highlights: string[]; results: JudgeResult[];
 }
+export interface ImproveCandidate { label: string; mode: string; instruction?: string; shots: string[][]; total: number; verdict: string;
+    dims: Record<string, number>; alpha: number | null; issues: JudgesEval["issues"]; prefer?: number; paired?: number }
+export interface ImproveRound { at: string; base_version: number; base_total: number; accepted: boolean; gain: number; winner: string;
+    candidates: ImproveCandidate[]; errors: string[]; stall: number; min_gain: number }
+export interface ScriptVersionPoint { version: number; total: number; verdict: string; dims: Record<string, number>; how: string; at: string }
 export interface JudgeSettings { models: string[]; weights: Record<string, number>; double: boolean; dims: { key: string; name: string; weight: number; what: string; anchor: string }[] }
 export interface LibScript {
     id: string; batch: string; market: string; product: string; selling_point: string; audience: string; format: string; title: string;
     concept: { logline?: string; hook?: string; twist?: string; product_moment?: string; trend?: string; why_viral?: string; risk?: string };
     critic: { scores?: Record<string, number>; total?: number; verdict?: string; improve?: string; picked?: boolean; by?: string };
-    shots: string[][]; evaluation: { judges?: JudgesEval; audience?: LibScriptEval; previous?: { total: number; verdict: string; version: number } } & Partial<LibScriptEval>;
+    shots: string[][]; evaluation: { judges?: JudgesEval; audience?: LibScriptEval; previous?: { total: number; verdict: string; version: number };
+        history?: ScriptVersionPoint[]; rounds?: ImproveRound[] } & Partial<LibScriptEval>;
+    stage?: string;
     status: string; error: string;
     used: { pid: string; node_id: string; at: string }[]; version: number; created_at: string;
 }
@@ -486,6 +493,8 @@ export const api = {
     evaluateLibScript: (id: string) => post(`/scripts/${id}/evaluate`),
     judgeLibScript: (id: string) => post(`/scripts/${id}/judge`),
     rewriteByJudges: (id: string) => post(`/scripts/${id}/rewrite-by-judges`),
+    improveLibScript: (id: string) => post(`/scripts/${id}/improve`),
+    adoptVersion: (id: string, round: number, candidate: number) => post(`/scripts/${id}/adopt`, { round, candidate }),
     judgeSettings: () => get<JudgeSettings>("/scripts/judges/settings"),
     saveJudgeSettings: (b: { models?: string[]; weights?: Record<string, number>; double?: boolean }) => http.put<JudgeSettings>("/scripts/judges/settings", b).then((r) => r.data),
     useLibScript: (id: string, project_id: string) => post<{ node_id: string }>(`/scripts/${id}/use`, { project_id }),

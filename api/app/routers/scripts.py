@@ -3,13 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import judges, memes, scriptlab, settings_store
+from app import improve, judges, memes, scriptlab, settings_store
 from app.creators import PRODUCT_LINES
 from app.db import get_db
 from app.events import spawn
 from app.models import LibScript
 
 router = APIRouter(prefix="/api/v1/scripts")
+BUSY = ("writing", "evaluating", "judging", "improving")
 
 
 @router.get("")
@@ -98,7 +99,7 @@ def put_judge_settings(body: JudgeSettingsIn):
 
 @router.get("/{sid}")
 def get_script(sid: str, db: Session = Depends(get_db)):
-    return scriptlab.script_dict(_get(db, sid))
+    return {**scriptlab.script_dict(_get(db, sid)), "stage": improve._stage.get(sid, "")}
 
 
 @router.delete("/{sid}")
@@ -116,7 +117,7 @@ class WriteIn(BaseModel):
 def write(sid: str, body: WriteIn, db: Session = Depends(get_db)):
     """备选创意写成剧本；已经写好的按意见改写。"""
     s = _get(db, sid)
-    if s.status in ("writing", "evaluating", "judging"):
+    if s.status in BUSY:
         raise HTTPException(409, "正在处理，稍后再试")
     if s.shots and not body.comment.strip():
         raise HTTPException(400, "写一句修改意见")
@@ -133,7 +134,7 @@ def evaluate(sid: str, db: Session = Depends(get_db)):
     s = _get(db, sid)
     if not s.shots:
         raise HTTPException(400, "先写成剧本再评测")
-    if s.status in ("writing", "evaluating", "judging"):
+    if s.status in BUSY:
         raise HTTPException(409, "正在处理，稍后再试")
     if not settings_store.llm_enabled():
         raise HTTPException(400, "评测需要大模型：到「设置」里填 OpenRouter Key")
@@ -149,7 +150,7 @@ def judge(sid: str, db: Session = Depends(get_db)):
     s = _get(db, sid)
     if not s.shots:
         raise HTTPException(400, "先写成剧本再评审")
-    if s.status in ("writing", "evaluating", "judging"):
+    if s.status in BUSY:
         raise HTTPException(409, "正在处理，稍后再试")
     if not settings_store.llm_enabled():
         raise HTTPException(400, "评审需要大模型：到「设置」里填 OpenRouter Key")
@@ -166,12 +167,44 @@ def rewrite_by_judges(sid: str, db: Session = Depends(get_db)):
     jd = (s.evaluation or {}).get("judges")
     if not jd:
         raise HTTPException(400, "先做评委打分")
-    if s.status in ("writing", "evaluating", "judging"):
+    if s.status in BUSY:
         raise HTTPException(409, "正在处理，稍后再试")
     s.status = "writing"
     db.commit()
     spawn(scriptlab._write_one(sid, "", judges.rewrite_comment(jd), rejudge=True))
     return {"ok": True}
+
+
+@router.post("/{sid}/improve")
+def improve_round(sid: str, db: Session = Depends(get_db)):
+    """自动改进一轮：出 3 个改法不同的版本，和原版一起打分，比原版高够多才采用。"""
+    s = _get(db, sid)
+    if not s.shots:
+        raise HTTPException(400, "先写成剧本")
+    if s.status in BUSY:
+        raise HTTPException(409, "正在处理，稍后再试")
+    if not settings_store.llm_enabled():
+        raise HTTPException(400, "需要大模型：到「设置」里填 OpenRouter Key")
+    s.status = "improving"
+    db.commit()
+    spawn(improve.run(sid))
+    return {"ok": True}
+
+
+class AdoptIn(BaseModel):
+    round: int
+    candidate: int
+
+
+@router.post("/{sid}/adopt")
+def adopt(sid: str, body: AdoptIn, db: Session = Depends(get_db)):
+    s = _get(db, sid)
+    if s.status in BUSY:
+        raise HTTPException(409, "正在处理，稍后再试")
+    try:
+        return improve.adopt(sid, body.round, body.candidate)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
 
 
 class UseIn(BaseModel):

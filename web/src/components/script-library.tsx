@@ -145,6 +145,7 @@ function ScriptCard({ s, onOpen }: { s: LibScript; onOpen: () => void }) {
                 {s.status === "evaluating" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />40 人评测中</span>}
                 {s.shots.length > 0 && <span>{s.shots.length} 镜</span>}
                 {s.status === "judging" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />5 评委打分中</span>}
+                {s.status === "improving" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />自动改进中</span>}
                 {jd && <span className="flex items-center gap-1">评委 <b className={scoreColor(jd.total)}>{jd.total}</b><Tag className="!m-0 !text-[10px]" color={jd.verdict === "可以投" ? "green" : jd.verdict === "改了再用" ? "gold" : "red"}>{jd.verdict}</Tag></span>}
                 {ev.score != null && <span className="flex items-center gap-1"><Users size={11} />观众 {ev.score} · 看完 {ev.completion}%</span>}
                 {s.used.length > 0 && <Tag className="!m-0" color="green" bordered={false}>已用 {s.used.length} 次</Tag>}
@@ -163,7 +164,7 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
     const [target, setTarget] = useState<string | undefined>(pid);
     useEffect(() => setTarget(pid), [pid]);
     const { data: s } = useQuery({ queryKey: ["lib-script", id], queryFn: () => api.libScript(id!), enabled: !!id,
-        refetchInterval: (q) => (["writing", "evaluating", "judging"].includes(q.state.data?.status || "") ? 2000 : false) });
+        refetchInterval: (q) => (["writing", "evaluating", "judging", "improving"].includes(q.state.data?.status || "") ? 2000 : false) });
     const [comment, setComment] = useState("");
     const refresh = () => { qc.invalidateQueries({ queryKey: ["lib-script", id] }); onChanged(); };
     const write = useMutation({ mutationFn: (c: string) => api.writeLibScript(id!, c), onSuccess: () => { setComment(""); refresh(); }, onError: (e) => message.error(errMsg(e)) });
@@ -174,7 +175,7 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
         onError: (e) => message.error(errMsg(e)),
     });
     const ev = (s?.evaluation?.audience || (s?.evaluation?.score != null ? s.evaluation : {})) as Partial<LibScriptEval>;
-    const busy = ["writing", "evaluating", "judging"].includes(s?.status || "");
+    const busy = ["writing", "evaluating", "judging", "improving"].includes(s?.status || "");
     return (
         <Drawer open={!!id} width={820} onClose={onClose} title={s ? <span>{s.title} <span className="text-[13px] font-normal text-ink2">· {s.format} · {s.product} · {s.selling_point} · {s.audience}</span></span> : ""}>
             {s && <div className="flex flex-col gap-3 text-[13px]">
@@ -255,7 +256,7 @@ export function ScriptLibrary() {
     const [open, setOpen] = useState<string | null>(null);
     const [job, setJob] = useState<ScriptJob | null>(null);
     const { data } = useQuery({ queryKey: ["lib-scripts", market, concepts], queryFn: () => api.libScripts(market, concepts),
-        refetchInterval: (q) => (job?.status === "running" || q.state.data?.items.some((s) => ["writing", "evaluating", "judging"].includes(s.status)) ? 3000 : false) });
+        refetchInterval: (q) => (job?.status === "running" || q.state.data?.items.some((s) => ["writing", "evaluating", "judging", "improving"].includes(s.status)) ? 3000 : false) });
     const refresh = () => qc.invalidateQueries({ queryKey: ["lib-scripts"] });
     useEffect(() => {
         if (!job || job.status !== "running") return;
