@@ -295,3 +295,26 @@ class Creator(Base):
     demo: Mapped[bool] = mapped_column(Boolean, default=False)
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LibScript(Base):
+    """剧本库：原创爆款剧本（结合本地热点头脑风暴 → 评审挑选 → 写分镜 → 40 人评测）。没写成分镜的创意也存着（status=concept）。"""
+
+    __tablename__ = "lib_script"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    batch: Mapped[str] = mapped_column(String, index=True, default="")
+    market: Mapped[str] = mapped_column(String, default="尼日利亚")
+    product: Mapped[str] = mapped_column(String, default="")  # 产品线，如 TECNO Pova
+    selling_point: Mapped[str] = mapped_column(String, default="")
+    audience: Mapped[str] = mapped_column(String, default="")
+    format: Mapped[str] = mapped_column(String, default="")  # 整活 / 挑战 / 反转短剧……
+    title: Mapped[str] = mapped_column(String, default="")
+    concept: Mapped[dict] = mapped_column(JSON, default=dict)  # 一句话创意、前 2 秒钩子、反转、卖点怎么落地、用了哪个热点、为什么会火、风险
+    critic: Mapped[dict] = mapped_column(JSON, default=dict)  # 评审打分和意见
+    shots: Mapped[list] = mapped_column(JSON, default=list)  # [[时间段, 画面, 口播, 中文], ...]
+    evaluation: Mapped[dict] = mapped_column(JSON, default=dict)  # 40 人评测结果
+    status: Mapped[str] = mapped_column(String, default="concept")  # concept writing ok evaluating error
+    error: Mapped[str] = mapped_column(String, default="")
+    used: Mapped[list] = mapped_column(JSON, default=list)  # 用到了哪些项目的画布
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -11,6 +11,7 @@ from app import agent, canvas, config, monitor, settings_store, workflows
 from app.db import Base, SessionLocal, engine
 from app.events import set_loop
 from app.routers import creators as creators_router
+from app.routers import scripts as scripts_router
 from app.routers import monitor as monitor_router
 from app.routers import library, ops, projects, settings
 from app.seed import seed
@@ -40,6 +41,7 @@ app.include_router(settings.router)
 app.include_router(library.router)
 app.include_router(monitor_router.router)
 app.include_router(creators_router.router)
+app.include_router(scripts_router.router)
 
 
 @app.get("/api/health")

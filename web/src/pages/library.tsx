@@ -6,14 +6,17 @@ import { useRef, useState } from "react";
 import { PageTitle } from "@/components/common";
 import { CatalogImport } from "@/components/catalog-import";
 import { ProductEditor, ProductHint } from "@/components/product-editor";
+import { ScriptLibrary } from "@/components/script-library";
 import { CONSENT_TEXT, consentDialog, COVER_GRADIENTS } from "@/lib/constants";
 import { Assets } from "@/pages/ops-pages";
 import { api, type AssetKind, type LibraryAsset } from "@/services/api";
 
-const TABS: { value: AssetKind | "base"; label: string; desc: string }[] = [
+type Tab = AssetKind | "base" | "script";
+const TABS: { value: Tab; label: string; desc: string }[] = [
     { value: "actor", label: "演员库", desc: "定妆照决定每一镜里人物的长相和服装；可上传真人照片（需授权）或 AI 生成" },
     { value: "scene", label: "场景库", desc: "场景图决定环境、天气和光线；可上传实景照片或 AI 生成" },
     { value: "product", label: "商品库", desc: "必须上传商品实拍图（AI 不编造商品外观）；正面、背面、侧面各一张效果最好" },
+    { value: "script", label: "剧本库", desc: "原创爆款剧本：结合本地热点头脑风暴、评审挑选、写成分镜，可以跑 40 人评测，满意的一键用到画布" },
     { value: "base", label: "卖点与人群", desc: "Agent 写剧本时用到的卖点库和人群包" },
 ];
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || "操作失败";
@@ -119,12 +122,12 @@ function EditModal({ kind, asset, open, onClose }: { kind: AssetKind; asset: Lib
 }
 
 export default function Library() {
-    const [tab, setTab] = useState<AssetKind | "base">("actor");
+    const [tab, setTab] = useState<Tab>("actor");
     const [q, setQ] = useState("");
     const [editing, setEditing] = useState<LibraryAsset | null | "new">(null);
     const [importing, setImporting] = useState(false);
     const { data: list = [] } = useQuery({
-        queryKey: ["library", tab], queryFn: () => api.library(tab as AssetKind), enabled: tab !== "base",
+        queryKey: ["library", tab], queryFn: () => api.library(tab as AssetKind), enabled: tab !== "base" && tab !== "script",
         refetchInterval: (qq) => (qq.state.data?.some((a) => a.status === "generating") ? 3000 : false),
     });
     const shown = list.filter((a) => !q || a.name.toLowerCase().includes(q.toLowerCase()) || a.description.includes(q));
@@ -133,8 +136,8 @@ export default function Library() {
         <div className="mx-auto max-w-[1440px] p-6 pb-12">
             <PageTitle title="素材库" desc="演员、场景、商品跨项目复用。生成视频时 Agent 先从这里选角置景，没有合适的再新建" />
             <div className="mb-3 flex flex-wrap items-center gap-3">
-                <Segmented value={tab} onChange={(v) => setTab(v as AssetKind | "base")} options={TABS.map((x) => ({ value: x.value, label: x.label }))} />
-                {tab !== "base" && <>
+                <Segmented value={tab} onChange={(v) => setTab(v as Tab)} options={TABS.map((x) => ({ value: x.value, label: x.label }))} />
+                {tab !== "base" && tab !== "script" && <>
                     <Input allowClear prefix={<Search size={14} className="text-ink2" />} placeholder="搜索名称或描述" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 220 }} />
                     <span className="flex-1" />
                     {tab === "product" && <Button icon={<Download size={14} />} onClick={() => setImporting(true)}>导入传音机型</Button>}
@@ -142,13 +145,13 @@ export default function Library() {
                 </>}
             </div>
             <div className="mb-3 text-xs text-ink2">{t.desc}</div>
-            {tab === "base" ? <Assets embedded /> : shown.length ? (
+            {tab === "script" ? <ScriptLibrary /> : tab === "base" ? <Assets embedded /> : shown.length ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
                     {shown.map((a, i) => <AssetCard key={a.id} a={a} i={i} onEdit={() => setEditing(a)} />)}
                 </div>
             ) : <Empty className="py-16" description={tab === "product" ? "还没有商品：点「新建商品」上传实拍图" : "还没有素材：生成视频时 Agent 会自动选角置景并存到这里，也可以手动新建"} />}
             <CatalogImport open={importing} onClose={() => setImporting(false)} />
-            {tab !== "base" && <EditModal kind={tab} asset={editing === "new" ? null : editing} open={editing !== null} onClose={() => setEditing(null)} />}
+            {tab !== "base" && tab !== "script" && <EditModal kind={tab} asset={editing === "new" ? null : editing} open={editing !== null} onClose={() => setEditing(null)} />}
         </div>
     );
 }

@@ -213,6 +213,21 @@ export interface CreatorList {
     settings: { cpm: Record<string, number>; keywords: Record<string, string[]> };
 }
 
+export interface LibScriptEval {
+    scores: Record<string, number>; retention: number[]; shot_rel: number[]; issue: string; agents: number; engine: string;
+    completion: number; clicks: number; comments: string[]; score: number; at: string; note: string;
+}
+export interface LibScript {
+    id: string; batch: string; market: string; product: string; selling_point: string; audience: string; format: string; title: string;
+    concept: { logline?: string; hook?: string; twist?: string; product_moment?: string; trend?: string; why_viral?: string; risk?: string };
+    critic: { scores?: Record<string, number>; total?: number; verdict?: string; improve?: string; picked?: boolean; by?: string };
+    shots: string[][]; evaluation: LibScriptEval | Record<string, never>; status: string; error: string;
+    used: { pid: string; node_id: string; at: string }[]; version: number; created_at: string;
+}
+export interface ScriptTrends { tags: { tag: string; plays: number; videos: number; sample: string }[]; music: { music: string; plays: number; videos: number }[];
+    evergreen: string[]; videos: number; days: number }
+export interface ScriptJob { id: string; status: string; stage: string; batch: string; scripts: string[]; error: string }
+
 const get = <T,>(url: string, params?: object) => http.get<T>(url, { params }).then((r) => r.data);
 const post = <T = any,>(url: string, body?: object) => http.post<T>(url, body).then((r) => r.data);
 /** 要等大模型 / 上传的接口：放宽到 3 分钟 */
@@ -438,6 +453,17 @@ export const api = {
     promoteVideo: (id: string) => post<RefAd>(`/watch/videos/${id}/promote`),
     saveModels: (models: Record<string, string>) => http.put("/settings/models", models).then((r) => r.data),
     saveRetries: (r: { keyframe?: number; clip?: number; kf_candidates?: number; kf_gate?: number }) => http.put("/settings/retries", r).then((x) => x.data),
+    // 剧本库
+    libScripts: (market: string, concepts = false) => get<{ items: LibScript[]; llm: boolean; products: string[]; selling_points: string[]; formats: string[]; audiences: string[] }>("/scripts", { market, concepts }),
+    libScript: (id: string) => get<LibScript>(`/scripts/${id}`),
+    scriptTrends: (market: string) => get<ScriptTrends>("/scripts/trends", { market }),
+    generateScripts: (b: { market: string; product: string; selling_point: string; audience: string; formats: string[]; trends: string[]; brief: string; count: number; specs?: string }) =>
+        post<ScriptJob>("/scripts/generate", b),
+    scriptJob: (id: string) => get<ScriptJob>(`/scripts/jobs/${id}`),
+    writeLibScript: (id: string, comment = "") => post(`/scripts/${id}/write`, { comment }),
+    evaluateLibScript: (id: string) => post(`/scripts/${id}/evaluate`),
+    useLibScript: (id: string, project_id: string) => post<{ node_id: string }>(`/scripts/${id}/use`, { project_id }),
+    deleteLibScript: (id: string) => http.delete(`/scripts/${id}`).then((r) => r.data),
     // 达人雷达
     creators: (q: { market?: string; tier?: string; product?: string; stage?: string } = {}) => get<CreatorList>("/creators", q),
     creator: (id: string) => get<CreatorFull>(`/creators/${id}`),
