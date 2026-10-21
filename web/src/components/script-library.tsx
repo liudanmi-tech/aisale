@@ -82,9 +82,9 @@ function Generator({ market, meta, onStart }: { market: string; meta?: { product
                             </div>
                         );
                     })}
-                    {!mm?.items.length && <div className="text-[12px] text-ink2">{mm?.refreshing ? "抓取中…" : "还没有热梗卡片"}</div>}
+                    {!mm?.items?.length && <div className="text-[12px] text-ink2">{mm?.refreshing ? "抓取中…" : "还没有热梗卡片"}</div>}
                 </div>
-                {!!mm?.google.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">Google 当地热搜</span>
+                {!!mm?.google?.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">Google 当地热搜</span>
                     {mm.google.slice(0, 12).map((g) => chip(`Google 热搜：${g.title}`, <>{g.title} <span className="text-[11px] opacity-70">{g.traffic}</span></>, g.news[0]?.title))}</div>}
             </div>
             <div className="mt-3">
@@ -93,10 +93,10 @@ function Generator({ market, meta, onStart }: { market: string; meta?: { product
                 <div className="flex flex-wrap gap-1.5">
                     {(tr?.tags || []).slice(0, 16).map((t) => chip(`#${t.tag}`, <>#{t.tag} <span className="text-[11px] opacity-70">{t.videos} 条 · {fmt(t.plays)}</span></>, t.sample))}
                     {(tr?.music || []).slice(0, 4).map((m) => chip(`热门 BGM：${m.music}`, <>♪ {m.music} <span className="text-[11px] opacity-70">{m.videos} 条</span></>))}
-                    {!tr?.tags.length && <span className="text-[12px] text-ink2">还没有本地达人的数据：竞品雷达里把达人账号的类型设成「达人」，或者在达人雷达找一些{market}的达人</span>}
+                    {!tr?.tags?.length && <span className="text-[12px] text-ink2">还没有本地达人的数据：竞品雷达里把达人账号的类型设成「达人」，或者在达人雷达找一些{market}的达人</span>}
                 </div>
                 {!!tr?.campaign_tags?.length && <div className="mt-1 text-[11px] text-ink2">竞品在推的活动（竞品官方号的广告标签，不算热梗）：{tr.campaign_tags.slice(0, 8).map((t) => `#${t.tag}`).join("  ")}</div>}
-                {!!tr?.evergreen.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">本地常青话题（预置）</span>{tr.evergreen.map((t) => chip(t, t))}</div>}
+                {!!tr?.evergreen?.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">本地常青话题（预置）</span>{tr.evergreen.map((t) => chip(t, t))}</div>}
                 <div className="mt-2 flex flex-wrap gap-2">
                     <Input size="small" className="!w-80" placeholder="手填热点，逗号分隔，如：AFCON 决赛、油价上涨" value={custom} onChange={(e) => setCustom(e.target.value)} />
                     <Input size="small" className="!w-96" placeholder="补充要求（可选），如：要有妈妈角色；不要出现水" value={brief} onChange={(e) => setBrief(e.target.value)} />

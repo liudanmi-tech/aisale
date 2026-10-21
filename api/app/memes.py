@@ -37,7 +37,8 @@ def get(market: str) -> dict:
         s = db.get(Setting, _key(market))
         v = dict((s.value if s else {}) or {})
     v["refreshing"] = market in _running
-    v.setdefault("items", [])
+    for k in ("items", "google", "sources", "campaign_tags", "errors"):
+        v.setdefault(k, [])  # 还没刷新过时也给全字段，前端不用逐个判空
     return v
 
 
