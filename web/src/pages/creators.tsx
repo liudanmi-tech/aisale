@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, App, Button, Checkbox, Drawer, Input, InputNumber, Modal, Popconfirm, Progress, Segmented, Select, Table, Tag, Tooltip } from "antd";
 import clsx from "clsx";
-import { BadgeCheck, ExternalLink, Mail, Plus, RefreshCw, Search, Send, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { BadgeCheck, ExternalLink, Mail, Play, Plus, RefreshCw, Search, Send, Settings2, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Card, PageTitle } from "@/components/common";
+import { Card, PageTitle, TikTokPlayer } from "@/components/common";
+import { COVER_GRADIENTS } from "@/lib/constants";
 import { api, type Creator, type CreatorFull, type CreatorJob } from "@/services/api";
 
 const MARKETS = ["尼日利亚", "巴基斯坦", "肯尼亚", "加纳", "南非", "埃及", "孟加拉", "印尼", "菲律宾"];
@@ -163,8 +164,11 @@ function Outreach({ c, products, stages, onChange }: { c: CreatorFull; products:
 function Detail({ id, products, stages, onClose, onChanged }: { id: string | null; products: string[]; stages: string[]; onClose: () => void; onChanged: () => void }) {
     const qc = useQueryClient();
     const { message } = App.useApp();
-    const { data: c } = useQuery({ queryKey: ["creator", id], queryFn: () => api.creator(id!), enabled: !!id, refetchInterval: (q) => (q.state.data?.status === "analyzing" ? 2000 : false) });
+    const { data: c } = useQuery({ queryKey: ["creator", id], queryFn: () => api.creator(id!), enabled: !!id, refetchInterval: (q) => (q.state.data?.status === "analyzing" ? 2000
+        // 封面还是 TikTok 原链接：后台在缓存，过几秒再取一次（最多 3 次）
+        : q.state.data?.videos?.some((v) => v.cover.startsWith("http")) && q.state.dataUpdateCount < 4 ? 5000 : false) });
     const [tab, setTab] = useState("评估");
+    const [playing, setPlaying] = useState<string | null>(null);
     const refresh = () => { qc.invalidateQueries({ queryKey: ["creator", id] }); onChanged(); };
     const re = useMutation({ mutationFn: () => api.analyzeCreator(id!), onSuccess: () => { message.info("重新拉取并分析中"); refresh(); }, onError: (e) => message.error(errMsg(e)) });
     const a = c?.analysis || {};
@@ -224,19 +228,34 @@ function Detail({ id, products, stages, onClose, onChanged }: { id: string | nul
                             <div className="text-[12px] text-ink2">CPM 是假设值，点页面右上角「报价假设」按真实报价校准。</div></div>
                     </div>
                 </div>}
-                {tab === "代表视频" && <div className="flex flex-col gap-2 text-[13px]">
+                {tab === "代表视频" && <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 text-[12px]">
                     {(c.videos || []).map((v, k) => (
-                        <div key={k} className="flex items-start gap-3 rounded-lg border border-line p-2">
-                            <div className="w-20 shrink-0 text-right font-semibold">{fmt(v.plays)}<div className="text-[11px] font-normal text-ink2">互动 {v.engagement}%</div></div>
-                            <div className="min-w-0 flex-1">
-                                <div className="leading-5">{v.text || "（无文案）"}</div>
-                                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-ink2">{when(v.posted_at)}
-                                    {v.sponsored && <Tag color="gold" className="!m-0">广告 / 合作</Tag>}{v.brands.map((b) => <Tag key={b} className="!m-0">{b}</Tag>)}
-                                    {!c.demo && v.url && <a href={v.url} target="_blank" rel="noreferrer" className="ml-1">TikTok</a>}</div>
+                        <div key={k} className={clsx("overflow-hidden rounded-lg border border-line bg-surface", !c.demo && v.external_id && "cursor-pointer hover:border-brand")}
+                            onClick={() => !c.demo && v.external_id && setPlaying(v.external_id)}>
+                            <div className="relative aspect-[9/16] w-full" style={{ background: COVER_GRADIENTS[k % COVER_GRADIENTS.length] }}>
+                                {v.cover && <img src={v.cover} alt="" referrerPolicy="no-referrer" loading="lazy" className="absolute inset-0 h-full w-full object-cover"
+                                    onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                                <span className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/75 to-transparent" />
+                                <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">#{k + 1}</span>
+                                {v.sponsored && <span className="absolute right-1.5 top-1.5 rounded bg-warn px-1.5 text-[11px] text-black">广告 / 合作</span>}
+                                {!c.demo && v.external_id && <span className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white"><Play size={16} /></span>}
+                                <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 text-[12px] font-semibold text-white"><Play size={11} />{fmt(v.plays)}</span>
+                                <span className="absolute bottom-1.5 right-1.5 text-[11px] text-white/85">互动 {v.engagement}%</span>
+                            </div>
+                            <div className="p-2">
+                                <div className="line-clamp-2 leading-[18px]" title={v.text}>{v.text || "（无文案）"}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-ink2">
+                                    {v.posted_at ? new Date(v.posted_at + (v.posted_at.endsWith("Z") ? "" : "Z")).toLocaleDateString() : ""}{v.brands.map((b) => <Tag key={b} className="!m-0 !text-[10px]">{b}</Tag>)}
+                                </div>
                             </div>
                         </div>
                     ))}
+                    {!c.videos?.length && <div className="text-ink2">没有视频</div>}
                 </div>}
+                <Modal open={!!playing} footer={null} width={380} onCancel={() => setPlaying(null)} destroyOnHidden title="代表视频">
+                    {playing && <TikTokPlayer id={playing} className="aspect-[9/16] w-full rounded-lg" />}
+                    {playing && <a href={`https://www.tiktok.com/@${c.handle}/video/${playing}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px]">在 TikTok 打开<ExternalLink size={12} /></a>}
+                </Modal>
                 {tab.startsWith("外联") && <Outreach c={c} products={products} stages={stages} onChange={refresh} />}
             </>}
         </Drawer>

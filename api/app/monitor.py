@@ -50,6 +50,12 @@ async def ensure_covers(video_ids: list[str] | None = None) -> int:
         if video_ids is not None:
             q = q.filter(SourceVideo.id.in_(video_ids))
         todo = [(e, c) for e, c in q if c and c.startswith("http") and not _cover_file(e).exists()]
+    return await download_covers(todo)
+
+
+async def download_covers(todo: list[tuple[str, str]]) -> int:
+    """[(视频 ID, TikTok 封面链接)] → 存到本地封面缓存（竞品雷达、达人雷达共用）。"""
+    todo = [(e, u) for e, u in todo if e and u and u.startswith("http") and not _cover_file(e).exists()]
     if not todo:
         return 0
     (config.MEDIA_DIR / "covers").mkdir(parents=True, exist_ok=True)

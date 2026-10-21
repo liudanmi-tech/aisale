@@ -203,7 +203,7 @@ export interface CreatorOutreach {
 }
 export interface CreatorFull extends Creator {
     bio: string; stats_full: Record<string, any>; outreach: CreatorOutreach;
-    videos: { url: string; cover: string; text: string; plays: number; engagement: number; posted_at: string | null; sponsored: boolean; brands: string[] }[];
+    videos: { external_id: string; url: string; cover: string; text: string; plays: number; engagement: number; posted_at: string | null; sponsored: boolean; brands: string[] }[];
     analysis: { categories?: string[]; audience?: string; language?: string; style?: string; brand_safety?: string; safety_note?: string; summary?: string; by?: string; note?: string;
         product_fit?: { line: string; score: number; reason: string }[] };
 }

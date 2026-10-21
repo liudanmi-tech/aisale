@@ -34,6 +34,8 @@ def get_creator(cid: str, db: Session = Depends(get_db)):
     c = db.get(Creator, cid)
     if not c:
         raise HTTPException(404, "没有这个达人")
+    if creators.show_videos(c)[1]:  # 还没缓存的封面后台补下载，下次打开就是本地的
+        spawn(creators.cache_covers(cid))
     return creators.creator_dict(c, full=True)
 
 

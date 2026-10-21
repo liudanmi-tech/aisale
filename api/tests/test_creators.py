@@ -95,3 +95,17 @@ def test_demo_data(monkeypatch):
         assert g["tier"] == "头部" and g["best_product"] in ("Infinix GT", "TECNO Pova") and "游戏" in g["categories"]
         with SessionLocal() as db:
             assert db.query(Creator).filter(Creator.demo.is_(True)).count() >= 5
+
+
+def test_video_covers_use_local_cache(tmp_path, monkeypatch):
+    """代表视频封面：有本地缓存用本地，没有的列出来后台补下载；老数据没存视频 ID 的从链接里取。"""
+    from app import config, monitor
+    monkeypatch.setattr(config, "MEDIA_DIR", tmp_path)
+    c = Creator(id="cr_x", handle="h", videos=[{"url": "https://www.tiktok.com/@h/video/111", "cover": "https://cdn/1.jpg"},
+                                               {"external_id": "222", "url": "", "cover": "https://cdn/2.jpg"}])
+    f = monitor._cover_file("111")
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(b"jpg")
+    vs, todo = creators.show_videos(c)
+    assert vs[0]["cover"] == "/api/v1/media/covers/111.jpg" and vs[0]["external_id"] == "111"
+    assert vs[1]["cover"] == "https://cdn/2.jpg" and todo == [("222", "https://cdn/2.jpg")]

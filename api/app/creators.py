@@ -146,7 +146,7 @@ def pick_videos(items: list[dict], n: int = 6) -> list[dict]:
     out = []
     for v in sorted(items, key=lambda v: -v["plays"])[:n]:
         text = f"{v.get('text', '')} {' '.join('#' + h for h in v.get('hashtags') or [])}"
-        out.append({"url": v.get("url", ""), "cover": v.get("cover", ""), "text": (v.get("text") or "")[:160], "plays": v["plays"],
+        out.append({"external_id": v.get("external_id", ""), "url": v.get("url", ""), "cover": v.get("cover", ""), "text": (v.get("text") or "")[:160], "plays": v["plays"],
                     "engagement": round((v["likes"] + v["comments"] + v["shares"]) / v["plays"] * 100, 2) if v["plays"] else 0,
                     "posted_at": v["posted_at"].isoformat() if v.get("posted_at") else None,
                     "sponsored": bool(v.get("is_ad") or SPONSOR_RE.search(text)), "brands": sorted(_brands_in(text))})
@@ -316,6 +316,7 @@ async def _build(job: dict, cands: list[dict], market: str) -> None:
             db.add(c)
             db.commit()
         job["added"].append(c.handle)
+        await cache_covers(c.id)  # 趁封面链接还没过期存到本地
 
     await asyncio.gather(*(one(c) for c in cands))
 
@@ -386,6 +387,8 @@ async def reanalyze(cid: str) -> None:
             analysis = await analyze_content(c, items, compute_stats(items)) if not demo else _heuristic(c, items)
             apply(c, items, analysis)
             db.commit()
+        if not demo:
+            await cache_covers(cid)
     except Exception as e:  # noqa: BLE001
         with SessionLocal() as db:
             c = db.get(Creator, cid)
@@ -480,6 +483,33 @@ def _demo_items_for(c: Creator) -> list[dict]:
     return _demo_items(c.id, (c.stats or {}).get("demo_kind", ""), c.followers or 100_000, c.handle)
 
 
+def video_id(v: dict) -> str:
+    """代表视频的 TikTok 视频 ID（老数据没存，从链接里取）。"""
+    m = re.search(r"/video/(\d+)", v.get("url") or "")
+    return v.get("external_id") or (m.group(1) if m else "")
+
+
+def show_videos(c: Creator) -> tuple[list[dict], list[tuple[str, str]]]:
+    """代表视频：封面换成本地缓存（TikTok 封面链接几小时就过期）。返回 (视频, 还没缓存的 [(ID, 链接)])。"""
+    from app.monitor import _cover_file
+    out, todo = [], []
+    for v in c.videos or []:
+        vid = video_id(v)
+        cached = bool(vid) and _cover_file(vid).exists()
+        if vid and not cached and (v.get("cover") or "").startswith("http"):
+            todo.append((vid, v["cover"]))
+        out.append({**v, "external_id": vid, "cover": f"/api/v1/media/covers/{vid}.jpg" if cached else v.get("cover", "")})
+    return out, todo
+
+
+async def cache_covers(cid: str) -> None:
+    from app.monitor import download_covers
+    with SessionLocal() as db:
+        c = db.get(Creator, cid)
+        todo = show_videos(c)[1] if c else []
+    await download_covers(todo)
+
+
 def creator_dict(c: Creator, full: bool = False) -> dict:
     d = {"id": c.id, "handle": c.handle, "nickname": c.nickname, "market": c.market, "followers": c.followers, "verified": c.verified,
          "email": c.email, "avatar": c.avatar, "source": c.source, "found_by": c.found_by, "tier": c.tier, "fit_score": c.fit_score,
@@ -490,5 +520,5 @@ def creator_dict(c: Creator, full: bool = False) -> dict:
          "stage": (c.outreach or {}).get("stage") or "待联系",
          "analyzed_at": c.analyzed_at.isoformat() if c.analyzed_at else None}
     if full:
-        d.update(bio=c.bio, stats_full=c.stats, videos=c.videos, analysis=c.analysis, outreach=c.outreach or {})
+        d.update(bio=c.bio, stats_full=c.stats, videos=show_videos(c)[0], analysis=c.analysis, outreach=c.outreach or {})
     return d
