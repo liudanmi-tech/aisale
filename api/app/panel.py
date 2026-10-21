@@ -5,7 +5,7 @@
 为什么不让 Agent 直接说「看完 / 划走 / 点击」：实测让模型直接回答时，40 个人 40 个看完、39 个点击（连「对广告很反感」的人也点了），
 模型扮演用户时系统性偏乐观。所以只让模型做它擅长的「相对判断」——每一镜比你平时刷到的广告更吸引还是更差（-2 到 +2），
 再用「基准流失率」换算成概率，按固定种子抽样决定在哪一镜划走、是否点击（同一条视频重复评测结果一致）：
-- 基准（未校准的行业经验值）：第 1 镜（前 3 秒）继续看的概率按刷视频习惯 0.2–0.55；之后每镜 0.8；看完的人点击 6%。
+- 基准（未校准的行业经验值）：第 1 镜（前 3 秒）继续看的概率按刷视频习惯 0.2–0.55；之后每 3 秒 0.8（按镜头时长折算）；看完的人点击 6%。
 - 相对评分的倍数：-2 → ×0.3，-1 → ×0.6，0 → ×1，+1 → ×1.3，+2 → ×1.6（概率上限 0.95）。
 点击率说明：这是模拟用户的点击意向，不是真实 CTR，没有用传音历史投放数据校准过（calibrated=False）；
 接入真实投放数据后，用真实的分镜留存和 CTR 回归校准上面的基准值和倍数。
@@ -101,7 +101,8 @@ async def watch(persona: dict, content: list[dict], durs: list[int], seed: str) 
     rng = random.Random(int(hashlib.sha1(f"{seed}-{persona['id']}".encode()).hexdigest()[:8], 16))
     last, completed = len(durs) - 1, True
     for k, w in enumerate(rows):
-        base = FIRST_KEEP.get(persona.get("habit"), 0.4) if k == 0 else LATER_KEEP
+        # 第 1 镜按刷视频习惯；之后按秒算（每 3 秒 LATER_KEEP），镜头拆得多不会白白多流失
+        base = FIRST_KEEP.get(persona.get("habit"), 0.4) if k == 0 else LATER_KEEP ** (durs[k] / 3)
         if rng.random() >= min(0.95, base * FACTOR[_rel(w.get("vs_usual"))]):
             last, completed = k, False
             break
@@ -131,7 +132,8 @@ async def run(personas: list[dict], shots: list, tasks: list, fallback: list[dic
     neg = list(dict.fromkeys(a["thought"] for a in got if a["vs_usual"][w] < 0 and a["thought"]))
     drops = Counter(a["drop_shot"] for a in got if a["drop_shot"])
     lead = f"第 {drops.most_common(1)[0][0]} 镜流失最多（{drops.most_common(1)[0][1]} 人划走）；" if drops else "没有人中途划走；"
-    issue = lead + (f"评价最低的是第 {w + 1} 镜（比平时的广告 {shot_rel[w]:+}）：{'；'.join(neg)[:90]}" if neg
+    # 只有平均评价真的比平时的广告差（< 0）才算问题镜头，并说明差评的有几个人
+    issue = lead + (f"评价最低的是第 {w + 1} 镜（比平时的广告 {shot_rel[w]:+}，{len(neg)} 人给了差评）：{'；'.join(neg)[:90]}" if neg and shot_rel[w] < 0
                     else f"没有哪一镜被多数人评得比平时的广告差（最低第 {w + 1} 镜 {shot_rel[w]:+}）")
     return {"reactions": reactions, "scores": scores, "issue": issue, "retention": retention, "agents": len(got), "shot_rel": shot_rel,
             "engine": f"{len(got)} 个独立 Agent · {settings_store.get_models()['eval']}"}

@@ -217,11 +217,25 @@ export interface LibScriptEval {
     scores: Record<string, number>; retention: number[]; shot_rel: number[]; issue: string; agents: number; engine: string;
     completion: number; clicks: number; comments: string[]; score: number; at: string; note: string;
 }
+export interface JudgeResult {
+    model: string; requested?: string; fallback?: boolean; error?: string; seconds?: number; samples?: number;
+    scores?: Record<string, number>; reasons?: Record<string, string>; evidence?: Record<string, string>; confidence?: string; highlights?: string[];
+    issues?: { shot: number; dim: string; problem: string; fix: string; severity: string }[];
+}
+export interface JudgesEval {
+    total: number; verdict: string; verdict_why: string; alpha: number | null; reliable: boolean; at: string; note: string; weights: Record<string, number>;
+    dims: Record<string, { name: string; median: number; mean: number; std: number; scores: number[]; split: boolean;
+        high: { model: string; score: number; reason: string }; low: { model: string; score: number; reason: string } }>;
+    issues: { shot: number; dim: string; count: number; problem: string; fix: string; severity: string; details: { model: string; problem: string; fix: string }[] }[];
+    highlights: string[]; results: JudgeResult[];
+}
+export interface JudgeSettings { models: string[]; weights: Record<string, number>; double: boolean; dims: { key: string; name: string; weight: number; what: string; anchor: string }[] }
 export interface LibScript {
     id: string; batch: string; market: string; product: string; selling_point: string; audience: string; format: string; title: string;
     concept: { logline?: string; hook?: string; twist?: string; product_moment?: string; trend?: string; why_viral?: string; risk?: string };
     critic: { scores?: Record<string, number>; total?: number; verdict?: string; improve?: string; picked?: boolean; by?: string };
-    shots: string[][]; evaluation: LibScriptEval | Record<string, never>; status: string; error: string;
+    shots: string[][]; evaluation: { judges?: JudgesEval; audience?: LibScriptEval; previous?: { total: number; verdict: string; version: number } } & Partial<LibScriptEval>;
+    status: string; error: string;
     used: { pid: string; node_id: string; at: string }[]; version: number; created_at: string;
 }
 export interface ScriptTrends { tags: { tag: string; plays: number; videos: number; sample: string }[]; music: { music: string; plays: number; videos: number }[];
@@ -470,6 +484,10 @@ export const api = {
     scriptJob: (id: string) => get<ScriptJob>(`/scripts/jobs/${id}`),
     writeLibScript: (id: string, comment = "") => post(`/scripts/${id}/write`, { comment }),
     evaluateLibScript: (id: string) => post(`/scripts/${id}/evaluate`),
+    judgeLibScript: (id: string) => post(`/scripts/${id}/judge`),
+    rewriteByJudges: (id: string) => post(`/scripts/${id}/rewrite-by-judges`),
+    judgeSettings: () => get<JudgeSettings>("/scripts/judges/settings"),
+    saveJudgeSettings: (b: { models?: string[]; weights?: Record<string, number>; double?: boolean }) => http.put<JudgeSettings>("/scripts/judges/settings", b).then((r) => r.data),
     useLibScript: (id: string, project_id: string) => post<{ node_id: string }>(`/scripts/${id}/use`, { project_id }),
     deleteLibScript: (id: string) => http.delete(`/scripts/${id}`).then((r) => r.data),
     // 达人雷达

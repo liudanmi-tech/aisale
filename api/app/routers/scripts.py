@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import memes, scriptlab, settings_store
+from app import judges, memes, scriptlab, settings_store
 from app.creators import PRODUCT_LINES
 from app.db import get_db
 from app.events import spawn
@@ -77,6 +77,25 @@ def _get(db: Session, sid: str) -> LibScript:
     return s
 
 
+@router.get("/judges/settings")
+def judge_settings():
+    return judges.get_settings()
+
+
+class JudgeSettingsIn(BaseModel):
+    models: list[str] | None = None
+    weights: dict[str, float] | None = None
+    double: bool | None = None
+
+
+@router.put("/judges/settings")
+def put_judge_settings(body: JudgeSettingsIn):
+    try:
+        return judges.set_settings(body.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
 @router.get("/{sid}")
 def get_script(sid: str, db: Session = Depends(get_db)):
     return scriptlab.script_dict(_get(db, sid))
@@ -97,7 +116,7 @@ class WriteIn(BaseModel):
 def write(sid: str, body: WriteIn, db: Session = Depends(get_db)):
     """备选创意写成剧本；已经写好的按意见改写。"""
     s = _get(db, sid)
-    if s.status in ("writing", "evaluating"):
+    if s.status in ("writing", "evaluating", "judging"):
         raise HTTPException(409, "正在处理，稍后再试")
     if s.shots and not body.comment.strip():
         raise HTTPException(400, "写一句修改意见")
@@ -114,13 +133,44 @@ def evaluate(sid: str, db: Session = Depends(get_db)):
     s = _get(db, sid)
     if not s.shots:
         raise HTTPException(400, "先写成剧本再评测")
-    if s.status in ("writing", "evaluating"):
+    if s.status in ("writing", "evaluating", "judging"):
         raise HTTPException(409, "正在处理，稍后再试")
     if not settings_store.llm_enabled():
         raise HTTPException(400, "评测需要大模型：到「设置」里填 OpenRouter Key")
     s.status = "evaluating"
     db.commit()
     spawn(scriptlab.evaluate(sid))
+    return {"ok": True}
+
+
+@router.post("/{sid}/judge")
+def judge(sid: str, db: Session = Depends(get_db)):
+    """5 个评委模型按 5 个维度打分。"""
+    s = _get(db, sid)
+    if not s.shots:
+        raise HTTPException(400, "先写成剧本再评审")
+    if s.status in ("writing", "evaluating", "judging"):
+        raise HTTPException(409, "正在处理，稍后再试")
+    if not settings_store.llm_enabled():
+        raise HTTPException(400, "评审需要大模型：到「设置」里填 OpenRouter Key")
+    s.status = "judging"
+    db.commit()
+    spawn(judges.run(sid))
+    return {"ok": True}
+
+
+@router.post("/{sid}/rewrite-by-judges")
+def rewrite_by_judges(sid: str, db: Session = Depends(get_db)):
+    """按评委汇总的问题改写，改完自动重新评审。"""
+    s = _get(db, sid)
+    jd = (s.evaluation or {}).get("judges")
+    if not jd:
+        raise HTTPException(400, "先做评委打分")
+    if s.status in ("writing", "evaluating", "judging"):
+        raise HTTPException(409, "正在处理，稍后再试")
+    s.status = "writing"
+    db.commit()
+    spawn(scriptlab._write_one(sid, "", judges.rewrite_comment(jd), rejudge=True))
     return {"ok": True}
 
 

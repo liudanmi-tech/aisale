@@ -95,10 +95,11 @@ def test_generate_evaluate_use(monkeypatch):
         assert c.post(f"/api/v1/scripts/{s['id']}/evaluate").status_code == 200
         for _ in range(100):
             ev = c.get(f"/api/v1/scripts/{s['id']}").json()
-            if ev["status"] == "ok" and ev["evaluation"]:
+            if ev["status"] == "ok" and ev["evaluation"].get("audience"):
                 break
             time.sleep(0.03)
-        assert ev["evaluation"]["score"] == 72 and ev["evaluation"]["completion"] == 50 and ev["evaluation"]["clicks"] == 1
+        au = ev["evaluation"]["audience"]
+        assert au["score"] == 72 and au["completion"] == 50 and au["clicks"] == 1
         # 用到画布：建剧本节点并进入审核
         pid = c.post("/api/v1/projects", json={"name": "剧本库"}).json()["id"]
         monkeypatch.setattr(settings_store, "llm_enabled", lambda: False)

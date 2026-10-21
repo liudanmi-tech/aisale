@@ -5,6 +5,7 @@ import { Flame, Pencil, Play, RefreshCw, Rocket, Sparkles, Trash2, Users } from 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { JudgesPanel } from "@/components/judges-panel";
 import { api, type LibScript, type LibScriptEval, type MemeCard, type ScriptJob } from "@/services/api";
 import { useCurrentProject } from "@/stores/project-store";
 
@@ -116,7 +117,8 @@ function Scores({ s, keys, max = 10 }: { s?: Record<string, number>; keys: [stri
 }
 
 function ScriptCard({ s, onOpen }: { s: LibScript; onOpen: () => void }) {
-    const ev = s.evaluation as Partial<LibScriptEval>;
+    const ev = (s.evaluation?.audience || (s.evaluation?.score != null ? s.evaluation : {})) as Partial<LibScriptEval>;
+    const jd = s.evaluation?.judges;
     const concept = s.status === "concept";
     return (
         <div onClick={onOpen} className={clsx("flex cursor-pointer flex-col rounded-xl border bg-surface p-3 text-[12px] transition hover:-translate-y-0.5 hover:border-brand",
@@ -142,7 +144,9 @@ function ScriptCard({ s, onOpen }: { s: LibScript; onOpen: () => void }) {
                 {s.status === "writing" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />写分镜中</span>}
                 {s.status === "evaluating" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />40 人评测中</span>}
                 {s.shots.length > 0 && <span>{s.shots.length} 镜</span>}
-                {ev.score != null && <span className="flex items-center gap-1"><Users size={11} />评测 <b className={scoreColor(ev.score)}>{ev.score}</b> · 看完 {ev.completion}%</span>}
+                {s.status === "judging" && <span className="flex items-center gap-1 text-brand"><RefreshCw size={11} className="animate-spin" />5 评委打分中</span>}
+                {jd && <span className="flex items-center gap-1">评委 <b className={scoreColor(jd.total)}>{jd.total}</b><Tag className="!m-0 !text-[10px]" color={jd.verdict === "可以投" ? "green" : jd.verdict === "改了再用" ? "gold" : "red"}>{jd.verdict}</Tag></span>}
+                {ev.score != null && <span className="flex items-center gap-1"><Users size={11} />观众 {ev.score} · 看完 {ev.completion}%</span>}
                 {s.used.length > 0 && <Tag className="!m-0" color="green" bordered={false}>已用 {s.used.length} 次</Tag>}
                 <span className="ml-auto">{s.product}</span>
             </div>
@@ -159,7 +163,7 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
     const [target, setTarget] = useState<string | undefined>(pid);
     useEffect(() => setTarget(pid), [pid]);
     const { data: s } = useQuery({ queryKey: ["lib-script", id], queryFn: () => api.libScript(id!), enabled: !!id,
-        refetchInterval: (q) => (["writing", "evaluating"].includes(q.state.data?.status || "") ? 2000 : false) });
+        refetchInterval: (q) => (["writing", "evaluating", "judging"].includes(q.state.data?.status || "") ? 2000 : false) });
     const [comment, setComment] = useState("");
     const refresh = () => { qc.invalidateQueries({ queryKey: ["lib-script", id] }); onChanged(); };
     const write = useMutation({ mutationFn: (c: string) => api.writeLibScript(id!, c), onSuccess: () => { setComment(""); refresh(); }, onError: (e) => message.error(errMsg(e)) });
@@ -169,8 +173,8 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
         onSuccess: () => { message.success("已放到画布，进入审核；通过后照常出分镜、选角、生成视频"); refresh(); nav(`/p/${target}`); },
         onError: (e) => message.error(errMsg(e)),
     });
-    const ev = (s?.evaluation || {}) as Partial<LibScriptEval>;
-    const busy = ["writing", "evaluating"].includes(s?.status || "");
+    const ev = (s?.evaluation?.audience || (s?.evaluation?.score != null ? s.evaluation : {})) as Partial<LibScriptEval>;
+    const busy = ["writing", "evaluating", "judging"].includes(s?.status || "");
     return (
         <Drawer open={!!id} width={820} onClose={onClose} title={s ? <span>{s.title} <span className="text-[13px] font-normal text-ink2">· {s.format} · {s.product} · {s.selling_point} · {s.audience}</span></span> : ""}>
             {s && <div className="flex flex-col gap-3 text-[13px]">
@@ -207,11 +211,12 @@ function Detail({ id, onClose, onChanged }: { id: string | null; onClose: () => 
                     <div className="rounded-lg border border-dashed border-line p-3 text-ink2">这是评审没选上的备选创意，还没写成分镜。
                         <Button size="small" type="primary" className="ml-2" icon={<Pencil size={12} />} loading={write.isPending} onClick={() => write.mutate("")}>写成剧本</Button></div>
                 ) : <div className="text-ink2">{busy ? "写分镜中…" : "没有分镜"}</div>}
+                {s.shots.length > 0 && <JudgesPanel s={s} busy={busy} onChanged={refresh} />}
                 {s.shots.length > 0 && <div className="rounded-lg border border-line p-3">
-                    <div className="mb-2 flex items-center gap-2 font-medium"><Users size={14} />40 人评测
+                    <div className="mb-2 flex items-center gap-2 font-medium"><Users size={14} />观众模拟<span className="text-[11px] font-normal text-ink2">（40 个本地虚拟用户，辅助参考）</span>
                         {ev.score != null && <span className={clsx("text-lg", scoreColor(ev.score))}>{ev.score}</span>}
                         <span className="flex-1" />
-                        <Button size="small" icon={<Play size={12} />} loading={evaluate.isPending || s.status === "evaluating"} disabled={busy} onClick={() => evaluate.mutate()}>{ev.score != null ? "重新评测" : "开始评测"}</Button>
+                        <Button size="small" icon={<Play size={12} />} loading={evaluate.isPending || s.status === "evaluating"} disabled={busy} onClick={() => evaluate.mutate()}>{ev.score != null ? "重新模拟" : "开始模拟"}</Button>
                     </div>
                     {ev.score != null ? <>
                         <div className="mb-2 flex flex-wrap items-center gap-3 text-[12px]"><span>看完 <b>{ev.completion}%</b></span><span>想点进去 <b>{ev.clicks}</b> 人</span>
@@ -250,7 +255,7 @@ export function ScriptLibrary() {
     const [open, setOpen] = useState<string | null>(null);
     const [job, setJob] = useState<ScriptJob | null>(null);
     const { data } = useQuery({ queryKey: ["lib-scripts", market, concepts], queryFn: () => api.libScripts(market, concepts),
-        refetchInterval: (q) => (job?.status === "running" || q.state.data?.items.some((s) => ["writing", "evaluating"].includes(s.status)) ? 3000 : false) });
+        refetchInterval: (q) => (job?.status === "running" || q.state.data?.items.some((s) => ["writing", "evaluating", "judging"].includes(s.status)) ? 3000 : false) });
     const refresh = () => qc.invalidateQueries({ queryKey: ["lib-scripts"] });
     useEffect(() => {
         if (!job || job.status !== "running") return;

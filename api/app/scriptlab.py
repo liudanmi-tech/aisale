@@ -228,7 +228,7 @@ async def generate(jid: str) -> None:
         job.update(status="error", error=str(e)[:300] or type(e).__name__, stage="失败")
 
 
-async def _write_one(sid: str, improve: str = "", comment: str = "") -> None:
+async def _write_one(sid: str, improve: str = "", comment: str = "", rejudge: bool = False) -> None:
     with SessionLocal() as db:
         s = db.get(LibScript, sid)
         s.status, s.error = "writing", ""
@@ -241,8 +241,12 @@ async def _write_one(sid: str, improve: str = "", comment: str = "") -> None:
             s.shots, s.status = shots, "ok"
             if comment:
                 s.version += 1
-                s.evaluation = {}  # 改过了：旧评测作废
+                old = (s.evaluation or {}).get("judges") or {}
+                s.evaluation = {"previous": {"total": old.get("total"), "verdict": old.get("verdict"), "version": s.version - 1}} if old else {}  # 改过了：旧评测作废，只留上一版总分对比
             db.commit()
+        if rejudge:
+            from app import judges
+            await judges.run(sid)
     except Exception as e:  # noqa: BLE001
         with SessionLocal() as db:
             s = db.get(LibScript, sid)
@@ -272,7 +276,9 @@ async def evaluate(sid: str) -> None:
               "note": "40 个本地虚拟用户读剧本（没有画面），逐镜和平时刷到的手机广告比；是相对判断，不是真实投放数据"}
         with SessionLocal() as db:
             s = db.get(LibScript, sid)
-            s.evaluation, s.status, s.error = ev, "ok", ""
+            cur = dict(s.evaluation or {})
+            keep = {"judges": cur["judges"]} if cur.get("judges") else {}
+            s.evaluation, s.status, s.error = {**keep, "audience": ev}, "ok", ""  # 观众模拟和评委打分分开存
             db.commit()
     except Exception as e:  # noqa: BLE001
         log.warning("剧本评测失败 %s：%s", sid, e)
@@ -306,7 +312,7 @@ def to_canvas(sid: str, pid: str) -> str:
         canvas.bump(project)
         s.used = [*(s.used or []), {"pid": pid, "node_id": n.id, "at": datetime.utcnow().isoformat()}]
         _done(db, n, f"剧本库「{s.title}」：{s.format} · {s.selling_point}，{len(s.shots)} 镜 {total:g} 秒",
-              f"来自剧本库；评审 {s.critic.get('total', '—')} 分" + (f"，40 人评测 {s.evaluation['score']} 分" if s.evaluation.get("score") else "，还没评测"))
+              f"来自剧本库；创意评审 {s.critic.get('total', '—')} 分" + (f"，5 评委打分 {jd['total']} 分（{jd['verdict']}）" if (jd := (s.evaluation or {}).get("judges")) else "，还没做评委打分"))
         nid = n.id
     emit(pid, "canvas")
     if settings_store.llm_enabled():
