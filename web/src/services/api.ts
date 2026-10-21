@@ -225,7 +225,13 @@ export interface LibScript {
     used: { pid: string; node_id: string; at: string }[]; version: number; created_at: string;
 }
 export interface ScriptTrends { tags: { tag: string; plays: number; videos: number; sample: string }[]; music: { music: string; plays: number; videos: number }[];
+    campaign_tags: { tag: string; plays: number; videos: number }[];
     evergreen: string[]; videos: number; days: number }
+export interface MemeCard { name: string; kind: string; what: string; how: string; say: string; heat: number; date: string;
+    sources: { url: string; title: string }[]; risk: string; use: boolean }
+export interface MemeRadar { items: MemeCard[]; google: { title: string; traffic: string; news: { title: string; url: string; source: string }[] }[];
+    sources: { url: string; title: string }[]; campaign_tags: { tag: string; videos: number; plays: number }[]; updated?: string; errors?: string[];
+    model?: string; refreshing: boolean }
 export interface ScriptJob { id: string; status: string; stage: string; batch: string; scripts: string[]; error: string }
 
 const get = <T,>(url: string, params?: object) => http.get<T>(url, { params }).then((r) => r.data);
@@ -457,6 +463,8 @@ export const api = {
     libScripts: (market: string, concepts = false) => get<{ items: LibScript[]; llm: boolean; products: string[]; selling_points: string[]; formats: string[]; audiences: string[] }>("/scripts", { market, concepts }),
     libScript: (id: string) => get<LibScript>(`/scripts/${id}`),
     scriptTrends: (market: string) => get<ScriptTrends>("/scripts/trends", { market }),
+    memes: (market: string) => get<MemeRadar>("/scripts/memes", { market }),
+    refreshMemes: (market: string) => http.post("/scripts/memes/refresh", undefined, { params: { market } }).then((r) => r.data),
     generateScripts: (b: { market: string; product: string; selling_point: string; audience: string; formats: string[]; trends: string[]; brief: string; count: number; specs?: string }) =>
         post<ScriptJob>("/scripts/generate", b),
     scriptJob: (id: string) => get<ScriptJob>(`/scripts/jobs/${id}`),

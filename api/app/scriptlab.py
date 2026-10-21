@@ -50,28 +50,31 @@ def trends(market: str, days: int = 30, limit: int = 20) -> dict:
     music: dict[str, dict] = {}
     n = 0
 
-    def add(text: str, hashtags: list, plays: int, snd: str = "") -> None:
+    campaign: dict[str, dict] = {}
+
+    def add(text: str, hashtags: list, plays: int, snd: str = "", official: bool = False) -> None:
         nonlocal n
         n += 1
         for h in hashtags or re.findall(r"#(\w+)", text or ""):
             k = str(h).lower().lstrip("#")
             if not k or k in GENERIC_TAGS or any(b in k for b in BRAND_KEYS) or len(k) < 3:
                 continue
-            t = tags.setdefault(k, {"tag": k, "plays": 0, "videos": 0, "sample": ""})
+            # 竞品官方号的标签多半是它们自己的广告活动（#titanpower、#techupgrade），单列，不当本地热点
+            t = (campaign if official else tags).setdefault(k, {"tag": k, "plays": 0, "videos": 0, "sample": ""})
             t["plays"] += plays or 0
             t["videos"] += 1
             if not t["sample"] and text:
                 t["sample"] = text[:100]
-        if snd and "original sound" not in snd.lower() and "原声" not in snd:
+        if snd and not official and "original sound" not in snd.lower() and "原声" not in snd:
             m = music.setdefault(snd, {"music": snd, "plays": 0, "videos": 0})
             m["plays"] += plays or 0
             m["videos"] += 1
 
     with SessionLocal() as db:
-        accs = [a.id for a in db.query(WatchAccount).filter(WatchAccount.market == market)]
-        for v in db.query(SourceVideo).filter(SourceVideo.account_id.in_(accs)):
+        accs = {a.id: a.kind for a in db.query(WatchAccount).filter(WatchAccount.market == market)}
+        for v in db.query(SourceVideo).filter(SourceVideo.account_id.in_(list(accs))):
             if (v.posted_at or v.first_seen or since) >= since:
-                add(v.text, v.hashtags, v.plays, v.music)
+                add(v.text, v.hashtags, v.plays, v.music, official=accs[v.account_id] != "达人")
         for c in db.query(Creator).filter(Creator.market == market, Creator.demo.is_(False)):
             for v in c.videos or []:
                 try:
@@ -82,6 +85,7 @@ def trends(market: str, days: int = 30, limit: int = 20) -> dict:
                     add(v.get("text", ""), [], v.get("plays") or 0)
     rank = lambda d: sorted(d.values(), key=lambda x: (-x["videos"] if x["videos"] >= 2 else 0, -x["plays"]))  # noqa: E731
     return {"tags": [t for t in rank(tags) if t["videos"] >= 2][:limit] or rank(tags)[:limit], "music": rank(music)[:8],
+            "campaign_tags": [t for t in rank(campaign) if t["tag"] not in tags][:12],
             "evergreen": EVERGREEN.get(market, []), "videos": n, "days": days}
 
 
@@ -99,13 +103,13 @@ IDEA_PROMPT = """你是 TikTok 上最会「整活」的短视频编剧，给 {br
 - 卖点的「证明」要直观可见，夸张但真实，不能超出参数：{water_rule}
 - 能用 AI 视频生成拍出来：6–8 镜、每镜 2–4 秒，主要人物不超过 3 个，不要大场面群戏和复杂特技
 - 安全：不教人做危险动作，不嘲笑宗教 / 民族 / 残障，不点名贬低竞品
-- 一次给 8 个风格差异大的创意，至少 3 个用上面的本地热点
+- 一次给 8 个风格差异大的创意，至少 3 个用上面的本地热点；用梗要用对意思和语气（照「当地说法」和「可以这样用」），不要硬套，也不要解释梗
 只输出 JSON：{{"ideas": [{{"title": "8 字以内的标题", "format": "形式", "logline": "一句话讲完这个故事", "hook": "前 2 秒画面",
 "twist": "反转 / 笑点", "product_moment": "卖点怎么被证明（画面）", "trend": "用了哪个热点，没用写空", "why_viral": "为什么本地人会转发", "risk": "拍摄或合规风险"}}]}}"""
 
 CRITIC_PROMPT = """你是 TikTok 爆款评审，见过成千上万条手机广告，标准很严。逐个评这些创意（{market}，{product}，卖点：{selling_point}）。
 每项 1–10 分：novelty 创意新奇（没见过才高分）、hook 前 2 秒能不能让人停下、integration 卖点是不是笑点 / 反转本身（硬塞广告 ≤4 分）、
-local 本地人看了会不会觉得「这就是我们这儿」、feasible 用 AI 视频生成能不能拍出来、safe 安全合规。
+local 本地人看了会不会觉得「这就是我们这儿」（用了热梗的看梗用得对不对、是不是硬套）、feasible 用 AI 视频生成能不能拍出来、safe 安全合规。
 挑出最好的 {k} 个（总分高、彼此风格不同），给每个挑中的写一条具体改进意见。
 只输出 JSON：{{"reviews": [{{"i": 创意序号从 1 开始, "scores": {{"novelty": n, "hook": n, "integration": n, "local": n, "feasible": n, "safe": n}}, "verdict": "一句话点评"}}],
 "picked": [{{"i": 序号, "improve": "改进意见"}}]}}"""

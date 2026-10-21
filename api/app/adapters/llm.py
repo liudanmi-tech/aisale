@@ -12,7 +12,8 @@ transport: httpx.AsyncBaseTransport | None = None  # 测试时注入
 
 
 async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode: bool = False, timeout: float = 60, task: str = "agent",
-               model: str | None = None) -> dict:
+               model: str | None = None, web: int = 0) -> dict:
+    """web > 0：让模型先联网搜索（OpenRouter 的 web 插件，最多 web 条结果），返回的 message.annotations 里有引用的网页。"""
     headers = {"Content-Type": "application/json", "X-Title": "AIGC Ads Platform"}
     key = settings_store.get_secret("openrouter") or config.LLM_API_KEY
     if key:
@@ -23,6 +24,8 @@ async def chat(messages: list[dict], tools: list[dict] | None = None, json_mode:
         body["tool_choice"] = "required"
     if json_mode:
         body["response_format"] = {"type": "json_object"}
+    if web:
+        body["plugins"] = [{"id": "web", "max_results": web}]
     async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
         # httpx 的 timeout 只管单次读写；OpenRouter 处理中会发保活空白，模型卡住时永远不超时，所以再加一个总时限
         r = await asyncio.wait_for(client.post(f"{config.LLM_BASE_URL}/chat/completions", headers=headers, json=body), timeout + 30)

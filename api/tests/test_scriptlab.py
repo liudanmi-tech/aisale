@@ -26,8 +26,10 @@ def _wait(c, url):
 def test_trends_from_radar_data():
     with TestClient(app):
         with SessionLocal() as db:
-            a = WatchAccount(id=new_id("wa"), handle="tr_" + new_id("x")[-5:], market="加纳")
-            db.add(a)
+            a = WatchAccount(id=new_id("wa"), handle="tr_" + new_id("x")[-5:], market="加纳", kind="达人")
+            off = WatchAccount(id=new_id("wa"), handle="tro_" + new_id("x")[-5:], market="加纳", kind="竞品官方")
+            db.add_all([a, off])
+            db.add(SourceVideo(id=new_id("sv"), external_id=new_id("e"), account_id=off.id, plays=9_000_000, text="x", hashtags=["titanpower"], music="Ad jingle"))
             for k in range(3):
                 db.add(SourceVideo(id=new_id("sv"), external_id=new_id("e"), account_id=a.id, plays=1000 * (k + 1), text="Blackout again",
                                    hashtags=["fyp", "lightout", "samsung", "ghanacomedy"] if k < 2 else ["lightout"], music="Afro hit"))
@@ -35,10 +37,12 @@ def test_trends_from_radar_data():
         t = scriptlab.trends("加纳")
         assert [x["tag"] for x in t["tags"]][:2] == ["lightout", "ghanacomedy"]  # fyp、品牌词过滤掉；按出现次数和播放排
         assert t["tags"][0]["videos"] == 3 and t["music"][0]["music"] == "Afro hit"
+        assert [x["tag"] for x in t["campaign_tags"]] == ["titanpower"] and "titanpower" not in [x["tag"] for x in t["tags"]]  # 竞品官方号的广告标签单列
+        assert all(m["music"] != "Ad jingle" for m in t["music"])
         assert scriptlab.trends("尼日利亚")["evergreen"]  # 预置的本地常青话题
         with SessionLocal() as db:
-            db.query(SourceVideo).filter(SourceVideo.account_id == a.id).delete()
-            db.query(WatchAccount).filter(WatchAccount.id == a.id).delete()
+            db.query(SourceVideo).filter(SourceVideo.account_id.in_([a.id, off.id])).delete()
+            db.query(WatchAccount).filter(WatchAccount.id.in_([a.id, off.id])).delete()
             db.commit()
 
 
@@ -103,3 +107,39 @@ def test_generate_evaluate_use(monkeypatch):
             n = db.get(Node, nid)
             assert n.type == "script" and n.status == "wait" and n.data["from_library"] == s["id"] and len(n.data["shots"]) == 4
             assert db.get(LibScript, s["id"]).used[0]["node_id"] == nid
+
+
+def test_memes_refresh(monkeypatch):
+    """热梗雷达：Google 热搜 + 联网搜索 + 雷达数据 → 梗卡片（带来源；有风险的标成不建议用）。"""
+    import httpx
+    from app import memes
+    rss = """<?xml version="1.0"?><rss xmlns:ht="https://trends.google.com/trending/rss"><channel>
+      <item><title>Super Eagles vs Ghana</title><ht:approx_traffic>50000+</ht:approx_traffic>
+        <ht:news_item><ht:news_item_title>Eagles win</ht:news_item_title><ht:news_item_url>https://n/1</ht:news_item_url><ht:news_item_source>Punch</ht:news_item_source></ht:news_item></item>
+      <item><title>Seyi Vibez</title><ht:approx_traffic>2000+</ht:approx_traffic></item></channel></rss>"""
+    monkeypatch.setattr(memes, "transport", httpx.MockTransport(lambda req: httpx.Response(200, text=rss)))
+    monkeypatch.setattr(settings_store, "llm_enabled", lambda: True)
+    seen = {}
+
+    async def fake_chat(messages, web=0, **kw):
+        seen["web"] = web
+        return {"content": "1. 'Sapa' memes are everywhere... https://x/sapa", "annotations": [{"type": "url_citation", "url_citation": {"url": "https://x/sapa", "title": "Sapa memes"}}]}
+
+    async def fake_json(system, user, task="analysis", timeout=90):
+        seen["distill"] = user
+        return {"items": [{"name": "Sapa", "kind": "俚语 / 口头禅", "what": "没钱了的自嘲", "how": "月底没钱也能玩", "say": "Sapa don hold me", "heat": 5, "sources": [1], "risk": "", "use": True},
+                          {"name": "某政治事件", "kind": "社会话题", "what": "x", "how": "", "heat": 4, "sources": [], "risk": "政治", "use": True}]}
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    monkeypatch.setattr(llm, "chat_json", fake_json)
+    with TestClient(app) as c:
+        assert c.post("/api/v1/scripts/memes/refresh", params={"market": "尼日利亚"}).status_code == 200
+        for _ in range(100):
+            m = c.get("/api/v1/scripts/memes", params={"market": "尼日利亚"}).json()
+            if m.get("updated") and not m["refreshing"]:
+                break
+            time.sleep(0.03)
+        assert seen["web"] == 10 and "Super Eagles vs Ghana" in seen["distill"] and "Sapa memes" in seen["distill"]
+        assert m["google"][0]["title"] == "Super Eagles vs Ghana" and m["google"][0]["news"][0]["source"] == "Punch"
+        sapa, pol = m["items"]
+        assert sapa["sources"][0]["url"] == "https://x/sapa" and sapa["use"] and not pol["use"]  # 有风险的不建议用
+        assert "Sapa don hold me" in memes.as_trend(sapa)

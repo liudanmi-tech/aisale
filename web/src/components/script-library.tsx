@@ -5,7 +5,7 @@ import { Flame, Pencil, Play, RefreshCw, Rocket, Sparkles, Trash2, Users } from 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { api, type LibScript, type LibScriptEval, type ScriptJob } from "@/services/api";
+import { api, type LibScript, type LibScriptEval, type MemeCard, type ScriptJob } from "@/services/api";
 import { useCurrentProject } from "@/stores/project-store";
 
 const MARKETS = ["尼日利亚", "巴基斯坦", "肯尼亚", "加纳", "孟加拉", "印尼", "菲律宾"];
@@ -19,6 +19,11 @@ const scoreColor = (v: number) => (v >= 80 ? "text-good" : v >= 65 ? "text-warn"
 function Generator({ market, meta, onStart }: { market: string; meta?: { products: string[]; selling_points: string[]; formats: string[]; audiences: string[]; llm: boolean }; onStart: (j: ScriptJob) => void }) {
     const { message } = App.useApp();
     const { data: tr } = useQuery({ queryKey: ["script-trends", market], queryFn: () => api.scriptTrends(market) });
+    const { data: mm, refetch: refetchMemes } = useQuery({ queryKey: ["memes", market], queryFn: () => api.memes(market),
+        refetchInterval: (q) => (q.state.data?.refreshing ? 3000 : false) });
+    const refresh = useMutation({ mutationFn: () => api.refreshMemes(market), onSuccess: () => { message.info("开始抓本地热梗：Google 热搜 + 联网搜索，大约 1 分钟"); setTimeout(() => refetchMemes(), 800); },
+        onError: (e) => message.error(errMsg(e)) });
+    const memeText = (m: MemeCard) => `${m.name}（${m.kind}：${m.what}${m.say ? `；当地说法：${m.say}` : ""}${m.how ? `；可以这样用：${m.how}` : ""}）`;
     const [product, setProduct] = useState("TECNO Pova");
     const [sp, setSp] = useState("打游戏不卡");
     const [aud, setAud] = useState("学生");
@@ -51,14 +56,46 @@ function Generator({ market, meta, onStart }: { market: string; meta?: { product
                     <Input size="small" className="!w-72" placeholder="已知参数（可选）：如 IP64 防水防尘、6000mAh" value={specs} onChange={(e) => setSpecs(e.target.value)} /></Tooltip>
                 <span className="text-ink2">出</span><InputNumber size="small" min={1} max={5} value={count} onChange={(v) => setCount(v || 3)} className="!w-14" /><span className="text-ink2">个剧本</span>
             </div>
+            <div className="mt-3 rounded-lg border border-line p-2">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="flex items-center gap-1 font-medium"><Flame size={14} className="text-warn" />{market}本地热梗（实时）</span>
+                    <span className="text-[12px] text-ink2">{mm?.updated ? `更新于 ${new Date(mm.updated + (mm.updated.endsWith("Z") ? "" : "Z")).toLocaleString()} · Google 当地热搜 + 联网搜最近两周的梗、俚语、BGM、流行文化 + 本地达人视频` : "还没抓过：点右边「刷新」"}</span>
+                    <span className="flex-1" />
+                    <Button size="small" icon={<RefreshCw size={12} className={mm?.refreshing ? "animate-spin" : ""} />} loading={refresh.isPending} disabled={mm?.refreshing} onClick={() => refresh.mutate()}>{mm?.refreshing ? "抓取中" : "刷新"}</Button>
+                </div>
+                {!!mm?.errors?.length && <div className="mb-1 text-[12px] text-warn">{mm.errors.join("；")}</div>}
+                <div className="grid max-h-[360px] grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2 overflow-y-auto">
+                    {(mm?.items || []).map((m) => {
+                        const key = memeText(m);
+                        const on = picked.includes(key);
+                        return (
+                            <div key={m.name} onClick={() => m.use && toggle(key)}
+                                className={clsx("rounded-lg border p-2 text-[12px] leading-[18px]", !m.use ? "cursor-not-allowed border-line opacity-50" : on ? "cursor-pointer border-brand bg-brand/10" : "cursor-pointer border-line hover:border-[#4a4a52]")}>
+                                <div className="flex items-center gap-1"><Tag className="!m-0 !text-[10px]">{m.kind}</Tag><b className="truncate text-ink" title={m.name}>{m.name}</b>
+                                    <span className="ml-auto shrink-0 text-warn">{"🔥".repeat(Math.min(5, m.heat))}</span></div>
+                                <div className="mt-1 text-ink2">{m.what}</div>
+                                {m.say && <div className="mt-0.5 italic text-ink">“{m.say}”</div>}
+                                {m.how && <div className="mt-0.5"><span className="text-ink2">用法：</span>{m.how}</div>}
+                                {!m.use && <div className="mt-0.5 text-bad">不建议用：{m.risk || "有风险"}</div>}
+                                <div className="mt-0.5 flex flex-wrap gap-1 text-[11px] text-ink2">{m.date}
+                                    {m.sources.map((x, k) => <a key={k} href={x.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={x.title}>来源{k + 1}</a>)}</div>
+                            </div>
+                        );
+                    })}
+                    {!mm?.items.length && <div className="text-[12px] text-ink2">{mm?.refreshing ? "抓取中…" : "还没有热梗卡片"}</div>}
+                </div>
+                {!!mm?.google.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">Google 当地热搜</span>
+                    {mm.google.slice(0, 12).map((g) => chip(`Google 热搜：${g.title}`, <>{g.title} <span className="text-[11px] opacity-70">{g.traffic}</span></>, g.news[0]?.title))}</div>}
+            </div>
             <div className="mt-3">
-                <div className="mb-1 text-ink2">本地热点（勾几个给创意借势；不勾也行）
-                    {tr && <span className="ml-1 text-[12px]">· 竞品雷达和达人雷达最近 {tr.days} 天抓到的 {tr.videos} 条{market}视频里，按出现次数和播放统计</span>}</div>
+                <div className="mb-1 text-ink2">雷达数据里的话题（勾几个给创意借势；不勾也行）
+                    {tr && <span className="ml-1 text-[12px]">· 竞品雷达和达人雷达最近 {tr.days} 天抓到的 {tr.videos} 条{market}视频里，本地达人视频的话题标签和 BGM</span>}</div>
                 <div className="flex flex-wrap gap-1.5">
                     {(tr?.tags || []).slice(0, 16).map((t) => chip(`#${t.tag}`, <>#{t.tag} <span className="text-[11px] opacity-70">{t.videos} 条 · {fmt(t.plays)}</span></>, t.sample))}
                     {(tr?.music || []).slice(0, 4).map((m) => chip(`热门 BGM：${m.music}`, <>♪ {m.music} <span className="text-[11px] opacity-70">{m.videos} 条</span></>))}
-                    {!tr?.tags.length && <span className="text-[12px] text-ink2">还没有真实数据：先在竞品雷达 / 达人雷达同步一些{market}的视频</span>}
+                    {!tr?.tags.length && <span className="text-[12px] text-ink2">还没有本地达人的数据：竞品雷达里把达人账号的类型设成「达人」，或者在达人雷达找一些{market}的达人</span>}
                 </div>
+                {!!tr?.campaign_tags?.length && <div className="mt-1 text-[11px] text-ink2">竞品在推的活动（竞品官方号的广告标签，不算热梗）：{tr.campaign_tags.slice(0, 8).map((t) => `#${t.tag}`).join("  ")}</div>}
                 {!!tr?.evergreen.length && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[12px] text-ink2">本地常青话题（预置）</span>{tr.evergreen.map((t) => chip(t, t))}</div>}
                 <div className="mt-2 flex flex-wrap gap-2">
                     <Input size="small" className="!w-80" placeholder="手填热点，逗号分隔，如：AFCON 决赛、油价上涨" value={custom} onChange={(e) => setCustom(e.target.value)} />

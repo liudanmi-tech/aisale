@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import scriptlab, settings_store
+from app import memes, scriptlab, settings_store
 from app.creators import PRODUCT_LINES
 from app.db import get_db
 from app.events import spawn
@@ -27,6 +27,18 @@ def list_scripts(market: str = "", concepts: bool = False, db: Session = Depends
 @router.get("/trends")
 def trends(market: str = "尼日利亚"):
     return scriptlab.trends(market)
+
+
+@router.get("/memes")
+def get_memes(market: str = "尼日利亚"):
+    """本地热梗雷达（缓存）：梗卡片 + Google 当地热搜 + 竞品在推的活动标签。"""
+    return memes.get(market)
+
+
+@router.post("/memes/refresh")
+def refresh_memes(market: str = "尼日利亚"):
+    spawn(memes.refresh(market))
+    return {"ok": True}
 
 
 class GenIn(BaseModel):
