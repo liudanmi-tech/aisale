@@ -167,3 +167,14 @@ def test_gather_quorum_skips_stragglers():
     assert time.time() - t0 < 2 and [o["v"] for o in out if isinstance(o, dict)] == [1, 2, 3] and isinstance(out[2], asyncio.TimeoutError)
     out = asyncio.run(judges.gather_quorum([fast(1), slow()], 0.2, 2))  # 不够数：等全部回来
     assert [o["v"] for o in out] == [1, "slow"]
+
+
+def test_pick_falls_back_to_passing_variant():
+    """总分最高的版本没过多数评委这关时，采用过关的那个（真实跑出来的情况：83 分 2/4 不过，78 分 4/5 过）。"""
+    from app import improve
+    base = {"total": 72}
+    top = {"label": "重写结构", "total": 83, "prefer": 2, "paired": 4, "verdict": "可以投"}
+    ok = {"label": "改共识问题", "total": 78, "prefer": 4, "paired": 5, "verdict": "可以投"}
+    assert improve._pick(base, [top, ok]) == (ok, True)
+    assert improve._pick(base, [top]) == (top, False)
+    assert improve._pick(base, []) == (None, False)

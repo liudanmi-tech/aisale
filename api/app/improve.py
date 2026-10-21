@@ -89,6 +89,12 @@ def _brief(jd: dict) -> dict:
             "alpha": jd.get("alpha"), "issues": jd["issues"][:5]}
 
 
+def _pick(base: dict, cands: list[dict]) -> tuple[dict | None, bool]:
+    """在过关的版本里挑总分最高的；都不过关时返回总分最高的那个（只用来说明为什么没采用）。"""
+    passed = [c for c in cands if c["total"] - base["total"] >= MIN_GAIN and c["prefer"] * 2 > c["paired"] and c["verdict"] != "不能投"]
+    return max(passed or cands, key=lambda c: c["total"], default=None), bool(passed)
+
+
 async def run(sid: str) -> None:
     with SessionLocal() as db:
         s = db.get(LibScript, sid)
@@ -119,10 +125,10 @@ async def run(sid: str) -> None:
             cands.append({"label": LABELS[m], "mode": m, "instruction": ins[m], "shots": shots, "judges": r, **_brief(r)})
         for c in cands[1:]:
             c["prefer"], c["paired"] = _paired(base, c["judges"], cfg["weights"])
-        best = max(cands[1:], key=lambda c: c["total"], default=None)
+        # 评分本身有几分波动：总分高 MIN_GAIN 以上，并且同一批评委里多数人各自都给新版打了更高分（配对比较），才算真的变好。
+        # 在过关的版本里挑总分最高的；都不过关时 best 是总分最高的那个，只用来说明为什么没采用
+        best, accepted = _pick(base, cands[1:])
         gain = (best["total"] - base["total"]) if best else 0
-        # 评分本身有几分波动：总分高 MIN_GAIN 以上，并且同一批评委里多数人各自都给新版打了更高分（配对比较），才算真的变好
-        accepted = bool(best) and gain >= MIN_GAIN and best["prefer"] * 2 > best["paired"] and best["verdict"] != "不能投"
         with SessionLocal() as db:
             s = db.get(LibScript, sid)
             ev = judges.merge_eval(s.evaluation, base)
